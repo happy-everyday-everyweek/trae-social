@@ -1,6 +1,8 @@
 # Checklist
 
 > 风险核对项标记 [RISK-n]，对应 spec.md 实现风险章节，便于交付前专项检查。
+>
+> **实现问题专项检查**标记 [IMPL-n]，对应 spec.md "实现问题深度分析" 章节（IMPL-1 ~ IMPL-48）。这些是已实现代码（Tasks 1-14 完成）的实际审计发现，**必须在 Task 15 联调前修复 P0 阻断项**，否则核心链路不通。
 
 ## 工程与构建
 - [ ] 多模块 Gradle 工程结构创建完成（app + 4 个 core + 5 个 feature 模块）
@@ -191,3 +193,76 @@
 - [ ] release APK 成功构建
 - [ ] 在 Android 12 / 13 / 14 模拟器各安装冒烟测试通过
 - [ ] 完成引导 → 浏览信息流 → 发布推文 → 查看时间线与我的 全流程无崩溃
+
+---
+
+## 实现问题专项检查（Implementation Issue Special Checks）
+
+> 以下检查项对应 spec.md "实现问题深度分析" 章节（IMPL-1 ~ IMPL-48），基于已实现代码的实际审计。**P0 项必须在 Task 15 联调前全部修复**，否则核心链路不通。修复走 git 分支流程（feature/* → merge --no-ff to main）。
+
+### P0 阻断级（必须修复，否则核心链路不通）
+- [ ] [IMPL-1] **PersonaSeeder.seedIfNeeded() 被 SocialApp.onCreate 或 MainActivity 调用**——验证 DB 中 accounts 表有 220 条、tweets 表有 ~1500 条历史推文
+- [ ] [IMPL-2] **feature-profile 完整实现**——ProfileViewModel / DevOptionsScreen / ApiKeyManagementScreen / PersonaListScreen / FollowListScreen 文件存在且功能可用，不再仅占位 `Text("我的（待实现）")`
+- [ ] [IMPL-3] **InteractionWorker 对 authorId="user-self" 不短路**——验证用户发布推文后能收到 AI 点赞/评论/转发（PersonaSeeder 插入 user-self 账号 或 Worker 走特殊路径）
+- [ ] [IMPL-4] **missedWindows 返回带日期的结构**——验证跨日补发时 deduplicationKey 不冲突，昨日 9 点与今日 9 点生成不同 key
+- [ ] [IMPL-5] **Worker 入队用 enqueueUniqueWork + InteractionEntity 增 (tweetId,accountId,type) 唯一索引**——验证重复初始化不产生重复互动，单条用户推文互动数 3-8 条
+- [ ] [IMPL-6] **markExecuted 与 updateCount 在同一 Room @Transaction**——验证崩溃后 likeCount/commentCount 不丢失
+- [ ] [IMPL-7] **RetryInterceptor 不返回已关闭 Response**——验证 429/5xx 持续时 LLM 调用有错误信号而非空字符串
+- [ ] [IMPL-8] **流式调用已 emit token 后中断有错误信号**——验证调用方能知晓内容不完整，不写入残缺推文
+
+### P1 功能错误级（功能与设计不符，影响体验）
+- [ ] [IMPL-9] **PersonaSeeder 历史推文时间戳用减号** `now - daysAgo*DAY_MS - withinDayOffset`——验证历史推文不浮到信息流最前
+- [ ] [IMPL-10] **EncryptedSharedPreferences 提供方有 try-catch + 恢复策略**——验证 Keystore 损坏时 app 不崩溃，能重建空实例
+- [ ] [IMPL-11] **TweetCard 的 displayLikeCount = tweet.likeCount**（不再 +1）——验证点赞瞬间显示数与 DB 一致
+- [ ] [IMPL-12] **user-self 推文显示用户资料**（非"未知用户"）——验证 PersonaSeeder 插入 user-self 账号 或 resolveAuthor 走特殊分支
+- [ ] [IMPL-13] **ConfigRepository 有 onboardingSkipped 字段 + FeedScreen 有 banner**——验证跳过引导后主界面有"前往设置"提示
+- [ ] [IMPL-14] **LlmProviderRegistry.getClient 改 suspend 或 AppLlmConfigProvider 加缓存**——验证引导连通性测试点击后 UI 不卡顿
+- [ ] [IMPL-15] **publish() 失败 emit Failed 而非 Published**——验证 DB 写入失败时用户看到错误提示
+- [ ] [IMPL-16] **AccountEntity 新增 timezone 字段**——验证跨时区旅行时 activeWindows 与配额计数不漂移
+- [ ] [IMPL-17] **SchedulerForegroundService 改 specialUse 或去掉常驻**——验证 Android 14+ 不被 6 小时配额杀掉，Play 审核合规
+- [ ] [IMPL-18] **BootReceiver 用 OneTimeWorkRequest + setInitialDelay**——验证开机后调度器能启动，注册 LOCKED_BOOT_COMPLETED
+- [ ] [IMPL-19] **RetryInterceptor 对 429 抛 RateLimitedException 不重试 + 各 Worker 统一处理**——验证 429 场景配额不浪费
+- [ ] [IMPL-20] **对数正态分布用 nextGaussian()*std+mean**——验证互动延迟分布符合产品预期
+- [ ] [IMPL-21] **LIKE/FOLLOW 短延迟用 OneTimeWorkRequest + setInitialDelay**——验证 LIKE 30s-5min 内执行，像真人"秒赞"
+
+### P2 数据完整性级
+- [ ] [IMPL-22] **所有实体声明 @ForeignKey + onDelete=CASCADE**——验证删除账号不产生孤儿记录（schema JSON foreignKeys 非空）
+- [ ] [IMPL-23] **fallbackToDestructiveMigration 改为 OnDowngrade 或 release 用显式 Migration**——验证 schema 升级时用户数据不丢
+- [ ] [IMPL-24] **PersonaSeeder 每文件 accounts+tweets 在同一事务**——验证崩溃后数据完整，幂等检查同时校验 tweets 数量
+- [ ] [IMPL-25] **AccountDao.updateDynamicFields 用 @Transaction**——验证人设详情页与列表页显示一致
+
+### P3 健壮性与可观测性级
+- [ ] [IMPL-26] **core-llm RateLimiter 支持 updateMaxTokens 或统一一层限流**——验证 HIGH 档位 HTTP 吞吐达 60 RPM
+- [ ] [IMPL-27] **AuthInterceptor 缺 Key 时抛异常**——验证 ping() 能区分"网络问题"vs"Key 未配置"
+- [ ] [IMPL-28] **AnthropicClient 处理 SSE error 事件**——验证 quota 超限/内容被拦截时有错误信号
+- [ ] [IMPL-29] **ContentFilter 敏感词匹配排除"反/防/打击"前缀**——验证"反诈骗""反勒索"等合法讨论不误伤
+- [ ] [IMPL-30] **SchedulerRateLimiter 不在 Worker 内 reconfigure**——验证多 Worker 并发 + 档位切换时速率符合预期
+- [ ] [IMPL-31] **RateLimiter.acquire 计算精确 delay + refillLocked 处理时钟回拨**——验证高并发下不忙等，时钟回拨不锁死
+- [ ] [IMPL-32] **RetryInterceptor 内 Timber.d 记录每次重试**——验证重试可观测
+
+### P4 UI/UX 与性能级
+- [ ] [IMPL-33] **GlassBlurContainer 用 RenderEffect 模糊背后内容 + provideIsScrolling 接入**——验证底栏真正毛玻璃效果，滚动时半径减半
+- [ ] [IMPL-34] **FullScreenImage 用 pointerInput(scale) 自行处理手势 + 平移 clamp**——验证缩放=1 时 pager 翻页灵敏，放大后不拖丢
+- [ ] [IMPL-35] **CameraX 1:1 比例加非透明黑边 + Bitmap 中心裁剪**——验证 1:1 拍照体验名副其实
+- [ ] [IMPL-36] **EditorModeContent 裁剪用真实坐标系 + decodeBitmap 动态 inSampleSize + 缩略图 32×32**——验证大图不 OOM，裁剪可精确定位
+- [ ] [IMPL-37] **CapturePreviewBar itemsIndexed 加 key + 删除后 selectedCaptureIndex 调整**——验证删除中间项蓝框不丢失
+- [ ] [IMPL-38] **AccountDao.getActiveInHour 拆 24 布尔列或反向索引表**——验证调度周期不全表扫描
+- [ ] [IMPL-39] **多图发布支持**——验证 MAX_CAPTURES=4 时 4 张图都发布，不静默丢弃
+
+### P5 构建测试交付级
+- [ ] [IMPL-40] **各 library 模块 consumer-rules.pro 补充**——验证 release 构建运行时不崩溃（core-data/core-llm/core-scheduler/feature 各自保留规则）
+- [ ] [IMPL-41] **MockWebServer + Hilt testing + androidTest 源码补齐**——验证 `./gradlew test` 与 `./gradlew connectedAndroidTest` 有实际测试运行
+- [ ] [IMPL-42] **keystore.properties 存在且用正式签名**——验证 release APK 用非 debug 签名
+- [ ] [IMPL-43] **feature-profile 加 coil-svg 或 app 提供全局 ImageLoader**——验证我的页面头像显示
+- [ ] [IMPL-44] **统一 LlmProvider 枚举（单一定义）**——验证新增 provider 不需改两处
+- [ ] [IMPL-45] **ColdStartFiller 绑定机制可被 app 替换**——验证 onboarding 不提供默认绑定 或 用 qualifier 区分
+- [ ] [IMPL-46] **Manifest 权限清理 + POST_NOTIFICATIONS 运行时申请**——验证通知显示，无无用权限
+- [ ] [IMPL-47] **PersonaUpdateWorker 按 level 缩放**——验证 LOW=10/MEDIUM=20/HIGH=40，周期可调
+- [ ] [IMPL-48] **档位切换后重新调度**——验证 LOW→HIGH 后 Worker 立即增加，反馈不滞后
+
+### 交叉验证（跨问题一致性）
+- [ ] **user-self 账号一致性**：IMPL-1（PersonaSeeder 插入）、IMPL-3（InteractionWorker 不短路）、IMPL-12（resolveAuthor 显示资料）三处修复一致
+- [ ] **冷启动填充链路**：IMPL-1（PersonaSeeder 调用）→ IMPL-45（ColdStartFiller 绑定）→ 引导完成触发——三处通畅
+- [ ] **429 处理一致性**：IMPL-19（RetryInterceptor 抛异常）+ IMPL-26（RateLimiter）+ 各 Worker 统一捕获——三处协调
+- [ ] **时区一致性**：IMPL-16（AccountEntity timezone）+ ScheduleRuleResolver + DailyQuotaChecker——三处用同一 zone
+- [ ] **事务一致性**：IMPL-6（PendingInteractionWorker）+ IMPL-24（PersonaSeeder）+ IMPL-25（updateDynamicFields）——三处都用 @Transaction

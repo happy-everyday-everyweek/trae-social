@@ -1,6 +1,10 @@
 # Tasks
 
 > 说明：每个 Task 末尾的"验收标准"用于 Sub-Agent 完成后自验；"注意事项"提示实现中需特别关注的风险点（对应 spec.md 的 RISK 章节）。
+>
+> **实现坑点标注约定**：`[IMPL-n]` 引用 spec.md "实现问题深度分析" 章节的具体问题编号（IMPL-1 ~ IMPL-48）。这些坑点基于已实现代码（Tasks 1-14 完成）的实际审计，修复时必须走 git 分支流程（用户规则：feature/* 分支 → merge --no-ff 到 main）。
+>
+> **优先级图例**：P0 阻断核心链路 / P1 功能与设计不符 / P2 数据完整性 / P3 健壮性与可观测性 / P4 UI/UX 与性能 / P5 构建测试交付
 
 ## 阶段 0：项目骨架
 
@@ -32,6 +36,11 @@
   - 验证：`./gradlew assembleRelease` 产出 APK 至 `app/build/outputs/apk/release/`
 - **验收标准**：`./gradlew assembleRelease` 成功产出 APK；`./gradlew assembleDebug` 可在模拟器安装启动（显示空白 Compose 界面即可）
 - **注意事项**：RISK-10（APK 体积）、RISK-11（allowBackup=false）
+- **实现坑点**：
+  - `[IMPL-42 P5]` keystore.properties 不存在时 release 实际用 debug 签名——交付前必须生成正式 keystore
+  - `[IMPL-46 P5]` Manifest 声明的 `POST_NOTIFICATIONS`/`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`/`READ_EXTERNAL_STORAGE` 部分未运行时申请或未使用——交付前清理
+  - `[IMPL-40 P5]` 各 library 模块 consumer-rules.pro 全为占位——release 构建运行时崩溃风险高，需补充
+  - `libs.versions.toml` 的 `work-runtime-ktx` 别名无 `androidx-` 前缀，命名约定不一致（虽不报错但易写错）
 
 ## 阶段 1：设计系统与数据底座（可与阶段 2 并行起步）
 
@@ -63,6 +72,10 @@
   - 状态栏色：`WindowCompat` 设置透明状态栏，图标色随主题
 - **验收标准**：在 `app` 模块创建一个预览页，展示全部组件明/深色双模式截图；`./gradlew :core-designsystem:test` 通过
 - **注意事项**：RISK-6（低端机性能）
+- **实现坑点**：
+  - `[IMPL-33 P4]` `GlassBlurContainer` 用 `Modifier.blur` 只模糊自身子内容，**不会模糊背后内容**——结果只是半透明着色条，不是真正的 iOS 毛玻璃。API 31+ 需用 `Modifier.graphicsLayer { renderEffect = RenderEffect.createBlurEffect(...).asComposeRenderEffect() }`
+  - `[IMPL-33 P4]` `LocalIsScrolling` 定义了但全局无 `provideIsScrolling` 调用方，"滚动时半径减半"优化从未生效——需在 feed/timeline 的 LazyColumn 状态派生 `isScrollInProgress` 并外层 provide
+  - `core-designsystem` namespace 是 `com.trae.social.designsystem`（无 "core"），与其它 core 模块命名不一致，注意 import 路径
 
 ### Task 3: 实现数据层（core-data）
 - [ ] SubTask 3.1: 定义实体
@@ -98,6 +111,17 @@
   - 幂等：导入前检查 `accounts` 表是否非空，非空则跳过
 - **验收标准**：`./gradlew :core-data:test` 通过；单元测试覆盖 DAO 查询（用 in-memory DB）；首次启动导入 220 条人设 + ~1500 条历史推文耗时 < 5s
 - **注意事项**：RISK-9（schema 迁移）、RISK-14（冷启动内容）、RISK-11（Key 加密）
+- **实现坑点**：
+  - `[IMPL-1 P0]` **PersonaSeeder.seedIfNeeded() 从未被任何代码调用**——220 个账号与历史推文未入库，必须由 `SocialApp.onCreate` 或 `MainActivity` 触发
+  - `[IMPL-9 P1]` 历史推文时间戳计算方向错误：`now - daysAgo*DAY_MS + withinDayOffset` 应为 `-`，导致"1 天前"推文显示为"刚刚发布"
+  - `[IMPL-10 P1]` `provideEncryptedSharedPreferences` 无 try-catch，Keystore 损坏时 app 启动崩溃且无恢复路径
+  - `[IMPL-22 P2]` **所有实体均未声明外键约束**——删除账号产生孤儿记录，可写入引用不存在账号的推文
+  - `[IMPL-23 P2]` `fallbackToDestructiveMigration()` 在 release 版直接 DROP 重建所有表，schema 变更时用户数据全丢
+  - `[IMPL-24 P2]` PersonaSeeder 每文件 accounts + tweets 写入不在同一事务，崩溃后数据不完整且幂等检查无法自愈
+  - `[IMPL-25 P2]` `AccountRepository.updateDynamicFields` 双写无事务，崩溃后人设详情页与列表页显示不一致
+  - `[IMPL-38 P4]` `AccountDao.getActiveInHour` 全表加载后内存过滤（220 条 JSON 反序列化），账号数增长后调度周期开销增加
+  - `[IMPL-44 P5]` 双 `LlmProvider` 枚举（core-data vs core-llm）手工 when 映射，新增 provider 易遗漏
+  - schema 导出路径 `$projectDir/schemas` 正确；TypeConverters 覆盖完整（emojiPreference/activeWindows/relationshipNetwork/枚举）；@SecurePreferences qualifier 使用正确无冲突
 
 ## 阶段 2：LLM 与配图集成（依赖 Task 1）
 
@@ -135,6 +159,17 @@
   - 全局速率限制器 `RateLimiter`（令牌桶，30 RPM，可在设置调整）
 - **验收标准**：单元测试用 MockWebServer 覆盖三家流式响应解析；连通性测试在真实 API Key 下通过
 - **注意事项**：RISK-1（配额）、RISK-4（SSE 兼容）、RISK-11（Key 脱敏）、RISK-13（JSON mode 差异）
+- **实现坑点**：
+  - `[IMPL-7 P0]` **RetryInterceptor 返回已关闭的 Response**——`response.close()` 后 `return response`，流式调用读取 body 抛 `IllegalStateException: closed`，最终静默返回空字符串
+  - `[IMPL-8 P0]` **RetryInterceptor 与流式调用不兼容**——已 emit 部分 token 后流中断，`emitted==true`，catch 不做降级，flow 静默结束，调用方得到截断响应且无错误信号
+  - `[IMPL-27 P3]` AuthInterceptor 缺少 API Key 时静默放行——返回 401 后流式解析失败，catch 中 `chatSync` 降级也收到 401，最终 `emit("")`，`ping()` 返回 false 但无法区分"网络问题"还是"Key 未配置"
+  - `[IMPL-28 P3]` **AnthropicClient 忽略 SSE error 事件**——仅处理 `message_stop` 与 `content_block_delta`，`event: error` 被 continue 跳过，quota 超限/内容被拦截时静默失败
+  - `[IMPL-26 P3]` core-llm RateLimiter 硬编码 30 RPM，与 `AiActivityLevel` 解耦——用户设 HIGH（60 RPM）时 HTTP 层仍限 30 RPM
+  - `[IMPL-31 P3]` `RateLimiter.acquire` 用 50ms 轮询忙等，30 RPM 桶空时最坏 60 秒内 1200 次锁竞争；`refillLocked` 不处理时钟回拨，`elapsed` 为负时令牌永不补充
+  - `[IMPL-32 P3]` 拦截器链顺序 Auth→Logging→RateLimit→Retry 导致重试不记日志，可观测性低——需在 RetryInterceptor 内 Timber.d 记录每次重试
+  - `[IMPL-29 P3]` ContentFilter 敏感词子串匹配过宽——"诈骗"误匹配"反诈骗"，"勒索"误匹配"反勒索"
+  - 正确点：Anthropic system prompt 作为顶层字段（非 messages 数组）；OpenAI SSE `[DONE]` 终止；Gemini `responseMimeType="application/json"` 原生 JSON mode；@GalleryJson qualifier 仅在 core-data 内部使用无冲突
+  - `[IMPL-41 P5]` 无 MockWebServer 依赖——RISK-4 应对"单元测试覆盖"无法兑现，需在 libs.versions.toml 增加 mockwebserver 别名
 
 ### Task 5: 实现 Prompt 工程
 - [ ] SubTask 5.1: 推文生成 Prompt 模板
@@ -152,6 +187,11 @@
   - 差异校验：新旧字段 embedding cosine > 0.5（防止突变），否则回退
 - **验收标准**：单元测试覆盖 Prompt 模板渲染（不同人设输入产出不同 system prompt）；JSON 解析失败的降级路径测试
 - **注意事项**：RISK-2（人设漂移）、RISK-13（JSON 解析）
+- **实现坑点**：
+  - `[IMPL-29 P3]` ContentFilter 敏感词子串匹配过宽（详见 Task 4）——"诈骗"误匹配"反诈骗"等，需排除"反/防/打击"前缀
+  - `PromptUtils.extractJson` 取首个 `{` 到末个 `}` 可能跨越无效内容——LLM 在 JSON 后追加含 `}` 的说明文字时解析失败；建议用正则 `\{[^{}]*\}` 或 lenient Json
+  - 三个 `parse*` 方法解析失败返回 null/emptyList()——**调用方（core-scheduler 的 Worker）必须处理 null**，否则推文生成/人设更新静默失败或崩溃（参见 Task 8 坑点）
+  - Comment 的"单条失败跳过"设计较好（`?: continue`）可复用
 
 ### Task 6: 实现虚拟账号配图本地图库
 - [ ] SubTask 6.1: 整理静态图片集
@@ -170,6 +210,11 @@
   - 将 asset 路径写入 `TweetEntity.mediaPath`，`mediaTheme` 写入主题
 - **验收标准**：单元测试覆盖 `LocalImageGallery` 去重逻辑；图库总体积 < 20MB
 - **注意事项**：RISK-10（APK 体积）
+- **实现坑点**：
+  - 实际图库为 200 张 **SVG**（非 WebP）——spec 写 WebP 但实现用 SVG（更小、矢量）。Coil 加载 SVG 需 `coil-svg` 依赖与 `SvgDecoder`
+  - `[IMPL-43 P5]` feature-profile 缺 `coil-svg` 依赖——头像 SVG 无法解码静默失败；建议 app 层提供全局带 SvgDecoder 的 ImageLoader 单例供所有模块复用
+  - `assets/avatars/index.txt` 是死重量（7KB，220 行 UUID），无实际头像图片——`FeedUtils.avatarUriFromSeed` 实际把 avatarSeed hash 映射到 `gallery/<category>/<index>.svg`，不读 avatars 目录。可删除或实现正式离线头像生成器
+  - 端口模式（ImageUsagePort/AssetProvider/ColdStartFiller/LlmConfigProvider）解耦良好，便于并行开发
 
 ## 阶段 3：虚拟账号人设数据（依赖 Task 3）
 
@@ -208,6 +253,11 @@
     - 所有必要字段非空
 - **验收标准**：`python tools/persona-gen/validate.py` 全部通过；人设 JSON 总体积 < 1MB
 - **注意事项**：RISK-5（人设生成）、RISK-14（历史推文营造账号早已存在）
+- **实现坑点**：
+  - 实际生成 220 个分 11 片（`personas_001.json` ~ `personas_011.json`），每片 20 条——`PersonaSeeder.kt` 注释仍写"10 分片"，需更新
+  - `index.json` 声明 count=220 与 11×20=220 吻合，`SeedProgress.EXPECTED_TOTAL=220` 正确
+  - 历史推文时间戳计算方向错误 `[IMPL-9 P1]`——`PersonaSeeder` 用 `now - daysAgo*DAY_MS + withinDayOffset`，应为 `-`，导致历史推文浮到信息流最前
+  - 人设三元组相似度校验用 Jaccard（非 embedding cosine）——避免 NLP 依赖，但阈值需重新调优
 
 ## 阶段 4：AI 调度系统（依赖 Task 3、4、5、6、7）
 
@@ -243,6 +293,22 @@
   - 调度去重：`deduplicationKey = accountId + windowStart + sequenceNo`
 - **验收标准**：单元测试覆盖时间窗解析、令牌桶、幂等去重；集成测试在 Mock LLM 下完成"调度→生成→落库"全链路
 - **注意事项**：RISK-1（配额）、RISK-3（后台调度）、RISK-15（可观测性）
+- **实现坑点**（本任务坑点最多，需重点修复）:
+  - `[IMPL-3 P0]` **InteractionWorker 因 authorId="user-self" 短路**——用户推文无 AI 互动，整条"用户发布 → AI 互动"链路被静默短路。需在 PersonaSeeder 插入 id="user-self" 账号，或 InteractionWorker 对 user-self 走特殊路径
+  - `[IMPL-4 P0]` **跨日补发 deduplicationKey 冲突**——`missedWindows` 返回的 TimeWindow 不带日期，调用方用"今天"拼装 windowStart 导致昨日 9 点与今日 9 点生成相同 key，第二个 insert 被吞但 LLM 配额已消耗
+  - `[IMPL-5 P0]` **InteractionWorker 重复入队/重试产生重复互动**——Worker 入队未用 `enqueueUniqueWork`；InteractionEntity 主键随机 UUID 无 `(tweetId,accountId,type)` 唯一约束；`selectCommenters` 只读前 20 个账号
+  - `[IMPL-6 P0]` **PendingInteractionWorker 的 markExecuted 与 updateCount 非原子**——崩溃窗口丢计数，likeCount/commentCount 永久丢失
+  - `[IMPL-16 P1]` 跨时区配额与窗位偏移——`activeWindows` 绑定设备时区，旅行时时段错乱、配额边界漂移；AccountEntity 需新增 timezone 字段
+  - `[IMPL-17 P1]` **SchedulerForegroundService 用 dataSync 类型在 Android 14+ 有合规风险**——6 小时配额超时被杀，Play 审核可能拒绝；改用 specialUse 或去掉常驻服务
+  - `[IMPL-18 P1]` **BootReceiver 用 Handler.postDelayed 不可靠**——BroadcastReceiver 返回后进程被杀，30 秒回调永不执行；改用 OneTimeWorkRequest + setInitialDelay
+  - `[IMPL-19 P1]` 429 与 RetryInterceptor 退避冲突——底层 HTTP 层已重试，Worker 又 BackoffPolicy.EXPONENTIAL，两层退避叠加不可预测；其它 Worker 完全未处理 429
+  - `[IMPL-20 P1]` **对数正态分布实现错误**——实际是"对数空间均匀分布"，`mean`/`std` 是死代码，LIKE 延迟集中在 30s 而非中位数
+  - `[IMPL-21 P1]` 互动延迟受 PendingInteractionWorker 15 分钟周期限制——LIKE 30s-5min 实际最坏 20min 后执行，不像真人"秒赞"
+  - `[IMPL-30 P3]` SchedulerRateLimiter 并发 reconfigure 互相覆盖——多 Worker + 档位切换时实际速率与预期不符
+  - `[IMPL-47 P3]` PersonaUpdateWorker 7 天周期 + 20 个账号固定，档位切换不调节——人设漂移修复响应慢
+  - `[IMPL-48 P3]` 档位切换后已排程 Worker 不会重新入队——LOW→HIGH 反馈滞后
+  - `postsPerWindow` 字段在 ScheduleRule 中声明但 Resolver 从未读取——功能与文档不符
+  - 正确点：HiltWorkerFactory 集成正确，Manifest 已移除默认 WorkManagerInitializer；SocialApp 实现 Configuration.Provider；EntryPoint 时序正确
 
 ## 阶段 5：UI 功能实现（依赖 Task 2、3）
 
@@ -270,6 +336,14 @@
   - 首次启动免责声明（RISK-12）：进入引导前展示
 - **验收标准**：UI 测试覆盖引导全流程（含跳过、失败重试）；配置正确保存至 EncryptedSharedPreferences
 - **注意事项**：RISK-11（Key 加密）、RISK-12（免责声明）、RISK-14（冷启动填充）
+- **实现坑点**：
+  - `[IMPL-1 P0]` **ColdStartFiller 无真实实现**——`DefaultColdStartFiller.triggerInitialFill()` 为空，引导完成后冷启动内容填充未生效，用户看到空白信息流
+  - `[IMPL-45 P5]` **ColdStartFiller 默认绑定无法被 app "覆盖"**——Hilt 不支持同组件内同类型多个 @Provides，注释声称"app 模块可覆盖"是错的；需改用 qualifier 区分或 onboarding 不提供默认绑定
+  - `[IMPL-13 P1]` **跳过引导与完成引导持久层不可区分**——`skip()` 与 `saveAndComplete()` 都写 `onboarding_completed=true`，ConfigRepository 无 `onboardingSkipped` 字段；FeedScreen 顶部无 banner 实现，跳过后无回流入口
+  - `[IMPL-14 P1]` **AppLlmConfigProvider.runBlocking 在引导连通性测试期间阻塞 Main 线程**——`OnboardingViewModel.testConnection()`（Main）→ `getClient`（同步）→ `runBlocking`，EncryptedSharedPreferences 首次访问 100ms+ 导致 ANR 风险
+  - 免责声明展示时机正确（WelcomeScreen 第一页 DisclaimerCard）
+  - `ping()` 用真实 LlmClient（非 mock）——失败时 `classifyErrorByProbing` 再发一次 chatSync，单次失败=2 次 LLM 调用
+  - 测试连接按钮点击后 UI 卡顿需评估（IMPL-14）
 
 ### Task 10: 实现主框架与底部导航
 - [ ] SubTask 10.1: `MainActivity` + Compose NavHost
@@ -292,6 +366,12 @@
   - 返回：向下滑出
 - **验收标准**：UI 测试覆盖 Tab 切换、发布按钮导航、状态保持（滚动位置）
 - **注意事项**：RISK-6（磨砂玻璃性能）
+- **实现坑点**：
+  - `[IMPL-33 P4]` **SocialBottomBar 的 GlassBlurContainer 不模糊背后内容**——`Modifier.blur` 只模糊自身子内容，结果是半透明着色条，不是 iOS 毛玻璃；`LocalIsScrolling` 从未 provide，"滚动时半径减半"优化未生效（详见 Task 2）
+  - `[IMPL-14 P1]` `MainActivity` 的 `produceState<Boolean?>` 在 Main dispatcher 调用 `configRepository.isOnboardingCompleted()`——建议包 `withContext(Dispatchers.IO)`
+  - 双层 NavHost 结构正确（顶层 onboarding/main，main 内嵌 feed/timeline/profile/publish）；publish 用 slideInVertically 全屏覆盖且隐藏底栏
+  - tab 切换用 `popUpTo(startDestination){saveState=true}; launchSingleTop=true; restoreState=true`，状态保留正确
+  - `[IMPL-46 P5]` `POST_NOTIFICATIONS` 未在 MainActivity 运行时申请——Android 13+ 前台服务通知不显示
 
 ### Task 11: 实现首页信息流（feature-feed）
 - [ ] SubTask 11.1: 推文卡片组件 `TweetCard`
@@ -322,6 +402,14 @@
   - 左右滑动切换同推文多图（暂只支持单图，预留扩展）
 - **验收标准**：UI 测试覆盖卡片渲染、点赞乐观更新、评论发送；滚动帧率 > 50fps（中端机）
 - **注意事项**：RISK-6（滚动性能）
+- **实现坑点**：
+  - `[IMPL-11 P1]` **点赞乐观更新 +1 与 DB 已 +1 双计**——流程：(a) 加 `_likedTweetIds` → (b) `updateLikeCount(+1)` 改 DB → (c) Room PagingSource 失效重发，新 `tweet.likeCount` 已含 +1 → (d) TweetCard 又 `+1`，显示比真实多 1。例：原 5 → DB 6 → UI 7。修复：`displayLikeCount = tweet.likeCount`
+  - `[IMPL-12 P1]` **用户自己发布的推文显示为"未知用户 @unknown"**——authorId="user-self" 在 DB 无对应 AccountEntity，resolveAuthor fallback "未知用户"
+  - `[IMPL-34 P4]` feature-feed 的 FullScreenImage 同 feature-timeline 有手势冲突——transformable 与 HorizontalPager 竞争，缩放=1 时翻页不灵敏；放大后无平移边界
+  - `updateLikeCount`/`updateCommentCount`/`updateRetweetCount` SQL 无 `MAX(0, ...)` 下界保护，likeCount=0 时取消点赞变 -1
+  - 正确点：Paging 3 包装正确（TweetDao.getFeedPagingSource → Pager → flow）；PullToRefreshBox import 路径正确（material3.pulltorefresh）；LazyColumn key 用 `pagingItems.itemKey { it.tweet.id }` 稳定；AI 推文蓝点标识实现正确
+  - `ChatBubbleOutline`/`Repeat` 只有 `Icons.Filled.*` 版本（无 Outlined），import 路径已正确
+  - feature-feed 已自建 FeedImageLoaderModule 注册 SvgDecoder
 
 ### Task 12: 实现时间线页面（feature-timeline）
 - [ ] SubTask 12.1: 朋友圈式布局
@@ -339,6 +427,10 @@
   - 空状态：插画 + "去发布第一条带图推文"按钮 → 跳转发布页
 - **验收标准**：UI 测试覆盖 1/2/3/4+ 张图片布局、空状态、大图浏览
 - **注意事项**：无特殊风险
+- **实现坑点**：
+  - `[IMPL-34 P4]` **FullScreenImage 缩放=1 时 pager 翻页手势冲突**——`Box` 同时挂 `detectTapGestures` 与 `transformable`，未缩放时左右滑动翻页不灵敏；放大后 `offset = offset + panChange` 无边界限制，图片可被拖出屏幕；`if (items.isEmpty()) { onDismiss(); return }` 在组合期间调用状态变更违反 Compose 原则，改用 `LaunchedEffect(items.isEmpty()) { if (it) onDismiss() }`
+  - 正确点：按日期分组实现正确（groupBy + sortedByDescending）；1/2/3/4+ 张布局完整；4+ 张走 GridImageLayout 3 列网格最多 9 格，第 9 格显示 "+N" 角标
+  - "+N" 角标语意不直观，可加 clickable 提示
 
 ### Task 13: 实现我的页面（feature-profile）
 - [ ] SubTask 13.1: 个人资料卡片
@@ -359,6 +451,13 @@
   - 关注按钮：未关注 → "关注"（蓝），已关注 → "已关注"（灰，点击取消）
 - **验收标准**：UI 测试覆盖资料展示、Tab 切换、设置入口；编辑资料保存生效
 - **注意事项**：无特殊风险
+- **实现坑点**（**本任务整个模块仅占位实现，需完整重做**）:
+  - `[IMPL-2 P0]` **feature-profile 整个模块仅占位**——`ProfileScreen.kt` 31 行仅 `Text("我的（待实现）")`；`ProfileViewModel`/`DevOptionsScreen`/`ApiKeyManagementScreen`/`FollowListScreen` 文件不存在。Task 13 的 4 个子任务全部未实现
+  - `[IMPL-43 P5]` feature-profile 缺 `coil-svg` 依赖——头像 SVG 无法解码静默失败
+  - `[IMPL-13 P1]` 引导跳过后的"前往设置"banner 无落地页——依赖 Task 13 设置入口
+  - RISK-15 的开发者选项（连点 7 次解锁查看调度日志）无法实现——Task 13 未做
+  - 实现建议：`ApiKeyManagementScreen` 可提取 `KeyInputScreen` + `ConnectionTestScreen` 为可复用 Composable；`DevOptionsScreen` 用 `rememberSaveable` 持久化 7 次连点解锁状态；PersonaListScreen 展示 200+ 虚拟账号
+  - 注意：之前总结中提到 Task 13 已完成 15 文件 2041 行，但实际审计发现 feature-profile 仅有 31 行占位——可能是分支污染或文件被覆盖，需重新实现
 
 ### Task 14: 实现相机式发布界面（feature-publish）
 - [ ] SubTask 14.1: 顶部胶囊形横向 Tab
@@ -395,6 +494,19 @@
   - 返回首页，信息流刷新出新推文
 - **验收标准**：UI 测试覆盖拍照、比例切换、文本输入、发布后信息流出现新推文；权限缺失场景
 - **注意事项**：RISK-7（CameraX 兼容）、RISK-8（动画）
+- **实现坑点**:
+  - `[IMPL-15 P1]` **publish() 失败仍 emit Published**——`finally` 块无条件 emit Published，即使 insertTweet 抛异常也触发飞入动画返回首页，用户以为成功实际 DB 没写入。改用 try/catch 分别 emit Published/Failed
+  - `[IMPL-3 P0]` **用户推文无 AI 互动**——authorId="user-self" 导致 InteractionWorker 短路（详见 Task 8）
+  - `[IMPL-12 P1]` 用户推文显示"未知用户 @unknown"（详见 Task 11）
+  - `[IMPL-35 P4]` **CameraX 1:1 比例只是透明遮罩未真正裁剪**——`CaptureRatio.SQUARE` 映射到 `RATIO_4_3`，UI 叠加透明 Box，用户看不到裁切边界，落盘 JPEG 仍 4:3。需加非透明黑边 + Bitmap 中心裁剪
+  - `[IMPL-36 P4]` **EditorModeContent 裁剪近乎假实现**——裁剪区域写死 70%，`maxOffsetPx=48f` 硬编码；`decodeBitmap` 固定 `inSampleSize=2` 对 4000×6000 大图仍解码到 24MB，5 个滤镜 preset 各 createBitmap 累计分配，低端机 OOM；Bitmap 不 recycle
+  - `[IMPL-37 P4]` **CapturePreviewBar 缺 key，删除中间项 selected index 错位**——`itemsIndexed(captures)` 无 key；删除选中之前的项时 `selectedCaptureIndex` 仍指原位置，实际列表前移导致越界，蓝框丢失
+  - `[IMPL-39 P4]` **多图只发第一张**——`mediaPath = current.captures.firstOrNull()`，MAX_CAPTURES=4 但其余 3 张静默丢弃
+  - `ProcessCameraProvider.getInstance(context).get()` 在 LaunchedEffect（Main）同步阻塞——CameraX 初始化慢时掉帧，改为 listener 或 withContext(IO)
+  - `LocalLifecycleOwner` 用的是 `androidx.compose.ui.platform`（Compose 1.4+ 后 deprecated），应改 `androidx.lifecycle.compose.LocalLifecycleOwner`
+  - 拍照无 `setTargetRotation`，部分设备 JPEG 旋转方向错误
+  - 降级路径 `accountId = "ai-fallback"` 在账号列表不存在，UI 显示异常（详见 IMPL-3）
+  - 正确点：CapsuleTab + AnimatedContent + fly-in 动画实现正确（400ms 两阶段）；CameraX 集成基本可用；编辑器 5 ColorMatrix 滤镜实现
 
 ## 阶段 6：集成、测试与交付
 
@@ -417,6 +529,20 @@
   - 启动优化：`AppComponent` 拆分，延迟非关键初始化
 - **验收标准**：端到端冒烟测试通过；中端机滚动帧率 > 50fps；冷启动 < 2s
 - **注意事项**：RISK-2（拟真度）、RISK-15（可观测性）
+- **实现坑点**（本任务须先修复阻断级问题才能联调）:
+  - **必须先修复的 P0 阻断问题**（否则联调无法进行）:
+    - `[IMPL-1 P0]` PersonaSeeder 未被调用——联调前确保 SocialApp/MainActivity 触发 seedIfNeeded()
+    - `[IMPL-2 P0]` feature-profile 仅占位——联调前完整实现 Task 13
+    - `[IMPL-3 P0]` InteractionWorker 因 authorId="user-self" 短路——"用户发布 → AI 互动"链路不通
+    - `[IMPL-4 P0]` 跨日补发 deduplicationKey 冲突——补发失效浪费配额
+    - `[IMPL-5 P0]` InteractionWorker 重复入队产生重复互动——互动数倍增
+    - `[IMPL-6 P0]` markExecuted 与 updateCount 非原子——计数丢失
+    - `[IMPL-7 P0]` RetryInterceptor 返回已关闭 Response——流式调用崩溃
+    - `[IMPL-8 P0]` RetryInterceptor 与流式不兼容——已 emit token 后流中断静默丢失
+  - SubTask 15.1 联调全链路验证项：引导配置 → PersonaSeeder 导入 220 账号 → 冷启动填充（ColdStartFiller 真实实现）→ 信息流展示 → AI 调度生成新推文 → 用户发布（authorId="user-self" 账号存在）→ AI 互动（InteractionWorker 不短路）
+  - SubTask 15.2 拟真度调优：修复 `[IMPL-20 P1]` 对数正态分布实现错误；修复 `[IMPL-21 P1]` 互动延迟 15 分钟精度损失（LIKE 用 OneTimeWorkRequest + setInitialDelay）；调整错别字率/emoji 频率
+  - SubTask 15.3 异常处理：修复 `[IMPL-19 P1]` 429 与 RetryInterceptor 退避冲突；修复 `[IMPL-10 P1]` EncryptedSharedPreferences 无 Keystore 恢复；修复 `[IMPL-15 P1]` publish() 失败仍 emit Published
+  - SubTask 15.4 性能优化：修复 `[IMPL-33 P4]` GlassBlurContainer 不模糊背后内容；修复 `[IMPL-36 P4]` EditorModeContent OOM；修复 `[IMPL-38 P4]` AccountDao.getActiveInHour 全表扫描；Coil 缓存配置；LazyColumn key 稳定（已正确）
 
 ### Task 16: 测试
 - [ ] SubTask 16.1: 单元测试
@@ -434,6 +560,15 @@
   - Mock LLM 环境下，调度→生成→落库→UI 展示全链路
 - **验收标准**：测试覆盖率核心模块 ≥ 70%；`./gradlew test` 全绿
 - **注意事项**：无特殊风险
+- **实现坑点**（**当前测试基础设施几乎空白，需大量补齐**）:
+  - `[IMPL-41 P5]` **无 MockWebServer 依赖**——core-llm 3 个 Retrofit API 接口无法做 HTTP 层单测；需在 libs.versions.toml 增加 `mockwebserver` 别名，core-llm/core-data `testImplementation` 引入
+  - `[IMPL-41 P5]` **无 Hilt testing 依赖**——无法做 DI 图谱验证；app 需加 `androidTestImplementation("com.google.dagger:hilt-android-testing")` + `kspAndroidTest(libs.hilt.compiler)`
+  - `[IMPL-41 P5]` **无 androidTest 源码**——`Glob("**/src/androidTest/**/*.kt")` 返回 No file found；app 声明了 espresso/compose-ui-test 依赖但无任何测试文件，依赖白交
+  - 当前测试覆盖：core-scheduler 8 个测试文件（rate limit/调度规则/时间窗）；core-llm 6 个（prompt/content filter）；**core-data / core-designsystem / 所有 feature 模块 / app 均为 0 测试文件**
+  - SubTask 16.1 单元测试重点：core-data DAO（in-memory DB）、Converters、PersonaSeeder 事务性；core-llm 3 家 SSE 解析（MockWebServer）、RetryInterceptor、RateLimiter；core-scheduler 时间窗解析、令牌桶、幂等去重
+  - SubTask 16.2 UI 测试重点：onboarding→feed、发布推文、评论弹层——至少补关键流程 Compose UI 测试
+  - SubTask 16.3 人设校验：`validate.py` 已存在且通过；可包装为 gradle task
+  - SubTask 16.4 集成测试：Mock LLM 下"调度→生成→落库→UI 展示"全链路——需先修复 IMPL-1/3/5 等 P0 问题否则链路不通
 
 ### Task 17: 构建 release APK
 - [ ] SubTask 17.1: 配置 release 签名
@@ -449,6 +584,15 @@
   - 记录任何崩溃至 `scheduler_log`
 - **验收标准**：APK 成功安装并完成冒烟测试；交付 APK 文件路径
 - **注意事项**：RISK-10（体积）、RISK-11（签名）
+- **实现坑点**:
+  - `[IMPL-42 P5]` **keystore.properties 不存在**——当前 release 实际用 debug 签名，无法上架。交付前必须生成正式 keystore 并写入 keystore.properties（或 CI 环境变量注入）
+  - `[IMPL-40 P5]` **各 library 模块 consumer-rules.pro 全为占位**——release 构建运行时崩溃风险高。需各 library 按自身依赖补充：core-data（Room Entity/Dao + @Serializable DTO）、core-llm（三个 *Api 接口 + DTO + 拦截器）、core-scheduler（@HiltWorker 类）
+  - `[IMPL-46 P5]` Manifest 权限清理——删除未用的 `READ_EXTERNAL_STORAGE`；`POST_NOTIFICATIONS` 需运行时申请；`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` 要么删除要么在引导页申请
+  - APK 体积预估：per-ABI（arm64-v8a）8~14MB，universal 12~20MB——远低于 50MB 上限，RISK-10 应对生效
+  - `material-icons-extended` 即使 R8 裁剪仍拖慢构建——若只用 3~5 个图标可改为本地矢量资源
+  - configuration-cache 已开启，`keystore.properties` 用 FileInputStream 读取可能未注册为配置输入——改用 Provider API
+  - SubTask 17.3 冒烟测试前必须先修复 Task 15 列出的 P0 阻断问题，否则引导完成后信息流为空、用户推文无 AI 互动、我的页面占位
+  - Hilt 生成类（app 包内 `Hilt_*` / `*_HiltModules`）未显式 keep，依赖插件兜底——建议补 `-keep class com.trae.social.app.Hilt_** { *; }` 作为兜底
 
 # Task Dependencies
 - Task 2、3、4、5 可在 Task 1 完成后并行启动
