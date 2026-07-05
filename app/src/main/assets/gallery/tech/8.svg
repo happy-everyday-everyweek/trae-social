@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#0d2540"/>
+<stop offset="1" stop-color="#1565c0"/>
+</linearGradient>
+</defs>
+<rect width="1080" height="1080" fill="url(#bg)"/>
+<circle cx="857.71" cy="405.64" r="63.64" fill="#0d47a1" fill-opacity="0.53"/>
+<rect x="398.42" y="60.93" width="88.75" height="251.11" fill="#bbdefb" fill-opacity="0.54" transform="rotate(307.73 442.8 186.48)"/>
+<circle cx="301.13" cy="130.74" r="140.4" fill="#1976d2" fill-opacity="0.39"/>
+<polygon points="666.68,519.55 640.29,108.5 1009.46,291.17" fill="#1e88e5" fill-opacity="0.79"/>
+<text x="36" y="1048" font-family="sans-serif" font-size="48" fill="#eaf5fd" fill-opacity="0.85">tech</text>
+</svg>

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#5b0f0f"/>
+<stop offset="1" stop-color="#b71c1c"/>
+</linearGradient>
+</defs>
+<rect width="1080" height="1080" fill="url(#bg)"/>
+<circle cx="305.81" cy="354.26" r="54.86" fill="#e57373" fill-opacity="0.42"/>
+<rect x="782.25" y="298.28" width="161.95" height="91.94" fill="#ff8a80" fill-opacity="0.59" transform="rotate(192.18 863.23 344.25)"/>
+<polygon points="489.05,818.48 213.06,992.65 200.22,666.56" fill="#e57373" fill-opacity="0.59"/>
+<rect x="430.35" y="526.8" width="251.35" height="227.43" fill="#c62828" fill-opacity="0.7" transform="rotate(290.96 556.03 640.52)"/>
+<polygon points="712.36,535.96 597,284.48 872.47,310.31" fill="#ef5350" fill-opacity="0.75"/>
+<circle cx="298.01" cy="1018.28" r="203.37" fill="#ef5350" fill-opacity="0.82"/>
+<text x="36" y="1048" font-family="sans-serif" font-size="48" fill="#fff0f1" fill-opacity="0.85">sport</text>
+</svg>

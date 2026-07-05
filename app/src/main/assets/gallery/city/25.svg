@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#2c3e50"/>
+<stop offset="1" stop-color="#5d7a91"/>
+</linearGradient>
+</defs>
+<rect width="1080" height="1080" fill="url(#bg)"/>
+<circle cx="581.44" cy="492.77" r="66.83" fill="#546e7a" fill-opacity="0.71"/>
+<rect x="667.4" y="726.27" width="260.73" height="189.87" fill="#cfd8dc" fill-opacity="0.37" transform="rotate(133.19 797.77 821.21)"/>
+<rect x="126.76" y="323.68" width="266.69" height="197.9" fill="#546e7a" fill-opacity="0.38" transform="rotate(189.68 260.1 422.63)"/>
+<circle cx="183.1" cy="897.54" r="190.33" fill="#b0bec5" fill-opacity="0.51"/>
+<text x="36" y="1048" font-family="sans-serif" font-size="48" fill="#e7ebed" fill-opacity="0.85">city</text>
+</svg>

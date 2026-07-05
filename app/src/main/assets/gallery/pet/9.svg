@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#5d4037"/>
+<stop offset="1" stop-color="#a1733f"/>
+</linearGradient>
+</defs>
+<rect width="1080" height="1080" fill="url(#bg)"/>
+<rect x="734.62" y="252.02" width="81.46" height="212.39" fill="#d7ccc8" fill-opacity="0.38" transform="rotate(215.95 775.35 358.22)"/>
+<circle cx="598.38" cy="244.84" r="217.76" fill="#ffe0b2" fill-opacity="0.82"/>
+<circle cx="70.54" cy="218.12" r="128.24" fill="#d7ccc8" fill-opacity="0.67"/>
+<circle cx="946.53" cy="645.2" r="89.92" fill="#d7ccc8" fill-opacity="0.64"/>
+<circle cx="440.23" cy="600.87" r="177.39" fill="#6d4c41" fill-opacity="0.75"/>
+<polygon points="779.21,830.38 942.05,671.57 998.16,892" fill="#bcaaa4" fill-opacity="0.55"/>
+<text x="36" y="1048" font-family="sans-serif" font-size="48" fill="#fff5e7" fill-opacity="0.85">pet</text>
+</svg>

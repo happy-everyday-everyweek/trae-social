@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#0d2540"/>
+<stop offset="1" stop-color="#1565c0"/>
+</linearGradient>
+</defs>
+<rect width="1080" height="1080" fill="url(#bg)"/>
+<rect x="288.79" y="463.99" width="228.7" height="305.42" fill="#64b5f6" fill-opacity="0.67" transform="rotate(270.39 403.15 616.7)"/>
+<rect x="688.9" y="673.7" width="294.81" height="219.6" fill="#64b5f6" fill-opacity="0.47" transform="rotate(286.18 836.3 783.5)"/>
+<rect x="313.89" y="499.56" width="215.1" height="126.8" fill="#64b5f6" fill-opacity="0.48" transform="rotate(286.14 421.44 562.96)"/>
+<circle cx="724.83" cy="817.85" r="142.68" fill="#1e88e5" fill-opacity="0.59"/>
+<text x="36" y="1048" font-family="sans-serif" font-size="48" fill="#eaf5fd" fill-opacity="0.85">tech</text>
+</svg>

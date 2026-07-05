@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#5b0f0f"/>
+<stop offset="1" stop-color="#b71c1c"/>
+</linearGradient>
+</defs>
+<rect width="1080" height="1080" fill="url(#bg)"/>
+<circle cx="615.41" cy="708.44" r="81.33" fill="#b71c1c" fill-opacity="0.57"/>
+<circle cx="73.39" cy="286.39" r="112.59" fill="#ff8a80" fill-opacity="0.54"/>
+<circle cx="674.73" cy="388.19" r="107.72" fill="#c62828" fill-opacity="0.74"/>
+<polygon points="208.12,856.29 392.19,714.79 422.7,944.94" fill="#b71c1c" fill-opacity="0.53"/>
+<rect x="586.26" y="556.75" width="317.66" height="150.91" fill="#b71c1c" fill-opacity="0.55" transform="rotate(138.35 745.09 632.2)"/>
+<text x="36" y="1048" font-family="sans-serif" font-size="48" fill="#fff0f1" fill-opacity="0.85">sport</text>
+</svg>

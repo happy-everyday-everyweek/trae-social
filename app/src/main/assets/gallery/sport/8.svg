@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#5b0f0f"/>
+<stop offset="1" stop-color="#b71c1c"/>
+</linearGradient>
+</defs>
+<rect width="1080" height="1080" fill="url(#bg)"/>
+<circle cx="604.64" cy="597.58" r="160.65" fill="#c62828" fill-opacity="0.84"/>
+<polygon points="391.47,524.64 526.82,363.42 598.77,561.24" fill="#ffcdd2" fill-opacity="0.44"/>
+<polygon points="545.24,193.53 833.22,390.53 518.63,541.43" fill="#ff8a80" fill-opacity="0.85"/>
+<polygon points="258.15,146.19 158.39,362.17 21.23,167.78" fill="#b71c1c" fill-opacity="0.7"/>
+<rect x="295.36" y="115.08" width="80.31" height="117.89" fill="#c62828" fill-opacity="0.56" transform="rotate(26.11 335.51 174.02)"/>
+<rect x="164.7" y="468.76" width="232.43" height="296.58" fill="#ffcdd2" fill-opacity="0.48" transform="rotate(102.37 280.92 617.05)"/>
+<circle cx="65.97" cy="870.89" r="100.44" fill="#b71c1c" fill-opacity="0.56"/>
+<text x="36" y="1048" font-family="sans-serif" font-size="48" fill="#fff0f1" fill-opacity="0.85">sport</text>
+</svg>

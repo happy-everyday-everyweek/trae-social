@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#3a1a5d"/>
+<stop offset="1" stop-color="#6a3aa0"/>
+</linearGradient>
+</defs>
+<rect width="1080" height="1080" fill="url(#bg)"/>
+<rect x="216.25" y="485.4" width="271.27" height="241.51" fill="#ab47bc" fill-opacity="0.74" transform="rotate(88.33 351.89 606.16)"/>
+<polygon points="639.86,155.51 820.89,190.81 699.81,329.94" fill="#ce93d8" fill-opacity="0.64"/>
+<polygon points="333.05,1082.91 166.9,920.63 390.52,857.88" fill="#ce93d8" fill-opacity="0.39"/>
+<rect x="169.74" y="230.31" width="318.8" height="115.67" fill="#ce93d8" fill-opacity="0.51" transform="rotate(207.54 329.14 288.14)"/>
+<rect x="546.36" y="779.62" width="300.54" height="86.74" fill="#ab47bc" fill-opacity="0.49" transform="rotate(75.86 696.63 822.99)"/>
+<polygon points="520.22,237.63 815.3,260.57 647.9,504.65" fill="#7b1fa2" fill-opacity="0.38"/>
+<rect x="764.59" y="748.82" width="130.21" height="119.84" fill="#ba68c8" fill-opacity="0.8" transform="rotate(53.5 829.7 808.74)"/>
+<text x="36" y="1048" font-family="sans-serif" font-size="48" fill="#f6ebf7" fill-opacity="0.85">art</text>
+</svg>

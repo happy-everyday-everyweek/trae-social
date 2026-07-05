@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#0d4036"/>
+<stop offset="1" stop-color="#1c8a73"/>
+</linearGradient>
+</defs>
+<rect width="1080" height="1080" fill="url(#bg)"/>
+<circle cx="93.17" cy="657.26" r="209.66" fill="#004d40" fill-opacity="0.64"/>
+<rect x="771.55" y="238.31" width="167.92" height="113.89" fill="#26a69a" fill-opacity="0.55" transform="rotate(320.1 855.51 295.26)"/>
+<rect x="906.21" y="131.27" width="169.15" height="273.73" fill="#00695c" fill-opacity="0.54" transform="rotate(281.61 990.79 268.13)"/>
+<polygon points="516.36,768.7 343.28,774.07 425.17,621.49" fill="#b2dfdb" fill-opacity="0.6"/>
+<circle cx="1007.2" cy="984.96" r="172.35" fill="#00695c" fill-opacity="0.64"/>
+<rect x="742.84" y="744.78" width="240.2" height="84.8" fill="#80cbc4" fill-opacity="0.72" transform="rotate(154.33 862.94 787.17)"/>
+<circle cx="145.11" cy="587.05" r="95.24" fill="#4db6ac" fill-opacity="0.37"/>
+<text x="36" y="1048" font-family="sans-serif" font-size="48" fill="#e7f5f4" fill-opacity="0.85">nature</text>
+</svg>

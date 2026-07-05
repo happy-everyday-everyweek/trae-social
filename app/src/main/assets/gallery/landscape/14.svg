@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#1f3b2c"/>
+<stop offset="1" stop-color="#3e6f4e"/>
+</linearGradient>
+</defs>
+<rect width="1080" height="1080" fill="url(#bg)"/>
+<rect x="266.82" y="168.71" width="129.21" height="235.14" fill="#7cb342" fill-opacity="0.43" transform="rotate(280.77 331.42 286.28)"/>
+<rect x="490.26" y="170.64" width="153.28" height="291.32" fill="#558b2f" fill-opacity="0.81" transform="rotate(112.89 566.9 316.3)"/>
+<polygon points="315.02,653.57 177.49,912.47 22.04,663.91" fill="#33691e" fill-opacity="0.69"/>
+<circle cx="369.42" cy="85.6" r="51.75" fill="#558b2f" fill-opacity="0.42"/>
+<rect x="280.75" y="461.67" width="160.66" height="112.12" fill="#558b2f" fill-opacity="0.36" transform="rotate(203.5 361.08 517.73)"/>
+<rect x="452.4" y="167.47" width="220.04" height="167.97" fill="#558b2f" fill-opacity="0.53" transform="rotate(336.33 562.42 251.45)"/>
+<text x="36" y="1048" font-family="sans-serif" font-size="48" fill="#edf6e4" fill-opacity="0.85">landscape</text>
+</svg>

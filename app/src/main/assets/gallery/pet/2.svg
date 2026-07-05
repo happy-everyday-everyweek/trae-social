@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#5d4037"/>
+<stop offset="1" stop-color="#a1733f"/>
+</linearGradient>
+</defs>
+<rect width="1080" height="1080" fill="url(#bg)"/>
+<circle cx="972.83" cy="524.2" r="119.5" fill="#bcaaa4" fill-opacity="0.52"/>
+<polygon points="538.92,333.81 850.46,291.48 731.35,582.45" fill="#bcaaa4" fill-opacity="0.45"/>
+<rect x="580.05" y="341.44" width="230.83" height="146.23" fill="#d7ccc8" fill-opacity="0.84" transform="rotate(32.76 695.46 414.55)"/>
+<rect x="240.83" y="586.06" width="142.29" height="146.41" fill="#8d6e63" fill-opacity="0.6" transform="rotate(139.62 311.98 659.26)"/>
+<rect x="815.09" y="452.95" width="238.49" height="267.84" fill="#bcaaa4" fill-opacity="0.64" transform="rotate(88.63 934.34 586.87)"/>
+<circle cx="286.26" cy="682" r="106.62" fill="#6d4c41" fill-opacity="0.38"/>
+<text x="36" y="1048" font-family="sans-serif" font-size="48" fill="#fff5e7" fill-opacity="0.85">pet</text>
+</svg>

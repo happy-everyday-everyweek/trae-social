@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#0d2540"/>
+<stop offset="1" stop-color="#1565c0"/>
+</linearGradient>
+</defs>
+<rect width="1080" height="1080" fill="url(#bg)"/>
+<polygon points="770.38,51.91 807.52,274.8 595.92,195.52" fill="#bbdefb" fill-opacity="0.59"/>
+<rect x="739" y="35.16" width="198.76" height="119.42" fill="#bbdefb" fill-opacity="0.45" transform="rotate(184.9 838.38 94.87)"/>
+<rect x="463.63" y="397.87" width="318.68" height="304.73" fill="#1976d2" fill-opacity="0.49" transform="rotate(316.59 622.97 550.23)"/>
+<circle cx="873.26" cy="795.75" r="77.58" fill="#bbdefb" fill-opacity="0.5"/>
+<polygon points="787.49,103.8 789.65,228.19 680.84,167.87" fill="#64b5f6" fill-opacity="0.55"/>
+<circle cx="776.46" cy="63.08" r="172.18" fill="#0d47a1" fill-opacity="0.44"/>
+<rect x="933.57" y="253.45" width="99.73" height="188.06" fill="#bbdefb" fill-opacity="0.78" transform="rotate(237.03 983.43 347.49)"/>
+<text x="36" y="1048" font-family="sans-serif" font-size="48" fill="#eaf5fd" fill-opacity="0.85">tech</text>
+</svg>

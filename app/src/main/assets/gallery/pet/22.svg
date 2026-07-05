@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#5d4037"/>
+<stop offset="1" stop-color="#a1733f"/>
+</linearGradient>
+</defs>
+<rect width="1080" height="1080" fill="url(#bg)"/>
+<rect x="81.43" y="509.33" width="124.02" height="243.25" fill="#a1887f" fill-opacity="0.41" transform="rotate(19.22 143.44 630.96)"/>
+<rect x="119.83" y="671.51" width="205.31" height="170.8" fill="#8d6e63" fill-opacity="0.36" transform="rotate(325.09 222.49 756.91)"/>
+<polygon points="858.31,459.02 494.11,328.71 789.06,78.46" fill="#a1887f" fill-opacity="0.57"/>
+<polygon points="-38.26,248.84 287.55,11.05 330.58,412.1" fill="#ffe0b2" fill-opacity="0.61"/>
+<polygon points="147.01,412.69 372,650.71 53.38,726.55" fill="#6d4c41" fill-opacity="0.55"/>
+<rect x="508.32" y="786.48" width="257.87" height="196.42" fill="#d7ccc8" fill-opacity="0.52" transform="rotate(80.61 637.25 884.69)"/>
+<polygon points="804.3,885.04 558.6,575.49 949.53,517.48" fill="#d7ccc8" fill-opacity="0.73"/>
+<text x="36" y="1048" font-family="sans-serif" font-size="48" fill="#fff5e7" fill-opacity="0.85">pet</text>
+</svg>

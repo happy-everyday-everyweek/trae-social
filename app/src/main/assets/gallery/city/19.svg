@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#2c3e50"/>
+<stop offset="1" stop-color="#5d7a91"/>
+</linearGradient>
+</defs>
+<rect width="1080" height="1080" fill="url(#bg)"/>
+<rect x="172.88" y="635.64" width="314.92" height="309.31" fill="#90a4ae" fill-opacity="0.55" transform="rotate(306.02 330.34 790.3)"/>
+<polygon points="872.66,501.35 705.25,846.87 489.73,529.13" fill="#cfd8dc" fill-opacity="0.35"/>
+<polygon points="254.45,560.94 415.9,768.64 155.29,804.61" fill="#78909c" fill-opacity="0.51"/>
+<circle cx="129.41" cy="743.01" r="75.8" fill="#78909c" fill-opacity="0.5"/>
+<polygon points="417.78,595.62 584.22,503.27 580.98,693.59" fill="#b0bec5" fill-opacity="0.59"/>
+<rect x="801.4" y="116.64" width="200.3" height="97.27" fill="#cfd8dc" fill-opacity="0.5" transform="rotate(246.4 901.55 165.28)"/>
+<circle cx="231.35" cy="1011.56" r="101.99" fill="#cfd8dc" fill-opacity="0.37"/>
+<text x="36" y="1048" font-family="sans-serif" font-size="48" fill="#e7ebed" fill-opacity="0.85">city</text>
+</svg>

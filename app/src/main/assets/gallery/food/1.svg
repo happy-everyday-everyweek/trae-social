@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#7a3018"/>
+<stop offset="1" stop-color="#c75b2c"/>
+</linearGradient>
+</defs>
+<rect width="1080" height="1080" fill="url(#bg)"/>
+<rect x="463.02" y="610.13" width="145.29" height="295.02" fill="#ff7043" fill-opacity="0.64" transform="rotate(18.63 535.67 757.64)"/>
+<rect x="417.65" y="363.09" width="295.73" height="105.95" fill="#ffab91" fill-opacity="0.36" transform="rotate(36.68 565.51 416.07)"/>
+<circle cx="153.97" cy="393.6" r="178.75" fill="#e64a19" fill-opacity="0.76"/>
+<polygon points="188.07,611.09 475.67,773.91 190.86,941.56" fill="#ffab91" fill-opacity="0.77"/>
+<polygon points="772.6,686.3 903.4,658.55 862.03,785.71" fill="#bf360c" fill-opacity="0.72"/>
+<text x="36" y="1048" font-family="sans-serif" font-size="48" fill="#ffefd8" fill-opacity="0.85">food</text>
+</svg>

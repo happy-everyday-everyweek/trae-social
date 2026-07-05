@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#1f3b2c"/>
+<stop offset="1" stop-color="#3e6f4e"/>
+</linearGradient>
+</defs>
+<rect width="1080" height="1080" fill="url(#bg)"/>
+<circle cx="1003.62" cy="481.43" r="143.53" fill="#7cb342" fill-opacity="0.81"/>
+<circle cx="92.05" cy="376.9" r="106.68" fill="#aed581" fill-opacity="0.76"/>
+<polygon points="210.72,426.69 68.81,338.31 216.31,259.6" fill="#aed581" fill-opacity="0.56"/>
+<circle cx="347.7" cy="984.74" r="132.14" fill="#aed581" fill-opacity="0.46"/>
+<text x="36" y="1048" font-family="sans-serif" font-size="48" fill="#edf6e4" fill-opacity="0.85">landscape</text>
+</svg>
