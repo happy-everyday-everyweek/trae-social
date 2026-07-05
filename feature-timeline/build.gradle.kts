@@ -42,6 +42,7 @@ android {
 
 dependencies {
     implementation(project(":core-designsystem"))
+    implementation(project(":core-data"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -61,6 +62,7 @@ dependencies {
     implementation(libs.paging.compose)
 
     implementation(libs.coil.compose)
+    implementation(libs.coil.svg)
 
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
