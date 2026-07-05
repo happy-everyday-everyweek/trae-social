@@ -1,31 +1,580 @@
 package com.trae.social.timeline
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.ImageLoader
+import coil.compose.SubcomposeAsyncImage
+import coil.decode.SvgDecoder
+import coil.request.ImageRequest
+import com.trae.social.designsystem.components.LoadingShimmer
+import com.trae.social.designsystem.components.SocialDivider
+import com.trae.social.designsystem.theme.LocalSocialColors
 
 /**
- * 时间线占位屏幕。
+ * 时间线（我的相册）页面：朋友圈式布局。
  *
- * Task 13+ 将替换为完整的时间线实现（按时间排序的推文流）。
+ * 数据来源：[TimelineViewModel.timelineFlow]，仅含带图推文，按日期分组展示。
+ *
+ * @param onPublishClick 空状态下"去发布第一条带图推文"按钮回调，由外层传入用于导航到发布页
  */
 @Composable
 fun TimelineScreen(
     modifier: Modifier = Modifier,
+    onPublishClick: () -> Unit = {},
 ) {
-    Box(
-        modifier = modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = "时间线（待实现）",
-            style = MaterialTheme.typography.headlineMedium,
-            textAlign = TextAlign.Center,
+    val viewModel: TimelineViewModel = hiltViewModel()
+    val state by viewModel.timelineFlow.collectAsStateWithLifecycle()
+
+    // 大图浏览器目标：当前点击的分组 + 起始下标
+    var viewerTarget by remember { mutableStateOf<ViewerTarget?>(null) }
+
+    Box(modifier = modifier.fillMaxSize()) {
+        when (val current = state) {
+            is TimelineUiState.Loading -> TimelineLoading()
+            is TimelineUiState.Empty -> TimelineEmpty(onPublishClick = onPublishClick)
+            is TimelineUiState.Error -> TimelineError(message = current.message)
+            is TimelineUiState.Success -> TimelineContent(
+                groups = current.groups,
+                onImageClick = { group, index ->
+                    viewerTarget = ViewerTarget(
+                        items = group.items,
+                        initialIndex = index,
+                        dateLabel = group.dateLabel,
+                    )
+                },
+            )
+        }
+    }
+
+    viewerTarget?.let { target ->
+        FullScreenImageViewer(
+            items = target.items,
+            initialIndex = target.initialIndex,
+            dateLabel = target.dateLabel,
+            onDismiss = { viewerTarget = null },
         )
     }
 }
+
+/**
+ * 大图浏览器打开目标。
+ */
+private data class ViewerTarget(
+    val items: List<TimelineItem>,
+    val initialIndex: Int,
+    val dateLabel: String,
+)
+
+/**
+ * 成功态内容：顶部信息 + 按日期分组的图片网格。
+ */
+@Composable
+private fun TimelineContent(
+    groups: List<TimelineGroup>,
+    onImageClick: (TimelineGroup, Int) -> Unit,
+) {
+    val colors = LocalSocialColors.current
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(colors.systemBackground),
+    ) {
+        item(key = "header") { TimelineHeader() }
+        items(items = groups, key = { group -> group.date.toString() }) { group ->
+            GroupBlock(group = group, onImageClick = onImageClick)
+            SocialDivider()
+        }
+    }
+}
+
+/**
+ * 顶部：用户头像（48dp）+ 昵称 + "我的相册"标题。
+ */
+@Composable
+private fun TimelineHeader() {
+    val colors = LocalSocialColors.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        MonogramAvatar(modifier = Modifier.size(48.dp))
+        Spacer(modifier = Modifier.size(12.dp))
+        Column {
+            Text(
+                text = "我的相册",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = colors.label,
+            )
+            Text(
+                text = "我",
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.secondaryLabel,
+            )
+        }
+    }
+}
+
+/**
+ * 默认头像：systemBlue 圆形 + "我"字。
+ *
+ * 当前数据层无"当前登录用户"概念，使用首字母占位头像。
+ */
+@Composable
+private fun MonogramAvatar(modifier: Modifier = Modifier) {
+    val colors = LocalSocialColors.current
+    Box(
+        modifier = modifier
+            .clip(CircleShape)
+            .background(colors.systemBlue),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = "我",
+            color = Color.White,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+/**
+ * 单日分组块：日期标题 + 图片网格。
+ */
+@Composable
+private fun GroupBlock(
+    group: TimelineGroup,
+    onImageClick: (TimelineGroup, Int) -> Unit,
+) {
+    val colors = LocalSocialColors.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Text(
+            text = group.dateLabel,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = colors.label,
+        )
+        Spacer(modifier = Modifier.size(8.dp))
+        MediaGrid(group = group, onImageClick = onImageClick)
+    }
+}
+
+/**
+ * 图片网格：根据单日图片数量差异化布局。
+ * - 1 张：大图
+ * - 2 张：并排两张
+ * - 3 张：1 大 + 2 小
+ * - 4+ 张：3 列网格，最多展示 9 张，第 9 张显示 "+N" 角标
+ */
+@Composable
+private fun MediaGrid(
+    group: TimelineGroup,
+    onImageClick: (TimelineGroup, Int) -> Unit,
+) {
+    val items = group.items
+    when (items.size) {
+        0 -> Unit
+        1 -> SingleImageLayout(item = items[0], onClick = { onImageClick(group, 0) })
+        2 -> TwoImageLayout(
+            items = items,
+            onClick = { index -> onImageClick(group, index) },
+        )
+        3 -> ThreeImageLayout(
+            items = items,
+            onClick = { index -> onImageClick(group, index) },
+        )
+        else -> GridImageLayout(
+            items = items,
+            onClick = { index -> onImageClick(group, index) },
+        )
+    }
+}
+
+/**
+ * 单图：fillMaxWidth，最大高度 320dp，圆角 12dp + 下方时间与摘要。
+ */
+@Composable
+private fun SingleImageLayout(item: TimelineItem, onClick: () -> Unit) {
+    Column {
+        TimelineImageCell(
+            item = item,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(320.dp)
+                .clip(RoundedCornerShape(12.dp)),
+            contentScale = ContentScale.Crop,
+            onClick = onClick,
+        )
+        ImageCaption(item = item)
+    }
+}
+
+/**
+ * 两图：并排，各 fillMaxWidth/2，高度 160dp + 各自下方时间与摘要。
+ */
+@Composable
+private fun TwoImageLayout(items: List<TimelineItem>, onClick: (Int) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        items.forEachIndexed { index, item ->
+            Column(modifier = Modifier.weight(1f)) {
+                TimelineImageCell(
+                    item = item,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(160.dp)
+                        .clip(RoundedCornerShape(12.dp)),
+                    contentScale = ContentScale.Crop,
+                    onClick = { onClick(index) },
+                )
+                ImageCaption(item = item)
+            }
+        }
+    }
+}
+
+/**
+ * 三图：1 大图（fillMaxWidth 高 200dp）+ 下方两小图（各 fillMaxWidth/2 高 100dp）。
+ */
+@Composable
+private fun ThreeImageLayout(items: List<TimelineItem>, onClick: (Int) -> Unit) {
+    val big = items[0]
+    val smalls = items.drop(1)
+    Column {
+        TimelineImageCell(
+            item = big,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(200.dp)
+                .clip(RoundedCornerShape(12.dp)),
+            contentScale = ContentScale.Crop,
+            onClick = { onClick(0) },
+        )
+        ImageCaption(item = big)
+        Spacer(modifier = Modifier.size(2.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            smalls.forEachIndexed { index, item ->
+                TimelineImageCell(
+                    item = item,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(100.dp)
+                        .clip(RoundedCornerShape(8.dp)),
+                    contentScale = ContentScale.Crop,
+                    onClick = { onClick(index + 1) },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 4+ 张：3 列网格，每格 1:1，间距 2dp。
+ * 最多展示 9 格；超过 9 张时，第 9 格显示 "+N" 角标（N = 总数 - 9）。
+ */
+@Composable
+private fun GridImageLayout(items: List<TimelineItem>, onClick: (Int) -> Unit) {
+    val totalCount = items.size
+    val displayCount = minOf(totalCount, GRID_MAX_DISPLAY)
+    val rows = (0 until displayCount).chunked(GRID_COLUMNS)
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        rows.forEach { rowIndices ->
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                rowIndices.forEach { index ->
+                    val isOverflowCell = index == GRID_MAX_DISPLAY - 1 && totalCount > GRID_MAX_DISPLAY
+                    val overlay = if (isOverflowCell) "+${totalCount - GRID_MAX_DISPLAY}" else null
+                    Box(modifier = Modifier.weight(1f)) {
+                        TimelineImageCell(
+                            item = items[index],
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(1f)
+                                .clip(RoundedCornerShape(4.dp)),
+                            contentScale = ContentScale.Crop,
+                            onClick = { onClick(index) },
+                        )
+                        if (overlay != null) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Black.copy(alpha = 0.45f)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = overlay,
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 单张图片单元格：Coil 加载（含 SVG），加载/失败态显示 shimmer 占位。
+ */
+@Composable
+private fun TimelineImageCell(
+    item: TimelineItem,
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Crop,
+    onClick: () -> Unit,
+) {
+    val imageLoader = rememberSvgImageLoader()
+    val context = LocalContext.current
+    val request = remember(item.mediaPath, context) {
+        ImageRequest.Builder(context)
+            .data(mediaPathToCoilUrl(item.mediaPath))
+            .crossfade(true)
+            .build()
+    }
+    SubcomposeAsyncImage(
+        model = request,
+        contentDescription = item.text,
+        imageLoader = imageLoader,
+        contentScale = contentScale,
+        modifier = modifier.clickable(onClick = onClick),
+        loading = {
+            LoadingShimmer(modifier = Modifier.fillMaxSize(), cornerRadius = 12.dp)
+        },
+        error = {
+            LoadingShimmer(modifier = Modifier.fillMaxSize(), cornerRadius = 12.dp)
+        },
+    )
+}
+
+/**
+ * 图片下方说明：发布时间（HH:mm）+ 文本摘要（1 行，省略号）。
+ */
+@Composable
+private fun ImageCaption(item: TimelineItem) {
+    val colors = LocalSocialColors.current
+    Column(modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)) {
+        Text(
+            text = item.timeLabel,
+            style = MaterialTheme.typography.labelSmall,
+            color = colors.tertiaryLabel,
+        )
+        if (item.text.isNotBlank()) {
+            Text(
+                text = item.text,
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.secondaryLabel,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/**
+ * 加载态：shimmer 占位列表。
+ */
+@Composable
+private fun TimelineLoading() {
+    val colors = LocalSocialColors.current
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(colors.systemBackground)
+            .padding(16.dp),
+    ) {
+        repeat(3) {
+            LoadingShimmer(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(20.dp),
+                cornerRadius = 6.dp,
+            )
+            Spacer(modifier = Modifier.size(12.dp))
+            LoadingShimmer(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(220.dp),
+                cornerRadius = 12.dp,
+            )
+            Spacer(modifier = Modifier.size(24.dp))
+        }
+    }
+}
+
+/**
+ * 空状态：几何插画 + "去发布第一条带图推文"按钮。
+ */
+@Composable
+private fun TimelineEmpty(onPublishClick: () -> Unit) {
+    val colors = LocalSocialColors.current
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(colors.systemBackground)
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        EmptyIllustration(modifier = Modifier.size(160.dp))
+        Spacer(modifier = Modifier.size(24.dp))
+        Text(
+            text = "还没有带图推文",
+            style = MaterialTheme.typography.titleMedium,
+            color = colors.label,
+        )
+        Spacer(modifier = Modifier.size(8.dp))
+        Text(
+            text = "发布第一条带图推文，开始记录你的相册",
+            style = MaterialTheme.typography.bodySmall,
+            color = colors.secondaryLabel,
+        )
+        Spacer(modifier = Modifier.size(24.dp))
+        Button(onClick = onPublishClick) {
+            Text(text = "去发布第一条带图推文")
+        }
+    }
+}
+
+/**
+ * 空状态几何插画：圆 / 矩形 / 三角形组合，呼应图库生成器的几何风格。
+ */
+@Composable
+private fun EmptyIllustration(modifier: Modifier = Modifier) {
+    val colors = LocalSocialColors.current
+    androidx.compose.foundation.Canvas(modifier = modifier) {
+        val canvasSize = size.minDimension
+        val ringColor = colors.systemBlue.copy(alpha = 0.85f)
+        val rectColor = colors.systemPurple.copy(alpha = 0.6f)
+        val triColor = colors.systemOrange.copy(alpha = 0.7f)
+
+        // 圆
+        drawCircle(
+            color = ringColor,
+            radius = canvasSize * 0.28f,
+            center = Offset(canvasSize * 0.38f, canvasSize * 0.40f),
+            style = Stroke(width = canvasSize * 0.04f),
+        )
+        // 实心小圆
+        drawCircle(
+            color = colors.systemGreen.copy(alpha = 0.8f),
+            radius = canvasSize * 0.10f,
+            center = Offset(canvasSize * 0.70f, canvasSize * 0.30f),
+        )
+        // 矩形
+        drawRect(
+            color = rectColor,
+            topLeft = Offset(canvasSize * 0.58f, canvasSize * 0.55f),
+            size = Size(canvasSize * 0.28f, canvasSize * 0.28f),
+        )
+        // 三角形
+        val path = Path().apply {
+            moveTo(canvasSize * 0.22f, canvasSize * 0.78f)
+            lineTo(canvasSize * 0.45f, canvasSize * 0.78f)
+            lineTo(canvasSize * 0.335f, canvasSize * 0.55f)
+            close()
+        }
+        drawPath(path = path, color = triColor)
+    }
+}
+
+/**
+ * 错误态。
+ */
+@Composable
+private fun TimelineError(message: String) {
+    val colors = LocalSocialColors.current
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(colors.systemBackground)
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            text = "加载失败",
+            style = MaterialTheme.typography.titleMedium,
+            color = colors.label,
+        )
+        Spacer(modifier = Modifier.size(8.dp))
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodySmall,
+            color = colors.secondaryLabel,
+        )
+    }
+}
+
+/**
+ * 构造支持 SVG 解码的 ImageLoader（feature 模块内独立持有，避免改动 app 全局配置）。
+ */
+@Composable
+internal fun rememberSvgImageLoader(): ImageLoader {
+    val context = LocalContext.current
+    return remember {
+        ImageLoader.Builder(context)
+            .components { add(SvgDecoder.Factory()) }
+            .build()
+    }
+}
+
+/**
+ * 将 TweetEntity.mediaPath（asset 相对路径）转换为 Coil 可加载的地址。
+ * 已是完整协议头（http/https/file/content）时原样返回，否则补 "file:///android_asset/" 前缀。
+ */
+internal fun mediaPathToCoilUrl(path: String): String {
+    if (path.isBlank()) return path
+    val hasScheme = path.startsWith("http://") ||
+        path.startsWith("https://") ||
+        path.startsWith("file://") ||
+        path.startsWith("content://")
+    return if (hasScheme) path else "file:///android_asset/$path"
+}
+
+private const val GRID_COLUMNS = 3
+private const val GRID_MAX_DISPLAY = 9
