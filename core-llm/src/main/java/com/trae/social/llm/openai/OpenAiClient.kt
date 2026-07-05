@@ -1,0 +1,104 @@
+package com.trae.social.llm.openai
+
+import com.trae.social.llm.ChatConfig
+import com.trae.social.llm.ChatMessage
+import com.trae.social.llm.LlmClient
+import com.trae.social.llm.LlmProvider
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.serialization.json.Json
+
+/**
+ * OpenAI（及兼容 OpenAI 协议的自定义端点）客户端实现。
+ *
+ * SSE 协议：每个事件以 `data: {json}\n` 行携带 payload，事件间以空行分隔；
+ * 流终止标记为 `data: [DONE]`。增量文本位于 `choices[0].delta.content`。
+ *
+ * 流式失败时（且尚未 emit 任何 token），自动降级为 [chatSync] 后单条 emit（RISK-4）。
+ */
+class OpenAiClient(
+    private val api: OpenAiApi,
+    private val model: String,
+    private val json: Json = Json { ignoreUnknownKeys = true; isLenient = true },
+) : LlmClient {
+
+    override val provider: LlmProvider = LlmProvider.OPENAI
+
+    override suspend fun chat(messages: List<ChatMessage>, config: ChatConfig): Flow<String> = flow {
+        var emitted = false
+        try {
+            val body = api.streamChat(buildRequest(messages, config, stream = true))
+            body.use { responseBody ->
+                val source = responseBody.source()
+                while (!source.exhausted()) {
+                    val line = source.readUtf8Line() ?: break
+                    if (!line.startsWith(DATA_PREFIX)) continue
+                    val payload = line.removePrefix(DATA_PREFIX).trim()
+                    if (payload.isEmpty()) continue
+                    if (payload == DONE_MARKER) break
+                    val token = parseDelta(payload) ?: continue
+                    if (token.isNotEmpty()) {
+                        emit(token)
+                        emitted = true
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            if (!emitted) {
+                val full = runCatching { chatSync(messages, config) }.getOrDefault("")
+                if (full.isNotEmpty()) emit(full)
+            }
+        }
+    }
+
+    override suspend fun chatSync(messages: List<ChatMessage>, config: ChatConfig): String {
+        val response = api.chat(buildRequest(messages, config, stream = false))
+        return response.choices.firstOrNull()?.message?.content.orEmpty()
+    }
+
+    override suspend fun ping(): Boolean {
+        val result = runCatching {
+            chatSync(
+                listOf(ChatMessage(ChatMessage.Role.USER, "ping")),
+                ChatConfig(temperature = 0.0f, maxTokens = 8),
+            )
+        }
+        return result.getOrDefault("").isNotBlank()
+    }
+
+    private fun buildRequest(
+        messages: List<ChatMessage>,
+        config: ChatConfig,
+        stream: Boolean,
+    ): OpenAiRequest {
+        val mapped = messages.map { it.toOpenAi() }
+        val format = if (config.jsonMode) OpenAiResponseFormat() else null
+        return OpenAiRequest(
+            model = model,
+            messages = mapped,
+            temperature = config.temperature,
+            maxTokens = config.maxTokens,
+            stream = stream,
+            responseFormat = format,
+        )
+    }
+
+    private fun parseDelta(payload: String): String? {
+        val chunk = runCatching { json.decodeFromString<OpenAiResponse>(payload) }.getOrNull()
+        return chunk?.choices?.firstOrNull()?.delta?.content
+    }
+
+    private fun ChatMessage.toOpenAi(): OpenAiMessage = OpenAiMessage(
+        role = when (role) {
+            ChatMessage.Role.SYSTEM -> "system"
+            ChatMessage.Role.USER -> "user"
+            ChatMessage.Role.ASSISTANT -> "assistant"
+        },
+        content = content,
+    )
+
+    private companion object {
+        const val DATA_PREFIX = "data:"
+        const val DONE_MARKER = "[DONE]"
+    }
+}

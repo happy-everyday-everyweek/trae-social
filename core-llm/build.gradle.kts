@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "com.trae.social.core.llm"
+    namespace = "com.trae.social.llm"
     compileSdk = 34
 
     defaultConfig {
