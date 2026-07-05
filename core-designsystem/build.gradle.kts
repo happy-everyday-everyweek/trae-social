@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.trae.social.core.designsystem"
+    namespace = "com.trae.social.designsystem"
     compileSdk = 34
 
     defaultConfig {
@@ -47,6 +47,11 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.core.ktx)
+    // SocialTheme 中需要 WindowCompat 设置透明状态栏与图标色
+    implementation(libs.androidx.activity.compose)
+    // Avatar 图片加载与 SVG 支持
+    implementation(libs.coil.compose)
+    implementation(libs.coil.svg)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)

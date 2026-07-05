@@ -5,7 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import com.trae.social.app.ui.PlaceholderScreen
-import com.trae.social.app.ui.theme.SocialTheme
+import com.trae.social.designsystem.theme.SocialTheme
 import dagger.hilt.android.AndroidEntryPoint
 
 /**
