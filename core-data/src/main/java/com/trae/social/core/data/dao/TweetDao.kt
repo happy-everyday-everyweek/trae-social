@@ -46,6 +46,9 @@ interface TweetDao {
     @Query("SELECT * FROM tweets WHERE deduplicationKey = :key LIMIT 1")
     suspend fun getByDeduplicationKey(key: String): TweetEntity?
 
+    @Query("SELECT * FROM tweets WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): TweetEntity?
+
     @Query("SELECT COUNT(*) FROM tweets WHERE authorId = :authorId AND createdAt >= :startOfDay")
     suspend fun countByAuthorSince(authorId: String, startOfDay: Long): Int
 

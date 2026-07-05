@@ -46,4 +46,8 @@ object AssetProviderModule {
     @Provides
     @Singleton
     fun provideAssetProvider(impl: AssetProviderImpl): AssetProvider = impl
+
+    @Provides
+    @Singleton
+    fun provideLlmConfigProvider(impl: AppLlmConfigProvider): com.trae.social.llm.LlmConfigProvider = impl
 }

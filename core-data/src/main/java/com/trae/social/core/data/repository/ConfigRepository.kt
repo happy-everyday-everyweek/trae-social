@@ -10,6 +10,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.trae.social.core.data.config.AiActivityLevel
 import com.trae.social.core.data.config.LlmProvider
 import com.trae.social.core.data.di.SecurePreferences
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.Dispatchers
@@ -32,7 +33,7 @@ private val Context.socialDataStore: DataStore<Preferences> by preferencesDataSt
  */
 @Singleton
 class ConfigRepository @Inject constructor(
-    private val context: Context,
+    @ApplicationContext private val context: Context,
     @SecurePreferences private val secureSharedPreferences: android.content.SharedPreferences
 ) {
 

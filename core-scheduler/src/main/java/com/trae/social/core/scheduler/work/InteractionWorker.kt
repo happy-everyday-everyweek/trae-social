@@ -1,0 +1,324 @@
+package com.trae.social.core.scheduler.work
+
+import android.content.Context
+import androidx.hilt.work.HiltWorker
+import androidx.work.CoroutineWorker
+import androidx.work.WorkerParameters
+import androidx.work.workDataOf
+import com.trae.social.core.data.entity.InteractionEntity
+import com.trae.social.core.data.entity.InteractionType
+import com.trae.social.core.data.entity.SchedulerLogEntity
+import com.trae.social.core.data.repository.AccountRepository
+import com.trae.social.core.data.repository.InteractionRepository
+import com.trae.social.core.data.repository.TweetRepository
+import com.trae.social.core.scheduler.ratelimit.SchedulerRateLimiter
+import com.trae.social.llm.ChatConfig
+import com.trae.social.llm.LlmProviderRegistry
+import com.trae.social.llm.prompt.CommentPromptBuilder
+import com.trae.social.llm.prompt.TweetPromptBuilder
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedInject
+import timber.log.Timber
+import java.util.UUID
+import kotlin.math.ln
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.random.Random
+
+/**
+ * 互动排程 Worker（SubTask 8.3）。
+ *
+ * 当一条新推文写入后，由调度器入队本 Worker：
+ * 1. 加载被评推文与作者；
+ * 2. 从虚拟账号池中按人设相似度（bio 关键词 + 职业重合）筛选 3-8 个评论者；
+ * 3. 按概率分配互动类型（LIKE 50% / COMMENT 30% / RETWEET 15% / FOLLOW 5%）；
+ * 4. 按对数正态分布为每条互动排程延迟触发时刻；
+ * 5. 评论者批量调用一次 LLM 生成评论文本；
+ * 6. 写 [InteractionEntity]（scheduledAt = now + delay）；
+ * 7. 更新推文计数（最终计数由 [PendingInteractionWorker] 在执行时累加）。
+ *
+ * 注意：本 Worker 仅负责"即时排程"，实际延迟执行由 [PendingInteractionWorker] 周期扫描完成。
+ */
+@HiltWorker
+class InteractionWorker @AssistedInject constructor(
+    @Assisted appContext: Context,
+    @Assisted params: WorkerParameters,
+    private val accountRepository: AccountRepository,
+    private val tweetRepository: TweetRepository,
+    private val interactionRepository: InteractionRepository,
+    private val llmRegistry: LlmProviderRegistry,
+    private val rateLimiter: SchedulerRateLimiter,
+    private val logDao: com.trae.social.core.data.dao.SchedulerLogDao,
+) : CoroutineWorker(appContext, params) {
+
+    private val commentBuilder = CommentPromptBuilder()
+
+    override suspend fun doWork(): Result {
+        val tweetId = inputData.getString(WorkerKeys.KEY_TWEET_ID)
+        if (tweetId.isNullOrBlank()) {
+            return Result.failure(workDataOf(WorkerKeys.KEY_ERROR to "missing tweetId"))
+        }
+        val started = System.currentTimeMillis()
+        var status = "success"
+        var error: String? = null
+
+        try {
+            // 1. 查推文与作者
+            val tweet = tweetRepository.getById(tweetId)
+            if (tweet == null) {
+                Timber.w("推文 %s 不存在，跳过互动排程", tweetId)
+                status = "skipped_no_tweet"
+                logSchedulerEvent(tweetId, started, status, "tweet not found")
+                return Result.success(workDataOf(WorkerKeys.KEY_RESULT to status))
+            }
+            val author = accountRepository.getById(tweet.authorId)
+            if (author == null) {
+                status = "skipped_no_author"
+                logSchedulerEvent(tweet.authorId, started, status, "author not found")
+                return Result.success(workDataOf(WorkerKeys.KEY_RESULT to status))
+            }
+
+            // 2. 选评论者：从虚拟账号中按相似度筛选
+            val candidates = selectCommenters(tweet.authorId, author.profession, author.bio)
+            if (candidates.isEmpty()) {
+                status = "skipped_no_commenters"
+                logSchedulerEvent(tweet.authorId, started, status, null)
+                return Result.success(workDataOf(WorkerKeys.KEY_RESULT to status))
+            }
+
+            // 3. 分配互动类型
+            val now = System.currentTimeMillis()
+            val random = Random(now)
+            val assignments = candidates.map { account ->
+                val type = assignInteractionType(random)
+                val delayMillis = scheduleDelayFor(type, random)
+                InteractionAssignment(
+                    accountId = account.id,
+                    type = type,
+                    delayMillis = delayMillis,
+                    persona = toPersonaInput(account),
+                )
+            }
+
+            // 4. 评论批量化：收集需评论者，一次调用 LLM
+            val commentAssignments = assignments.filter { it.type == InteractionType.COMMENT }
+            val commentTextsByAccount: Map<String, String> = if (commentAssignments.isNotEmpty()) {
+                generateComments(tweet, author, commentAssignments, random)
+            } else {
+                emptyMap()
+            }
+
+            // 5. 写 InteractionEntity（排程）
+            val interactions = assignments.map { assignment ->
+                InteractionEntity(
+                    id = UUID.randomUUID().toString(),
+                    tweetId = tweet.id,
+                    accountId = assignment.accountId,
+                    type = assignment.type,
+                    content = commentTextsByAccount[assignment.accountId],
+                    createdAt = now,
+                    scheduledAt = now + assignment.delayMillis,
+                    executedAt = null,
+                )
+            }
+            interactionRepository.scheduleInteractions(interactions)
+
+            // 6. 写调度日志
+            status = "scheduled_${interactions.size}"
+            logSchedulerEvent(tweet.authorId, started, status, null)
+            return Result.success(
+                workDataOf(
+                    WorkerKeys.KEY_RESULT to status,
+                    WorkerKeys.KEY_TWEET_ID to tweet.id,
+                )
+            )
+        } catch (t: Throwable) {
+            Timber.e(t, "InteractionWorker 执行失败 tweetId=%s", tweetId)
+            error = t.message ?: t.javaClass.simpleName
+            status = "error"
+            logSchedulerEvent(tweetId, started, status, error)
+            return if (runAttemptCount >= MAX_RUN_ATTEMPTS) {
+                Result.failure(workDataOf(WorkerKeys.KEY_ERROR to error))
+            } else {
+                Result.retry()
+            }
+        }
+    }
+
+    /**
+     * 从虚拟账号中按人设相似度筛选 3-8 个评论者。
+     *
+     * 简化实现：先按职业重合度过滤，再随机选取；
+     * 候选不足时回退到全量随机选取。
+     */
+    private suspend fun selectCommenters(
+        authorId: String,
+        authorProfession: String,
+        authorBio: String,
+    ): List<com.trae.social.core.data.entity.AccountEntity> {
+        val all = runCatching { accountRepository.getAccounts(page = 1) }.getOrDefault(emptyList())
+            .filter { it.isVirtual && it.id != authorId }
+        if (all.isEmpty()) return emptyList()
+
+        val authorKeywords = extractKeywords(authorBio + " " + authorProfession)
+        val scored = all.map { account ->
+            val overlap = countOverlap(authorKeywords, extractKeywords(account.bio + " " + account.profession))
+            val professionMatch = if (account.profession == authorProfession) 2 else 0
+            account to (overlap + professionMatch)
+        }
+        // 取相似度 Top 30% 后随机选取
+        val threshold = scored.maxOfOrNull { it.second } ?: 0
+        val pool = if (threshold > 0) {
+            scored.filter { it.second >= threshold / 2 }.map { it.first }
+        } else {
+            all
+        }
+        val targetCount = min(MAX_COMMENTERS, max(MIN_COMMENTERS, pool.size))
+        return pool.shuffled(Random(System.currentTimeMillis())).take(targetCount)
+    }
+
+    private fun extractKeywords(text: String): Set<String> {
+        return text.split(Regex("[\\s,，。、；;:：!！?？]+"))
+            .filter { it.isNotBlank() && it.length >= 2 }
+            .map { it.lowercase() }
+            .toSet()
+    }
+
+    private fun countOverlap(a: Set<String>, b: Set<String>): Int = a.intersect(b).size
+
+    /**
+     * 按概率分配互动类型。
+     */
+    private fun assignInteractionType(random: Random): InteractionType {
+        val r = random.nextDouble()
+        return when {
+            r < LIKE_THRESHOLD -> InteractionType.LIKE
+            r < LIKE_THRESHOLD + COMMENT_THRESHOLD -> InteractionType.COMMENT
+            r < LIKE_THRESHOLD + COMMENT_THRESHOLD + RETWEET_THRESHOLD -> InteractionType.RETWEET
+            else -> InteractionType.FOLLOW
+        }
+    }
+
+    /**
+     * 按对数正态分布生成互动延迟（毫秒）。
+     *
+     * - LIKE：30s - 5min
+     * - COMMENT：2min - 15min
+     * - RETWEET：5min - 30min
+     * - FOLLOW：1min - 10min
+     */
+    private fun scheduleDelayFor(type: InteractionType, random: Random): Long {
+        val (minMs, maxMs) = when (type) {
+            InteractionType.LIKE -> 30_000L to 5 * 60_000L
+            InteractionType.COMMENT -> 2 * 60_000L to 15 * 60_000L
+            InteractionType.RETWEET -> 5 * 60_000L to 30 * 60_000L
+            InteractionType.FOLLOW -> 60_000L to 10 * 60_000L
+        }
+        // 对数正态分布：在 [minMs, maxMs] 内取值
+        val logMin = ln(minMs.toDouble())
+        val logMax = ln(maxMs.toDouble())
+        val mean = (logMin + logMax) / 2
+        val std = (logMax - logMin) / 4
+        val sample = random.nextDouble()
+        // 简化：用均匀分布在 log 空间采样后取指数，近似对数正态
+        val logValue = logMin + sample * (logMax - logMin)
+        var raw = Math.exp(logValue).toLong()
+        if (raw < minMs) raw = minMs
+        if (raw > maxMs) raw = maxMs
+        return raw
+    }
+
+    /**
+     * 批量生成评论：一次 LLM 调用为所有评论者生成评论文本。
+     */
+    private suspend fun generateComments(
+        tweet: com.trae.social.core.data.entity.TweetEntity,
+        author: com.trae.social.core.data.entity.AccountEntity,
+        commenters: List<InteractionAssignment>,
+        random: Random,
+    ): Map<String, String> {
+        if (commenters.isEmpty()) return emptyMap()
+        rateLimiter.acquire()
+
+        val personas = commenters.map { it.persona }
+        val messages = commentBuilder.build(
+            tweet = CommentPromptBuilder.TweetInput(
+                text = tweet.text,
+                authorName = author.displayName,
+                authorProfession = author.profession,
+            ),
+            commenters = personas,
+        )
+        val raw = try {
+            llmRegistry.getDefaultClient().chatSync(
+                messages = messages,
+                config = ChatConfig(temperature = 0.9f, maxTokens = 512, jsonMode = true),
+            )
+        } catch (t: Throwable) {
+            Timber.w(t, "批量生成评论失败，跳过评论内容")
+            return emptyMap()
+        }
+        val results = CommentPromptBuilder.parseCommentResults(raw)
+        val mapping = mutableMapOf<String, String>()
+        results.forEach { result ->
+            val idx = result.commenterIndex
+            if (idx in commenters.indices && result.text.isNotBlank()) {
+                mapping[commenters[idx].accountId] = result.text.take(MAX_COMMENT_LENGTH)
+            }
+        }
+        return mapping
+    }
+
+    private fun toPersonaInput(
+        account: com.trae.social.core.data.entity.AccountEntity,
+    ): TweetPromptBuilder.PersonaInput = TweetPromptBuilder.PersonaInput(
+        displayName = account.displayName,
+        profession = account.profession,
+        ageRange = account.ageRange,
+        culturalBackground = account.culturalBackground,
+        worldview = account.worldview,
+        values = account.values,
+        languageStyle = account.languageStyle,
+        catchphrase = account.catchphrase.joinToString("、"),
+        emojiPreference = account.emojiPreference,
+        typoRate = account.typoRate,
+        recentMood = account.recentMood.ifBlank { "平和" },
+    )
+
+    private suspend fun logSchedulerEvent(
+        accountId: String,
+        startedAt: Long,
+        status: String,
+        error: String?,
+    ) {
+        runCatching {
+            logDao.insert(
+                SchedulerLogEntity(
+                    timestamp = System.currentTimeMillis(),
+                    accountId = accountId,
+                    action = "interaction_schedule",
+                    result = status,
+                    durationMs = System.currentTimeMillis() - startedAt,
+                    errorMessage = error,
+                )
+            )
+        }.onFailure { Timber.w(it, "写调度日志失败") }
+    }
+
+    private data class InteractionAssignment(
+        val accountId: String,
+        val type: InteractionType,
+        val delayMillis: Long,
+        val persona: TweetPromptBuilder.PersonaInput,
+    )
+
+    private companion object {
+        const val MAX_RUN_ATTEMPTS = 3
+        const val MIN_COMMENTERS = 3
+        const val MAX_COMMENTERS = 8
+        const val MAX_COMMENT_LENGTH = 100
+        const val LIKE_THRESHOLD = 0.50
+        const val COMMENT_THRESHOLD = 0.30
+        const val RETWEET_THRESHOLD = 0.15
+    }
+}

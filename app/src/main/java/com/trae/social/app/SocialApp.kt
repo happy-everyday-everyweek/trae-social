@@ -2,7 +2,12 @@ package com.trae.social.app
 
 import android.app.Application
 import android.util.Log
+import androidx.hilt.work.HiltWorkerFactory
+import androidx.work.Configuration
+import com.trae.social.core.scheduler.SchedulerInitializer
+import dagger.hilt.android.HiltAndroidApp
 import timber.log.Timber
+import javax.inject.Inject
 
 /**
  * 全局 Application 入口。
@@ -10,10 +15,14 @@ import timber.log.Timber
  * 职责：
  * 1. 初始化 Timber 日志（debug 树 + release 脱敏树）。
  * 2. 注册全局未捕获异常处理器，记录崩溃信息。
- * 3. 预留 WorkManager 初始化钩子（后续 Task 8 实现）。
+ * 3. 实现 [Configuration.Provider] 接入 [HiltWorkerFactory]，使 @HiltWorker 可注入依赖。
+ * 4. 调用 [SchedulerInitializer.initialize] 启动调度器（前台服务 + 调度恢复 + 周期任务）。
  */
-@dagger.hilt.android.HiltAndroidApp
-class SocialApp : Application() {
+@HiltAndroidApp
+class SocialApp : Application(), Configuration.Provider {
+
+    @Inject
+    lateinit var workerFactory: HiltWorkerFactory
 
     override fun onCreate() {
         super.onCreate()
@@ -21,12 +30,22 @@ class SocialApp : Application() {
         initTimber()
         installCrashHandler()
 
-        // TODO(Task 8): 在此初始化 WorkManager 自定义 Configuration。
-        // 当前使用默认 Configuration（AndroidManifest 已通过 androidx.startup
-        // 自动初始化 WorkManager）；后续在 Task 8 中切换为 Configuration.Provider
-        // 以注入 HiltWorkerFactory，实现依赖注入的 Worker 构建。
-        initWorkManagerHook()
+        // Task 8：初始化调度器（前台服务 + 调度恢复 + 周期 Worker 入队）
+        SchedulerInitializer.initialize(this)
     }
+
+    /**
+     * 为 WorkManager 提供 Hilt 注入的 WorkerFactory。
+     *
+     * 注意：AndroidManifest 已通过 androidx.startup 自动初始化 WorkManager，
+     * 但要使 HiltWorkerFactory 生效，需移除默认 Initializer 并由本类提供 Configuration。
+     * 见 AndroidManifest.xml 中对 androidx.startup WorkManagerInitializer 的移除声明。
+     */
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder()
+            .setWorkerFactory(workerFactory)
+            .setMinimumLoggingLevel(android.util.Log.INFO)
+            .build()
 
     /**
      * 初始化 Timber：debug 构建使用 DebugTree 打印完整日志；
@@ -52,13 +71,6 @@ class SocialApp : Application() {
             Timber.e(throwable, "未捕获异常 thread=%s", thread.name)
             previousHandler?.uncaughtException(thread, throwable)
         }
-    }
-
-    /**
-     * WorkManager 初始化钩子，当前为占位实现。
-     */
-    private fun initWorkManagerHook() {
-        Timber.i("WorkManager 钩子占位：将在 Task 8 中接入 HiltWorkerFactory")
     }
 
     /**
