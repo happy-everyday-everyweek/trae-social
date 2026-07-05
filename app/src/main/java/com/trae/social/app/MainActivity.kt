@@ -185,7 +185,11 @@ private fun MainScaffold() {
                 popExitTransition = { slideOutVertically(targetOffsetY = { it }) },
             ) {
                 // publish 全屏，不应用底部 padding 以覆盖整屏
-                PublishScreen(modifier = Modifier.fillMaxSize())
+                PublishScreen(
+                    modifier = Modifier.fillMaxSize(),
+                    onPublished = { navController.popBackStack() },
+                    onClose = { navController.popBackStack() },
+                )
             }
         }
     }

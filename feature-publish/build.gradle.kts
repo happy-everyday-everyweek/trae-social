@@ -42,11 +42,16 @@ android {
 
 dependencies {
     implementation(project(":core-designsystem"))
+    implementation(project(":core-data"))
+    implementation(project(":core-scheduler"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
+
+    // WorkManager：用于排程 InteractionWorker（触发 AI 互动）
+    implementation(libs.work.runtime.ktx)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
