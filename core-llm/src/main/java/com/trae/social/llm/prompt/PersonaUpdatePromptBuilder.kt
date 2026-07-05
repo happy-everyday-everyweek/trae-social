@@ -1,0 +1,157 @@
+package com.trae.social.llm.prompt
+
+import com.trae.social.llm.ChatMessage
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+
+/**
+ * 人设动态字段更新 Prompt 构建器（SubTask 5.3）。
+ *
+ * 基于账号最近一周的活动，让 LLM 演进其人生经历、工作信息与情绪状态，
+ * 同时通过字符级 Jaccard 相似度校验防止人设突变（RISK-2）。
+ *
+ * 风险控制：
+ * - RISK-2（人设漂移）：system prompt 要求保持一致性，[shouldRollback] 对低相似度结果回退。
+ * - RISK-13（JSON 解析）：[parsePersonaUpdate] 宽松解析，失败返回 null。
+ */
+class PersonaUpdatePromptBuilder {
+
+    /**
+     * 账号当前动态字段。
+     *
+     * @param lifeStory 人生经历。
+     * @param workInfo 工作信息。
+     * @param mood 当前情绪状态。
+     * @param relationshipNetwork 关系网络描述。
+     */
+    data class PersonaDynamicInput(
+        val lifeStory: String,
+        val workInfo: String,
+        val mood: String,
+        val relationshipNetwork: String,
+    )
+
+    /**
+     * 人设更新结果。
+     */
+    data class PersonaUpdateResult(
+        val lifeStory: String,
+        val workInfo: String,
+        val mood: String,
+    )
+
+    /**
+     * 构建对话消息列表。
+     *
+     * @param current 当前动态字段。
+     * @param recentEvents 最近一周该账号的推文与互动事件描述列表。
+     * @return system + user 两条消息。
+     */
+    fun build(
+        current: PersonaDynamicInput,
+        recentEvents: List<String>,
+    ): List<ChatMessage> {
+        val system = buildSystemPrompt()
+        val user = buildUserPrompt(current, recentEvents)
+        return listOf(
+            ChatMessage(ChatMessage.Role.SYSTEM, system),
+            ChatMessage(ChatMessage.Role.USER, user),
+        )
+    }
+
+    private fun buildSystemPrompt(): String {
+        return buildString {
+            appendLine("你是人设演进引擎。基于角色最近的活动，更新其人生经历、工作信息与情绪状态。")
+            appendLine("保持人设一致性，不要突变：新内容应是在原内容基础上的自然推进，而非推翻重写。")
+            appendLine("输出前检查内容不包含暴力、仇恨、色情或对真实人物的虚假陈述。")
+        }
+    }
+
+    private fun buildUserPrompt(
+        current: PersonaDynamicInput,
+        recentEvents: List<String>,
+    ): String {
+        return buildString {
+            appendLine("【当前动态字段】")
+            appendLine("- 人生经历：${current.lifeStory}")
+            appendLine("- 工作信息：${current.workInfo}")
+            appendLine("- 当前情绪：${current.mood}")
+            appendLine("- 关系网络：${current.relationshipNetwork}")
+            appendLine()
+            appendLine("【最近一周活动事件】")
+            if (recentEvents.isEmpty()) {
+                appendLine("（暂无近期事件）")
+            } else {
+                recentEvents.forEachIndexed { i, e -> appendLine("${i + 1}. $e") }
+            }
+            appendLine()
+            appendLine("请输出 JSON：{\"lifeStory\": \"...\", \"workInfo\": \"...\", \"mood\": \"...\"}。")
+            appendLine("不要输出 JSON 以外的任何说明文字。")
+        }
+    }
+
+    companion object {
+
+        private val parser: Json = Json {
+            ignoreUnknownKeys = true
+            isLenient = true
+            coerceInputValues = true
+        }
+
+        /**
+         * 宽松解析人设更新结果。
+         *
+         * 提取 JSON 对象后按字段读取；任一关键字段缺失返回 null。
+         */
+        fun parsePersonaUpdate(rawText: String): PersonaUpdateResult? {
+            val jsonStr = PromptUtils.extractJson(rawText) ?: return null
+            val obj = PromptUtils.safeParseJson(jsonStr, parser) ?: return null
+
+            val lifeStory = obj["lifeStory"]?.let { (it as? JsonPrimitive)?.content }
+                ?: return null
+            val workInfo = obj["workInfo"]?.let { (it as? JsonPrimitive)?.content }
+                ?: return null
+            val mood = obj["mood"]?.let { (it as? JsonPrimitive)?.content }
+                ?: return null
+
+            return PersonaUpdateResult(
+                lifeStory = lifeStory,
+                workInfo = workInfo,
+                mood = mood,
+            )
+        }
+
+        /**
+         * 计算两段文本的字符级 Jaccard 相似度，作为 embedding cosine 的轻量替代。
+         *
+         * 公式：|A ∩ B| / |A ∪ B|，取值 0.0-1.0。
+         * 空字符串视为空集合：两空串相似度记为 1.0（视为相同）；
+         * 一空一非空相似度记为 0.0。
+         *
+         * 不依赖任何 NLP 库，满足"不引入额外依赖"约束。
+         */
+        fun cosineSimilarity(a: String, b: String): Double {
+            if (a.isEmpty() && b.isEmpty()) return 1.0
+            if (a.isEmpty() || b.isEmpty()) return 0.0
+            val setA = a.toSet()
+            val setB = b.toSet()
+            val intersection = setA.intersect(setB).size
+            val union = setA.union(setB).size
+            if (union == 0) return 1.0
+            return intersection.toDouble() / union.toDouble()
+        }
+
+        /**
+         * 判定是否应回退更新：当新旧文本相似度低于 [threshold] 时认为发生突变，需回退。
+         *
+         * @param old 原文本。
+         * @param new 新文本。
+         * @param threshold 相似度阈值，低于该值判定突变，默认 0.3。
+         * @return true 表示应回退（保留旧值）。
+         */
+        fun shouldRollback(old: String, new: String, threshold: Double = 0.3): Boolean {
+            return cosineSimilarity(old, new) < threshold
+        }
+    }
+}
