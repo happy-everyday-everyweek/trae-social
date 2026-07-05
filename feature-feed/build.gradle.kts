@@ -42,6 +42,7 @@ android {
 
 dependencies {
     implementation(project(":core-designsystem"))
+    implementation(project(":core-data"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -52,6 +53,7 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.navigation.compose)
@@ -60,8 +62,9 @@ dependencies {
     implementation(libs.paging.runtime)
     implementation(libs.paging.compose)
 
-    // 图片加载
+    // 图片加载（含 SVG 解码器）
     implementation(libs.coil.compose)
+    implementation(libs.coil.svg)
 
     // Hilt
     implementation(libs.hilt.android)
