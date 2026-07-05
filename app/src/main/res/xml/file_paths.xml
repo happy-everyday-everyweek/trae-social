@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 应用缓存目录下的图片（相机拍照临时输出） -->
+    <cache-path name="images" path="images/" />
+    <cache-path name="shared" path="shared/" />
+    <!-- 应用内部存储 -->
+    <files-path name="files" path="." />
+    <!-- 外部存储专属目录 -->
+    <external-files-path name="external_files" path="." />
+    <external-cache-path name="external_cache" path="." />
+</paths>
