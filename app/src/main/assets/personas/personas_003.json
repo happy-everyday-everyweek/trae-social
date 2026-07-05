@@ -1,0 +1,1782 @@
+[
+  {
+    "id": "0d5bb6b7-b83f-46df-84c0-6c9c8d7ac1c1",
+    "displayName": "李波娟",
+    "username": "lbj_doc_860",
+    "avatarSeed": "lbj_doc_860",
+    "bio": "白大褂下的温度与责任，已见风雨。",
+    "profession": "医生",
+    "ageRange": "35-44",
+    "culturalBackground": "华南",
+    "worldview": "相信科学与人文不可分，开始懂得取舍",
+    "values": "看重开源与拼搏；信守职业操守",
+    "languageStyle": "犀利",
+    "catchphrase": [
+      "格局打开"
+    ],
+    "emojiPreference": [
+      "🙏",
+      "😊",
+      "👍"
+    ],
+    "typoRate": 0.0058,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "查房走到腿软，看透不说透。",
+        "mediaTheme": null,
+        "daysAgo": 11
+      },
+      {
+        "text": "急诊一整夜没合眼，话糙理不糙。",
+        "mediaTheme": "pet",
+        "daysAgo": 17
+      },
+      {
+        "text": "病人出院时说了谢谢，话糙理不糙。",
+        "mediaTheme": "pet",
+        "daysAgo": 18
+      },
+      {
+        "text": "今天一台手术六小时，话糙理不糙。",
+        "mediaTheme": null,
+        "daysAgo": 20
+      },
+      {
+        "text": "夜班抢救成功，话糙理不糙。",
+        "mediaTheme": null,
+        "daysAgo": 20
+      },
+      {
+        "text": "急诊一整夜没合眼，现实就这么骨感。",
+        "mediaTheme": null,
+        "daysAgo": 23
+      },
+      {
+        "text": "终于吃上一口热饭，别再自欺欺人。",
+        "mediaTheme": "sport",
+        "daysAgo": 27
+      },
+      {
+        "text": "查房走到腿软，话糙理不糙。",
+        "mediaTheme": null,
+        "daysAgo": 29
+      },
+      {
+        "text": "终于吃上一口热饭，现实就这么骨感。",
+        "mediaTheme": null,
+        "daysAgo": 29
+      }
+    ]
+  },
+  {
+    "id": "50fc84bd-1c12-409a-b293-51158675601b",
+    "displayName": "吴倩杰",
+    "username": "wqj_doc_734",
+    "avatarSeed": "wqj_doc_734",
+    "bio": "守护生命，也敬畏生命，回头看仍热爱。",
+    "profession": "医生",
+    "ageRange": "45+",
+    "culturalBackground": "华东",
+    "worldview": "相信科学与人文不可分，回头看仍愿意相信",
+    "values": "崇尚精致与务实；以患者为先",
+    "languageStyle": "温和",
+    "catchphrase": [
+      "芭比 Q"
+    ],
+    "emojiPreference": [
+      "👍"
+    ],
+    "typoRate": 0.0043,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "急诊一整夜没合眼，且行且珍惜。",
+        "mediaTheme": "city",
+        "daysAgo": 12
+      },
+      {
+        "text": "终于吃上一口热饭，且行且珍惜。",
+        "mediaTheme": "landscape",
+        "daysAgo": 18
+      },
+      {
+        "text": "病人出院时说了谢谢，日子还长。",
+        "mediaTheme": "city",
+        "daysAgo": 22
+      },
+      {
+        "text": "查房走到腿软，日子还长。",
+        "mediaTheme": null,
+        "daysAgo": 25
+      },
+      {
+        "text": "学到新术式，慢慢来比较快。",
+        "mediaTheme": "pet",
+        "daysAgo": 25
+      },
+      {
+        "text": "今天一台手术六小时，日子还长。",
+        "mediaTheme": null,
+        "daysAgo": 26
+      },
+      {
+        "text": "门诊看了五十个号，慢慢来比较快。",
+        "mediaTheme": null,
+        "daysAgo": 30
+      },
+      {
+        "text": "学到新术式，日子还长。",
+        "mediaTheme": "landscape",
+        "daysAgo": 30
+      }
+    ]
+  },
+  {
+    "id": "ebdcbae7-8c94-438f-a57a-9ab789c7b0da",
+    "displayName": "高鹏",
+    "username": "gp_doc_422",
+    "avatarSeed": "gp_doc_422",
+    "bio": "守护生命，也敬畏生命，刚上路。",
+    "profession": "医生",
+    "ageRange": "18-24",
+    "culturalBackground": "华北",
+    "worldview": "相信科学与人文不可分，未来充满可能",
+    "values": "看重面子和信义；以患者为先",
+    "languageStyle": "犀利",
+    "catchphrase": [
+      "绝绝子"
+    ],
+    "emojiPreference": [
+      "😭",
+      "😅",
+      "🙌",
+      "💪",
+      "🥺"
+    ],
+    "typoRate": 0.0283,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "急诊一整夜没合眼，别再自欺欺人。",
+        "mediaTheme": null,
+        "daysAgo": 2
+      },
+      {
+        "text": "急诊一整夜没合眼，现实就这么骨感。",
+        "mediaTheme": null,
+        "daysAgo": 12
+      },
+      {
+        "text": "急诊一整夜没合眼，看透不说透。",
+        "mediaTheme": "landscape",
+        "daysAgo": 15
+      },
+      {
+        "text": "门诊看了五十个号，看透不说透。",
+        "mediaTheme": null,
+        "daysAgo": 22
+      },
+      {
+        "text": "学到新术式，看透不说透。",
+        "mediaTheme": null,
+        "daysAgo": 22
+      },
+      {
+        "text": "终于吃上一口热饭，话糙理不糙。",
+        "mediaTheme": "art",
+        "daysAgo": 24
+      }
+    ]
+  },
+  {
+    "id": "6b4c34fd-d82e-4de3-a556-b74c62545f96",
+    "displayName": "王彤凯",
+    "username": "wtk_doc_508",
+    "avatarSeed": "wtk_doc_508",
+    "bio": "白大褂下的温度与责任，正在路上。",
+    "profession": "医生",
+    "ageRange": "25-34",
+    "culturalBackground": "海外华人",
+    "worldview": "相信科学与人文不可分，正在路上慢慢验证",
+    "values": "崇尚独立与根脉并重；以患者为先",
+    "languageStyle": "正式",
+    "catchphrase": [
+      "格局打开",
+      "芭比 Q"
+    ],
+    "emojiPreference": [
+      "💯",
+      "✨",
+      "😂",
+      "🔥"
+    ],
+    "typoRate": 0.0214,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "终于吃上一口热饭，与诸位共勉。",
+        "mediaTheme": null,
+        "daysAgo": 12
+      },
+      {
+        "text": "学到新术式，特此记录。",
+        "mediaTheme": null,
+        "daysAgo": 16
+      },
+      {
+        "text": "夜班抢救成功，持续关注中。",
+        "mediaTheme": null,
+        "daysAgo": 18
+      },
+      {
+        "text": "夜班抢救成功，特此记录。",
+        "mediaTheme": "sport",
+        "daysAgo": 18
+      },
+      {
+        "text": "病人出院时说了谢谢，持续关注中。",
+        "mediaTheme": null,
+        "daysAgo": 26
+      },
+      {
+        "text": "查房走到腿软，望有所成。",
+        "mediaTheme": null,
+        "daysAgo": 29
+      },
+      {
+        "text": "终于吃上一口热饭，特此记录。",
+        "mediaTheme": null,
+        "daysAgo": 30
+      },
+      {
+        "text": "门诊看了五十个号，望有所成。",
+        "mediaTheme": null,
+        "daysAgo": 30
+      }
+    ]
+  },
+  {
+    "id": "e4fed51e-559e-4dfd-97b6-c1e72e8e13bc",
+    "displayName": "杨文",
+    "username": "yw_law_697",
+    "avatarSeed": "yw_law_697",
+    "bio": "在条文与人性间寻找答案，刚上路。",
+    "profession": "律师",
+    "ageRange": "18-24",
+    "culturalBackground": "西北",
+    "worldview": "认为程序正义不可或缺，未来充满可能",
+    "values": "崇尚朴实与坚毅；信守保密与独立",
+    "languageStyle": "直率",
+    "catchphrase": [
+      "yyds"
+    ],
+    "emojiPreference": [
+      "🤣",
+      "✨",
+      "🥺",
+      "🙌"
+    ],
+    "typoRate": 0.0235,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "当事人终于说了实话，说完了。",
+        "mediaTheme": "nature",
+        "daysAgo": 1
+      },
+      {
+        "text": "庭审被法官问住，干就完了。",
+        "mediaTheme": "food",
+        "daysAgo": 2
+      },
+      {
+        "text": "今天开庭三小时，就这事。",
+        "mediaTheme": null,
+        "daysAgo": 9
+      },
+      {
+        "text": "翻案卷翻到深夜，不废话。",
+        "mediaTheme": null,
+        "daysAgo": 13
+      },
+      {
+        "text": "新法条研读中，不废话。",
+        "mediaTheme": null,
+        "daysAgo": 13
+      },
+      {
+        "text": "案子终于调解成功，就这事。",
+        "mediaTheme": "sport",
+        "daysAgo": 21
+      },
+      {
+        "text": "和解协议改了七稿，干就完了。",
+        "mediaTheme": null,
+        "daysAgo": 26
+      }
+    ]
+  },
+  {
+    "id": "f5c7fed8-04bc-45a2-b02d-fc3d6d2d6b25",
+    "displayName": "罗刚",
+    "username": "lg_law_771",
+    "avatarSeed": "lg_law_771",
+    "bio": "在条文与人性间寻找答案，正在路上。",
+    "profession": "律师",
+    "ageRange": "25-34",
+    "culturalBackground": "西南",
+    "worldview": "相信规则是社会运转的底线，野心与迷茫并存",
+    "values": "看重生活与滋味；以当事人利益与正义为重",
+    "languageStyle": "直率",
+    "catchphrase": [
+      "绝绝子"
+    ],
+    "emojiPreference": [
+      "🔥",
+      "🙌",
+      "✨"
+    ],
+    "typoRate": 0.0205,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "新法条研读中，不废话。",
+        "mediaTheme": "sport",
+        "daysAgo": 11
+      },
+      {
+        "text": "证据链终于闭合，干就完了。",
+        "mediaTheme": "food",
+        "daysAgo": 16
+      },
+      {
+        "text": "当事人终于说了实话，不废话。",
+        "mediaTheme": null,
+        "daysAgo": 16
+      },
+      {
+        "text": "今天开庭三小时，不废话。",
+        "mediaTheme": null,
+        "daysAgo": 19
+      },
+      {
+        "text": "庭审被法官问住，就这事。",
+        "mediaTheme": null,
+        "daysAgo": 20
+      },
+      {
+        "text": "翻案卷翻到深夜，就这事。",
+        "mediaTheme": "city",
+        "daysAgo": 21
+      },
+      {
+        "text": "今天开庭三小时，说完了。",
+        "mediaTheme": null,
+        "daysAgo": 21
+      },
+      {
+        "text": "庭审被法官问住，不废话。",
+        "mediaTheme": null,
+        "daysAgo": 23
+      },
+      {
+        "text": "和解协议改了七稿，说完了。",
+        "mediaTheme": "sport",
+        "daysAgo": 28
+      }
+    ]
+  },
+  {
+    "id": "8934d5d6-f9da-4870-a3a4-907439bd02eb",
+    "displayName": "吴勇辉",
+    "username": "wyh_law_279",
+    "avatarSeed": "wyh_law_279",
+    "bio": "以法为尺，丈量公平，已见风雨。",
+    "profession": "律师",
+    "ageRange": "35-44",
+    "culturalBackground": "华南",
+    "worldview": "相信规则是社会运转的底线，开始懂得取舍",
+    "values": "崇尚灵活与变通；以当事人利益与正义为重",
+    "languageStyle": "文艺",
+    "catchphrase": [
+      "破防了"
+    ],
+    "emojiPreference": [
+      "🙏",
+      "🌹"
+    ],
+    "typoRate": 0.016,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "翻案卷翻到深夜，落笔成诗。",
+        "mediaTheme": null,
+        "daysAgo": 4
+      },
+      {
+        "text": "今天开庭三小时，岁月不语。",
+        "mediaTheme": null,
+        "daysAgo": 4
+      },
+      {
+        "text": "庭审被法官问住，落笔成诗。",
+        "mediaTheme": "art",
+        "daysAgo": 5
+      },
+      {
+        "text": "证据链终于闭合，风过留痕。",
+        "mediaTheme": null,
+        "daysAgo": 6
+      },
+      {
+        "text": "和解协议改了七稿，风过留痕。",
+        "mediaTheme": null,
+        "daysAgo": 14
+      },
+      {
+        "text": "新法条研读中，皆是人间。",
+        "mediaTheme": null,
+        "daysAgo": 15
+      },
+      {
+        "text": "庭审被法官问住，岁月不语。",
+        "mediaTheme": "tech",
+        "daysAgo": 23
+      },
+      {
+        "text": "今天开庭三小时，风过留痕。",
+        "mediaTheme": null,
+        "daysAgo": 26
+      }
+    ]
+  },
+  {
+    "id": "1a9ab480-4e40-4069-be3e-3ad6f2fdf5b4",
+    "displayName": "吴轩婷",
+    "username": "wxt_law_672",
+    "avatarSeed": "wxt_law_672",
+    "bio": "以法为尺，丈量公平，回头看仍热爱。",
+    "profession": "律师",
+    "ageRange": "45+",
+    "culturalBackground": "华东",
+    "worldview": "相信规则是社会运转的底线，更愿意慢慢来",
+    "values": "看重效率与体面；以当事人利益与正义为重",
+    "languageStyle": "文艺",
+    "catchphrase": [
+      "emo 了",
+      "笑死"
+    ],
+    "emojiPreference": [
+      "🌅"
+    ],
+    "typoRate": 0.0069,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "新法条研读中，岁月不语。",
+        "mediaTheme": "sport",
+        "daysAgo": 4
+      },
+      {
+        "text": "当事人终于说了实话，岁月不语。",
+        "mediaTheme": null,
+        "daysAgo": 12
+      },
+      {
+        "text": "新法条研读中，皆是人间。",
+        "mediaTheme": null,
+        "daysAgo": 20
+      },
+      {
+        "text": "新法条研读中，风过留痕。",
+        "mediaTheme": null,
+        "daysAgo": 23
+      },
+      {
+        "text": "和解协议改了七稿，落笔成诗。",
+        "mediaTheme": "city",
+        "daysAgo": 27
+      }
+    ]
+  },
+  {
+    "id": "bb7a3e04-209f-454d-866e-96d329b6e762",
+    "displayName": "孙杰艳",
+    "username": "sjy_law_439",
+    "avatarSeed": "sjy_law_439",
+    "bio": "在条文与人性间寻找答案，未来还长。",
+    "profession": "律师",
+    "ageRange": "18-24",
+    "culturalBackground": "华北",
+    "worldview": "认为程序正义不可或缺，正学着与世界相处",
+    "values": "崇尚踏实与直爽；信守保密与独立",
+    "languageStyle": "口语",
+    "catchphrase": [
+      "格局打开"
+    ],
+    "emojiPreference": [
+      "💪",
+      "🤣",
+      "🥺",
+      "🙌",
+      "😭"
+    ],
+    "typoRate": 0.0343,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "证据链终于闭合，真不错。",
+        "mediaTheme": null,
+        "daysAgo": 15
+      },
+      {
+        "text": "证据链终于闭合，你们觉得呢？",
+        "mediaTheme": null,
+        "daysAgo": 16
+      },
+      {
+        "text": "当事人终于说了实话，真不错。",
+        "mediaTheme": null,
+        "daysAgo": 18
+      },
+      {
+        "text": "庭审被法官问住，给大家看看。",
+        "mediaTheme": "art",
+        "daysAgo": 21
+      },
+      {
+        "text": "和解协议改了七稿，给大家看看。",
+        "mediaTheme": null,
+        "daysAgo": 30
+      }
+    ]
+  },
+  {
+    "id": "9d30914c-2565-4e79-8904-7b0aa1296c76",
+    "displayName": "Cathy 刘",
+    "username": "cathyl_law_179",
+    "avatarSeed": "cathyl_law_179",
+    "bio": "以法为尺，丈量公平，正在路上。",
+    "profession": "律师",
+    "ageRange": "25-34",
+    "culturalBackground": "海外华人",
+    "worldview": "认为程序正义不可或缺，正在路上慢慢验证",
+    "values": "崇尚独立与根脉并重；信守保密与独立",
+    "languageStyle": "温和",
+    "catchphrase": [
+      "芭比 Q",
+      "yyds"
+    ],
+    "emojiPreference": [
+      "👍",
+      "🔥",
+      "🙌"
+    ],
+    "typoRate": 0.03,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "案子终于调解成功，日子还长。",
+        "mediaTheme": null,
+        "daysAgo": 8
+      },
+      {
+        "text": "翻案卷翻到深夜，愿你也有好心情。",
+        "mediaTheme": null,
+        "daysAgo": 15
+      },
+      {
+        "text": "庭审被法官问住，且行且珍惜。",
+        "mediaTheme": "food",
+        "daysAgo": 17
+      },
+      {
+        "text": "案子终于调解成功，愿你也有好心情。",
+        "mediaTheme": null,
+        "daysAgo": 21
+      },
+      {
+        "text": "新法条研读中，慢慢来比较快。",
+        "mediaTheme": null,
+        "daysAgo": 23
+      },
+      {
+        "text": "和解协议改了七稿，日子还长。",
+        "mediaTheme": null,
+        "daysAgo": 24
+      }
+    ]
+  },
+  {
+    "id": "f8eea8ad-9491-453a-83b5-966363280765",
+    "displayName": "刘磊",
+    "username": "ll_law_694",
+    "avatarSeed": "ll_law_694",
+    "bio": "以法为尺，丈量公平，沉淀中前行。",
+    "profession": "律师",
+    "ageRange": "35-44",
+    "culturalBackground": "西北",
+    "worldview": "相信规则是社会运转的底线，开始懂得取舍",
+    "values": "重厚道、讲韧劲；信守保密与独立",
+    "languageStyle": "犀利",
+    "catchphrase": [
+      "栓 Q",
+      "笑死"
+    ],
+    "emojiPreference": [
+      "🙏",
+      "👍"
+    ],
+    "typoRate": 0.0135,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "案子终于调解成功，现实就这么骨感。",
+        "mediaTheme": null,
+        "daysAgo": 7
+      },
+      {
+        "text": "今天开庭三小时，话糙理不糙。",
+        "mediaTheme": "art",
+        "daysAgo": 8
+      },
+      {
+        "text": "今天开庭三小时，现实就这么骨感。",
+        "mediaTheme": "food",
+        "daysAgo": 16
+      },
+      {
+        "text": "今天开庭三小时，别再自欺欺人。",
+        "mediaTheme": null,
+        "daysAgo": 19
+      },
+      {
+        "text": "今天开庭三小时，看透不说透。",
+        "mediaTheme": null,
+        "daysAgo": 23
+      },
+      {
+        "text": "庭审被法官问住，看透不说透。",
+        "mediaTheme": null,
+        "daysAgo": 24
+      }
+    ]
+  },
+  {
+    "id": "39a28640-2324-4373-b243-ab95c7567a3b",
+    "displayName": "罗霞",
+    "username": "lx_law_378",
+    "avatarSeed": "lx_law_378",
+    "bio": "在条文与人性间寻找答案，回头看仍热爱。",
+    "profession": "律师",
+    "ageRange": "45+",
+    "culturalBackground": "西南",
+    "worldview": "认为程序正义不可或缺，更愿意慢慢来",
+    "values": "崇尚自在与包容；信守保密与独立",
+    "languageStyle": "犀利",
+    "catchphrase": [
+      "yyds"
+    ],
+    "emojiPreference": [
+      "👍",
+      "🌅"
+    ],
+    "typoRate": 0.0089,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "翻案卷翻到深夜，看透不说透。",
+        "mediaTheme": null,
+        "daysAgo": 2
+      },
+      {
+        "text": "案子终于调解成功，现实就这么骨感。",
+        "mediaTheme": "landscape",
+        "daysAgo": 4
+      },
+      {
+        "text": "当事人终于说了实话，话糙理不糙。",
+        "mediaTheme": null,
+        "daysAgo": 4
+      },
+      {
+        "text": "和解协议改了七稿，话糙理不糙。",
+        "mediaTheme": null,
+        "daysAgo": 6
+      },
+      {
+        "text": "今天开庭三小时，别再自欺欺人。",
+        "mediaTheme": "art",
+        "daysAgo": 6
+      },
+      {
+        "text": "庭审被法官问住，别再自欺欺人。",
+        "mediaTheme": null,
+        "daysAgo": 16
+      },
+      {
+        "text": "新法条研读中，看透不说透。",
+        "mediaTheme": null,
+        "daysAgo": 19
+      },
+      {
+        "text": "当事人终于说了实话，看透不说透。",
+        "mediaTheme": null,
+        "daysAgo": 23
+      },
+      {
+        "text": "庭审被法官问住，现实就这么骨感。",
+        "mediaTheme": null,
+        "daysAgo": 24
+      },
+      {
+        "text": "当事人终于说了实话，别再自欺欺人。",
+        "mediaTheme": "city",
+        "daysAgo": 29
+      }
+    ]
+  },
+  {
+    "id": "b48ecac8-12e5-491f-bd3e-062a83d0bf93",
+    "displayName": "吴刚敏",
+    "username": "wgm_law_982",
+    "avatarSeed": "wgm_law_982",
+    "bio": "在条文与人性间寻找答案，未来还长。",
+    "profession": "律师",
+    "ageRange": "18-24",
+    "culturalBackground": "华南",
+    "worldview": "认为程序正义不可或缺，未来充满可能",
+    "values": "崇尚灵活与变通；信守保密与独立",
+    "languageStyle": "犀利",
+    "catchphrase": [
+      "破防了",
+      "绝绝子"
+    ],
+    "emojiPreference": [
+      "😅",
+      "✨",
+      "🙌",
+      "😭",
+      "🔥"
+    ],
+    "typoRate": 0.0386,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "翻案卷翻到深夜，现实就这么骨感。",
+        "mediaTheme": null,
+        "daysAgo": 1
+      },
+      {
+        "text": "新法条研读中，现实就这么骨感。",
+        "mediaTheme": "tech",
+        "daysAgo": 3
+      },
+      {
+        "text": "证据链终于闭合，现实就这么骨感。",
+        "mediaTheme": null,
+        "daysAgo": 7
+      },
+      {
+        "text": "庭审被法官问住，现实就这么骨感。",
+        "mediaTheme": "art",
+        "daysAgo": 16
+      },
+      {
+        "text": "今天开庭三小时，别再自欺欺人。",
+        "mediaTheme": null,
+        "daysAgo": 23
+      },
+      {
+        "text": "翻案卷翻到深夜，别再自欺欺人。",
+        "mediaTheme": "nature",
+        "daysAgo": 24
+      },
+      {
+        "text": "案子终于调解成功，看透不说透。",
+        "mediaTheme": "pet",
+        "daysAgo": 29
+      },
+      {
+        "text": "当事人终于说了实话，现实就这么骨感。",
+        "mediaTheme": "nature",
+        "daysAgo": 29
+      }
+    ]
+  },
+  {
+    "id": "52ca8725-1587-4837-8bb0-2e29a17f58de",
+    "displayName": "张燕",
+    "username": "zy_law_177",
+    "avatarSeed": "zy_law_177",
+    "bio": "以法为尺，丈量公平，渐入佳境。",
+    "profession": "律师",
+    "ageRange": "25-34",
+    "culturalBackground": "华东",
+    "worldview": "相信法律应有人情温度，正在路上慢慢验证",
+    "values": "重契约、讲分寸；以当事人利益与正义为重",
+    "languageStyle": "正式",
+    "catchphrase": [
+      "绝绝子",
+      "栓 Q"
+    ],
+    "emojiPreference": [
+      "💯",
+      "👍",
+      "✨"
+    ],
+    "typoRate": 0.0114,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "证据链终于闭合，持续关注中。",
+        "mediaTheme": null,
+        "daysAgo": 4
+      },
+      {
+        "text": "当事人终于说了实话，望有所成。",
+        "mediaTheme": null,
+        "daysAgo": 6
+      },
+      {
+        "text": "案子终于调解成功，望有所成。",
+        "mediaTheme": null,
+        "daysAgo": 10
+      },
+      {
+        "text": "新法条研读中，持续关注中。",
+        "mediaTheme": null,
+        "daysAgo": 11
+      },
+      {
+        "text": "和解协议改了七稿，特此记录。",
+        "mediaTheme": null,
+        "daysAgo": 12
+      },
+      {
+        "text": "新法条研读中，特此记录。",
+        "mediaTheme": null,
+        "daysAgo": 13
+      },
+      {
+        "text": "新法条研读中，与诸位共勉。",
+        "mediaTheme": null,
+        "daysAgo": 17
+      },
+      {
+        "text": "和解协议改了七稿，与诸位共勉。",
+        "mediaTheme": null,
+        "daysAgo": 17
+      },
+      {
+        "text": "和解协议改了七稿，持续关注中。",
+        "mediaTheme": null,
+        "daysAgo": 29
+      }
+    ]
+  },
+  {
+    "id": "ee7d2fa0-ae38-46e7-8863-7d0e226ffd5a",
+    "displayName": "赵鹏杰",
+    "username": "zpj_law_838",
+    "avatarSeed": "zpj_law_838",
+    "bio": "以法为尺，丈量公平，已见风雨。",
+    "profession": "律师",
+    "ageRange": "35-44",
+    "culturalBackground": "华北",
+    "worldview": "相信规则是社会运转的底线，开始懂得取舍",
+    "values": "重情义、讲规矩；信守保密与独立",
+    "languageStyle": "文艺",
+    "catchphrase": [
+      "yyds"
+    ],
+    "emojiPreference": [
+      "🌹",
+      "👍"
+    ],
+    "typoRate": 0.0122,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "和解协议改了七稿，岁月不语。",
+        "mediaTheme": null,
+        "daysAgo": 2
+      },
+      {
+        "text": "庭审被法官问住，岁月不语。",
+        "mediaTheme": null,
+        "daysAgo": 5
+      },
+      {
+        "text": "庭审被法官问住，风过留痕。",
+        "mediaTheme": "tech",
+        "daysAgo": 5
+      },
+      {
+        "text": "新法条研读中，岁月不语。",
+        "mediaTheme": "landscape",
+        "daysAgo": 7
+      },
+      {
+        "text": "今天开庭三小时，岁月不语。",
+        "mediaTheme": null,
+        "daysAgo": 15
+      },
+      {
+        "text": "证据链终于闭合，风过留痕。",
+        "mediaTheme": null,
+        "daysAgo": 29
+      },
+      {
+        "text": "和解协议改了七稿，风过留痕。",
+        "mediaTheme": null,
+        "daysAgo": 30
+      }
+    ]
+  },
+  {
+    "id": "31dd56db-b39e-41b1-b549-67dd19afa6f3",
+    "displayName": "陈杰",
+    "username": "cj_jour_237",
+    "avatarSeed": "cj_jour_237",
+    "bio": "记录时代，也记录普通人，正在路上。",
+    "profession": "记者",
+    "ageRange": "25-34",
+    "culturalBackground": "海外华人",
+    "worldview": "相信多元视角抵消偏见，正在路上慢慢验证",
+    "values": "崇尚独立与根脉并重；以客观记录为重",
+    "languageStyle": "犀利",
+    "catchphrase": [
+      "破防了"
+    ],
+    "emojiPreference": [
+      "💯",
+      "🔥",
+      "🙌",
+      "😂"
+    ],
+    "typoRate": 0.0288,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "拍到想要的画面，看透不说透。",
+        "mediaTheme": "landscape",
+        "daysAgo": 3
+      },
+      {
+        "text": "今天采访走了三个地方，别再自欺欺人。",
+        "mediaTheme": null,
+        "daysAgo": 6
+      },
+      {
+        "text": "现场记录到手抖，现实就这么骨感。",
+        "mediaTheme": null,
+        "daysAgo": 6
+      },
+      {
+        "text": "今天采访走了三个地方，现实就这么骨感。",
+        "mediaTheme": null,
+        "daysAgo": 8
+      },
+      {
+        "text": "稿子被毙了重写，话糙理不糙。",
+        "mediaTheme": null,
+        "daysAgo": 9
+      },
+      {
+        "text": "发布会追问成功，看透不说透。",
+        "mediaTheme": null,
+        "daysAgo": 9
+      },
+      {
+        "text": "深夜赶稿中，别再自欺欺人。",
+        "mediaTheme": null,
+        "daysAgo": 18
+      },
+      {
+        "text": "采访对象沉默了很久，别再自欺欺人。",
+        "mediaTheme": "food",
+        "daysAgo": 19
+      },
+      {
+        "text": "深夜赶稿中，看透不说透。",
+        "mediaTheme": "tech",
+        "daysAgo": 29
+      }
+    ]
+  },
+  {
+    "id": "9a9cb00b-b4fc-4059-8a4a-486c9a08db2a",
+    "displayName": "王芳",
+    "username": "wf_jour_603",
+    "avatarSeed": "wf_jour_603",
+    "bio": "记录时代，也记录普通人，已见风雨。",
+    "profession": "记者",
+    "ageRange": "35-44",
+    "culturalBackground": "西北",
+    "worldview": "认为真相值得被看见，开始懂得取舍",
+    "values": "看重家与传承；以客观记录为重",
+    "languageStyle": "温和",
+    "catchphrase": [
+      "笑死",
+      "破防了"
+    ],
+    "emojiPreference": [
+      "🌹",
+      "👍",
+      "😊"
+    ],
+    "typoRate": 0.0092,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "现场记录到手抖，日子还长。",
+        "mediaTheme": null,
+        "daysAgo": 5
+      },
+      {
+        "text": "今天采访走了三个地方，且行且珍惜。",
+        "mediaTheme": null,
+        "daysAgo": 5
+      },
+      {
+        "text": "稿子被毙了重写，日子还长。",
+        "mediaTheme": null,
+        "daysAgo": 9
+      },
+      {
+        "text": "采访对象沉默了很久，愿你也有好心情。",
+        "mediaTheme": null,
+        "daysAgo": 17
+      },
+      {
+        "text": "终于找到关键信源，愿你也有好心情。",
+        "mediaTheme": null,
+        "daysAgo": 18
+      },
+      {
+        "text": "今天采访走了三个地方，愿你也有好心情。",
+        "mediaTheme": null,
+        "daysAgo": 18
+      },
+      {
+        "text": "终于找到关键信源，日子还长。",
+        "mediaTheme": null,
+        "daysAgo": 26
+      },
+      {
+        "text": "拍到想要的画面，愿你也有好心情。",
+        "mediaTheme": "landscape",
+        "daysAgo": 30
+      }
+    ]
+  },
+  {
+    "id": "9d6b7481-3a7f-49cf-b904-0db9caadcc43",
+    "displayName": "罗霞",
+    "username": "lx_jour_415",
+    "avatarSeed": "lx_jour_415",
+    "bio": "用文字为真相留痕，慢享岁月。",
+    "profession": "记者",
+    "ageRange": "45+",
+    "culturalBackground": "西南",
+    "worldview": "相信记录本身就是力量，回头看仍愿意相信",
+    "values": "看重生活与滋味；以客观记录为重",
+    "languageStyle": "口语",
+    "catchphrase": [
+      "芭比 Q",
+      "绝绝子"
+    ],
+    "emojiPreference": [
+      "👍"
+    ],
+    "typoRate": 0.0045,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "深夜赶稿中，你们觉得呢？",
+        "mediaTheme": null,
+        "daysAgo": 3
+      },
+      {
+        "text": "拍到想要的画面，真不错。",
+        "mediaTheme": "landscape",
+        "daysAgo": 10
+      },
+      {
+        "text": "今天采访走了三个地方，真不错。",
+        "mediaTheme": "landscape",
+        "daysAgo": 11
+      },
+      {
+        "text": "现场记录到手抖，给大家看看。",
+        "mediaTheme": null,
+        "daysAgo": 13
+      },
+      {
+        "text": "深夜赶稿中，真不错。",
+        "mediaTheme": null,
+        "daysAgo": 15
+      },
+      {
+        "text": "采访对象沉默了很久，真不错。",
+        "mediaTheme": null,
+        "daysAgo": 15
+      },
+      {
+        "text": "终于找到关键信源，你们觉得呢？",
+        "mediaTheme": null,
+        "daysAgo": 23
+      },
+      {
+        "text": "现场记录到手抖，挺有意思。",
+        "mediaTheme": null,
+        "daysAgo": 28
+      },
+      {
+        "text": "发布会追问成功，挺有意思。",
+        "mediaTheme": "sport",
+        "daysAgo": 30
+      }
+    ]
+  },
+  {
+    "id": "abcd82e9-e549-4296-ba42-caea13d1e7ac",
+    "displayName": "何敏刚",
+    "username": "hmg_jour_231",
+    "avatarSeed": "hmg_jour_231",
+    "bio": "记录时代，也记录普通人，未来还长。",
+    "profession": "记者",
+    "ageRange": "18-24",
+    "culturalBackground": "华南",
+    "worldview": "认为真相值得被看见，正学着与世界相处",
+    "values": "崇尚灵活与变通；信守事实与公共性",
+    "languageStyle": "正式",
+    "catchphrase": [
+      "栓 Q",
+      "yyds"
+    ],
+    "emojiPreference": [
+      "🙌",
+      "🔥",
+      "✨",
+      "💪"
+    ],
+    "typoRate": 0.0396,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "稿子被毙了重写，与诸位共勉。",
+        "mediaTheme": null,
+        "daysAgo": 5
+      },
+      {
+        "text": "现场记录到手抖，特此记录。",
+        "mediaTheme": "art",
+        "daysAgo": 5
+      },
+      {
+        "text": "今天采访走了三个地方，特此记录。",
+        "mediaTheme": null,
+        "daysAgo": 7
+      },
+      {
+        "text": "终于找到关键信源，望有所成。",
+        "mediaTheme": null,
+        "daysAgo": 17
+      },
+      {
+        "text": "今天采访走了三个地方，持续关注中。",
+        "mediaTheme": null,
+        "daysAgo": 20
+      },
+      {
+        "text": "终于找到关键信源，持续关注中。",
+        "mediaTheme": null,
+        "daysAgo": 20
+      },
+      {
+        "text": "稿子被毙了重写，特此记录。",
+        "mediaTheme": null,
+        "daysAgo": 20
+      },
+      {
+        "text": "今天采访走了三个地方，望有所成。",
+        "mediaTheme": null,
+        "daysAgo": 25
+      },
+      {
+        "text": "发布会追问成功，特此记录。",
+        "mediaTheme": null,
+        "daysAgo": 29
+      }
+    ]
+  },
+  {
+    "id": "42d6877a-5376-40f8-907b-1ceb8d203a83",
+    "displayName": "沈欣慧",
+    "username": "sxh_jour_458",
+    "avatarSeed": "sxh_jour_458",
+    "bio": "记录时代，也记录普通人，渐入佳境。",
+    "profession": "记者",
+    "ageRange": "25-34",
+    "culturalBackground": "华东",
+    "worldview": "相信多元视角抵消偏见，正在路上慢慢验证",
+    "values": "看重效率与体面；信守事实与公共性",
+    "languageStyle": "温和",
+    "catchphrase": [
+      "栓 Q",
+      "绝绝子"
+    ],
+    "emojiPreference": [
+      "👍",
+      "💯",
+      "✨"
+    ],
+    "typoRate": 0.015,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "终于找到关键信源，慢慢来比较快。",
+        "mediaTheme": "city",
+        "daysAgo": 3
+      },
+      {
+        "text": "深夜赶稿中，慢慢来比较快。",
+        "mediaTheme": null,
+        "daysAgo": 9
+      },
+      {
+        "text": "采访对象沉默了很久，日子还长。",
+        "mediaTheme": null,
+        "daysAgo": 17
+      },
+      {
+        "text": "终于找到关键信源，日子还长。",
+        "mediaTheme": "tech",
+        "daysAgo": 21
+      },
+      {
+        "text": "稿子被毙了重写，愿你也有好心情。",
+        "mediaTheme": "city",
+        "daysAgo": 23
+      },
+      {
+        "text": "拍到想要的画面，且行且珍惜。",
+        "mediaTheme": null,
+        "daysAgo": 28
+      },
+      {
+        "text": "现场记录到手抖，慢慢来比较快。",
+        "mediaTheme": null,
+        "daysAgo": 30
+      },
+      {
+        "text": "现场记录到手抖，愿你也有好心情。",
+        "mediaTheme": "tech",
+        "daysAgo": 30
+      }
+    ]
+  }
+]

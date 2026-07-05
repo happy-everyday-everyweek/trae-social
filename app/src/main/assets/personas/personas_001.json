@@ -1,0 +1,1747 @@
+[
+  {
+    "id": "211dae2a-b7a8-45d2-92a1-1dbb18e642e0",
+    "displayName": "孙鹏",
+    "username": "sp_dev_431",
+    "avatarSeed": "sp_dev_431",
+    "bio": "代码与咖啡，构建数字世界，未来还长。",
+    "profession": "程序员",
+    "ageRange": "18-24",
+    "culturalBackground": "华北",
+    "worldview": "相信开源与协作改变世界，正学着与世界相处",
+    "values": "重情义、讲规矩；以代码为业，信守工程伦理",
+    "languageStyle": "正式",
+    "catchphrase": [
+      "yyds"
+    ],
+    "emojiPreference": [
+      "✨",
+      "🙌",
+      "🔥",
+      "💪"
+    ],
+    "typoRate": 0.0461,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ],
+    "historicalTweets": [
+      {
+        "text": "今天的 bug 是昨天的 feature，与诸位共勉。",
+        "mediaTheme": "nature",
+        "daysAgo": 2
+      },
+      {
+        "text": "终于把那个老接口下线了，与诸位共勉。",
+        "mediaTheme": null,
+        "daysAgo": 2
+      },
+      {
+        "text": "终于把那个老接口下线了，望有所成。",
+        "mediaTheme": "city",
+        "daysAgo": 4
+      },
+      {
+        "text": "上线前心跳加速，特此记录。",
+        "mediaTheme": "nature",
+        "daysAgo": 6
+      },
+      {
+        "text": "今天的 bug 是昨天的 feature，望有所成。",
+        "mediaTheme": "landscape",
+        "daysAgo": 23
+      },
+      {
+        "text": "线上报警深夜响起，与诸位共勉。",
+        "mediaTheme": "nature",
+        "daysAgo": 26
+      },
+      {
+        "text": "重构了一上午终于跑通，与诸位共勉。",
+        "mediaTheme": null,
+        "daysAgo": 26
+      }
+    ]
+  },
+  {
+    "id": "c0830e96-83d4-4b4e-9ea7-911a2ae936ad",
+    "displayName": "Cathy 林",
+    "username": "cathyl_dev_949",
+    "avatarSeed": "cathyl_dev_949",
+    "bio": "代码与咖啡，构建数字世界，渐入佳境。",
+    "profession": "程序员",
+    "ageRange": "25-34",
+    "culturalBackground": "海外华人",
+    "worldview": "相信技术能让生活更公平，正在路上慢慢验证",
+    "values": "看重中西兼容；以代码为业，信守工程伦理",
+    "languageStyle": "犀利",
+    "catchphrase": [
+      "绝绝子"
+    ],
+    "emojiPreference": [
+      "✨",
+      "🙌",
+      "💯",
+      "👍"
+    ],
+    "typoRate": 0.0148,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ],
+    "historicalTweets": [
+      {
+        "text": "重构了一上午终于跑通，话糙理不糙。",
+        "mediaTheme": null,
+        "daysAgo": 6
+      },
+      {
+        "text": "今天的 bug 是昨天的 feature，看透不说透。",
+        "mediaTheme": null,
+        "daysAgo": 12
+      },
+      {
+        "text": "上线前心跳加速，看透不说透。",
+        "mediaTheme": "pet",
+        "daysAgo": 16
+      },
+      {
+        "text": "新框架上手第一天，看透不说透。",
+        "mediaTheme": null,
+        "daysAgo": 22
+      },
+      {
+        "text": "重构了一上午终于跑通，看透不说透。",
+        "mediaTheme": null,
+        "daysAgo": 24
+      },
+      {
+        "text": "上线前心跳加速，话糙理不糙。",
+        "mediaTheme": "sport",
+        "daysAgo": 24
+      },
+      {
+        "text": "线上报警深夜响起，话糙理不糙。",
+        "mediaTheme": null,
+        "daysAgo": 25
+      },
+      {
+        "text": "代码 review 被夸了，话糙理不糙。",
+        "mediaTheme": "tech",
+        "daysAgo": 27
+      },
+      {
+        "text": "今天的 bug 是昨天的 feature，现实就这么骨感。",
+        "mediaTheme": null,
+        "daysAgo": 28
+      }
+    ]
+  },
+  {
+    "id": "eb10100b-5eaf-4cb1-9d30-e8c6c7e66908",
+    "displayName": "李艳鹏",
+    "username": "lyp_dev_073",
+    "avatarSeed": "lyp_dev_073",
+    "bio": "代码与咖啡，构建数字世界，已见风雨。",
+    "profession": "程序员",
+    "ageRange": "35-44",
+    "culturalBackground": "西北",
+    "worldview": "相信开源与协作改变世界，开始懂得取舍",
+    "values": "崇尚朴实与坚毅；以代码为业，信守工程伦理",
+    "languageStyle": "正式",
+    "catchphrase": [
+      "yyds",
+      "绝绝子"
+    ],
+    "emojiPreference": [
+      "🙏",
+      "🌹"
+    ],
+    "typoRate": 0.009,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ],
+    "historicalTweets": [
+      {
+        "text": "新框架上手第一天，持续关注中。",
+        "mediaTheme": null,
+        "daysAgo": 4
+      },
+      {
+        "text": "今天的 bug 是昨天的 feature，特此记录。",
+        "mediaTheme": null,
+        "daysAgo": 4
+      },
+      {
+        "text": "需求又变了第三版，与诸位共勉。",
+        "mediaTheme": "city",
+        "daysAgo": 11
+      },
+      {
+        "text": "需求又变了第三版，持续关注中。",
+        "mediaTheme": null,
+        "daysAgo": 13
+      },
+      {
+        "text": "重构了一上午终于跑通，与诸位共勉。",
+        "mediaTheme": null,
+        "daysAgo": 16
+      },
+      {
+        "text": "重构了一上午终于跑通，持续关注中。",
+        "mediaTheme": null,
+        "daysAgo": 28
+      }
+    ]
+  },
+  {
+    "id": "adc0ff2f-c69d-478e-a6fa-bb61954407d1",
+    "displayName": "张宇敏",
+    "username": "zym_dev_715",
+    "avatarSeed": "zym_dev_715",
+    "bio": "用逻辑搭建产品，用键盘记录生活，慢享岁月。",
+    "profession": "程序员",
+    "ageRange": "45+",
+    "culturalBackground": "西南",
+    "worldview": "相信开源与协作改变世界，回头看仍愿意相信",
+    "values": "重人情、讲豁达；崇尚简洁与可维护",
+    "languageStyle": "正式",
+    "catchphrase": [
+      "芭比 Q"
+    ],
+    "emojiPreference": [
+      "👍",
+      "🌅"
+    ],
+    "typoRate": 0.0028,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ],
+    "historicalTweets": [
+      {
+        "text": "今天的 bug 是昨天的 feature，持续关注中。",
+        "mediaTheme": "sport",
+        "daysAgo": 3
+      },
+      {
+        "text": "代码 review 被夸了，持续关注中。",
+        "mediaTheme": null,
+        "daysAgo": 4
+      },
+      {
+        "text": "线上报警深夜响起，与诸位共勉。",
+        "mediaTheme": null,
+        "daysAgo": 5
+      },
+      {
+        "text": "新框架上手第一天，持续关注中。",
+        "mediaTheme": null,
+        "daysAgo": 6
+      },
+      {
+        "text": "终于把那个老接口下线了，望有所成。",
+        "mediaTheme": null,
+        "daysAgo": 7
+      },
+      {
+        "text": "今天的 bug 是昨天的 feature，特此记录。",
+        "mediaTheme": null,
+        "daysAgo": 10
+      },
+      {
+        "text": "需求又变了第三版，与诸位共勉。",
+        "mediaTheme": null,
+        "daysAgo": 11
+      },
+      {
+        "text": "今天的 bug 是昨天的 feature，望有所成。",
+        "mediaTheme": null,
+        "daysAgo": 13
+      },
+      {
+        "text": "上线前心跳加速，特此记录。",
+        "mediaTheme": "nature",
+        "daysAgo": 14
+      },
+      {
+        "text": "新框架上手第一天，特此记录。",
+        "mediaTheme": null,
+        "daysAgo": 27
+      }
+    ]
+  },
+  {
+    "id": "ecf45ca8-db0b-4ce7-8ea6-22aeae633ac1",
+    "displayName": "梁勇梅",
+    "username": "lym_dev_555",
+    "avatarSeed": "lym_dev_555",
+    "bio": "代码与咖啡，构建数字世界，未来还长。",
+    "profession": "程序员",
+    "ageRange": "18-24",
+    "culturalBackground": "华南",
+    "worldview": "认为代码逻辑也是一种秩序，正学着与世界相处",
+    "values": "看重开源与拼搏；以代码为业，信守工程伦理",
+    "languageStyle": "口语",
+    "catchphrase": [
+      "emo 了"
+    ],
+    "emojiPreference": [
+      "😭",
+      "🤣",
+      "🥺",
+      "😅"
+    ],
+    "typoRate": 0.0291,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ],
+    "historicalTweets": [
+      {
+        "text": "终于把那个老接口下线了，真不错。",
+        "mediaTheme": null,
+        "daysAgo": 1
+      },
+      {
+        "text": "代码 review 被夸了，你们觉得呢？",
+        "mediaTheme": null,
+        "daysAgo": 6
+      },
+      {
+        "text": "代码 review 被夸了，挺有意思。",
+        "mediaTheme": null,
+        "daysAgo": 12
+      },
+      {
+        "text": "需求又变了第三版，挺有意思。",
+        "mediaTheme": null,
+        "daysAgo": 18
+      },
+      {
+        "text": "新框架上手第一天，你们觉得呢？",
+        "mediaTheme": "tech",
+        "daysAgo": 20
+      },
+      {
+        "text": "需求又变了第三版，给大家看看。",
+        "mediaTheme": "city",
+        "daysAgo": 20
+      },
+      {
+        "text": "今天的 bug 是昨天的 feature，你们觉得呢？",
+        "mediaTheme": null,
+        "daysAgo": 24
+      },
+      {
+        "text": "线上报警深夜响起，挺有意思。",
+        "mediaTheme": null,
+        "daysAgo": 25
+      },
+      {
+        "text": "新框架上手第一天，给大家看看。",
+        "mediaTheme": null,
+        "daysAgo": 27
+      }
+    ]
+  },
+  {
+    "id": "4d8bcf68-e431-45f9-835a-4702097664b5",
+    "displayName": "王杰磊",
+    "username": "wjl_dev_526",
+    "avatarSeed": "wjl_dev_526",
+    "bio": "用逻辑搭建产品，用键盘记录生活，渐入佳境。",
+    "profession": "程序员",
+    "ageRange": "25-34",
+    "culturalBackground": "华东",
+    "worldview": "相信技术能让生活更公平，野心与迷茫并存",
+    "values": "重契约、讲分寸；崇尚简洁与可维护",
+    "languageStyle": "犀利",
+    "catchphrase": [
+      "芭比 Q"
+    ],
+    "emojiPreference": [
+      "💯",
+      "🔥",
+      "👍",
+      "✨"
+    ],
+    "typoRate": 0.011,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ],
+    "historicalTweets": [
+      {
+        "text": "线上报警深夜响起，话糙理不糙。",
+        "mediaTheme": "food",
+        "daysAgo": 2
+      },
+      {
+        "text": "上线前心跳加速，话糙理不糙。",
+        "mediaTheme": null,
+        "daysAgo": 2
+      },
+      {
+        "text": "新框架上手第一天，现实就这么骨感。",
+        "mediaTheme": null,
+        "daysAgo": 6
+      },
+      {
+        "text": "上线前心跳加速，看透不说透。",
+        "mediaTheme": null,
+        "daysAgo": 9
+      },
+      {
+        "text": "重构了一上午终于跑通，话糙理不糙。",
+        "mediaTheme": "pet",
+        "daysAgo": 13
+      },
+      {
+        "text": "代码 review 被夸了，看透不说透。",
+        "mediaTheme": "sport",
+        "daysAgo": 17
+      },
+      {
+        "text": "新框架上手第一天，别再自欺欺人。",
+        "mediaTheme": null,
+        "daysAgo": 26
+      },
+      {
+        "text": "终于把那个老接口下线了，看透不说透。",
+        "mediaTheme": null,
+        "daysAgo": 29
+      },
+      {
+        "text": "线上报警深夜响起，现实就这么骨感。",
+        "mediaTheme": null,
+        "daysAgo": 30
+      }
+    ]
+  },
+  {
+    "id": "478e34c4-ea05-4e33-9864-ccd053648300",
+    "displayName": "刘霞洋",
+    "username": "lxy_dev_237",
+    "avatarSeed": "lxy_dev_237",
+    "bio": "代码与咖啡，构建数字世界，已见风雨。",
+    "profession": "程序员",
+    "ageRange": "35-44",
+    "culturalBackground": "华北",
+    "worldview": "相信开源与协作改变世界，开始懂得取舍",
+    "values": "崇尚踏实与直爽；崇尚简洁与可维护",
+    "languageStyle": "口语",
+    "catchphrase": [
+      "笑死",
+      "绝绝子"
+    ],
+    "emojiPreference": [
+      "👍",
+      "😊",
+      "🌹"
+    ],
+    "typoRate": 0.0176,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ],
+    "historicalTweets": [
+      {
+        "text": "重构了一上午终于跑通，真不错。",
+        "mediaTheme": "city",
+        "daysAgo": 5
+      },
+      {
+        "text": "线上报警深夜响起，真不错。",
+        "mediaTheme": "tech",
+        "daysAgo": 9
+      },
+      {
+        "text": "新框架上手第一天，挺有意思。",
+        "mediaTheme": null,
+        "daysAgo": 9
+      },
+      {
+        "text": "新框架上手第一天，真不错。",
+        "mediaTheme": "tech",
+        "daysAgo": 14
+      },
+      {
+        "text": "重构了一上午终于跑通，挺有意思。",
+        "mediaTheme": null,
+        "daysAgo": 29
+      },
+      {
+        "text": "重构了一上午终于跑通，你们觉得呢？",
+        "mediaTheme": null,
+        "daysAgo": 29
+      }
+    ]
+  },
+  {
+    "id": "d785017a-eaa6-459b-a374-5235a3a0f093",
+    "displayName": "Linda 陈",
+    "username": "lindac_dev_445",
+    "avatarSeed": "lindac_dev_445",
+    "bio": "用逻辑搭建产品，用键盘记录生活，慢享岁月。",
+    "profession": "程序员",
+    "ageRange": "45+",
+    "culturalBackground": "海外华人",
+    "worldview": "相信开源与协作改变世界，更愿意慢慢来",
+    "values": "重身份认同、讲连接；以代码为业，信守工程伦理",
+    "languageStyle": "正式",
+    "catchphrase": [
+      "破防了",
+      "笑死"
+    ],
+    "emojiPreference": [
+      "😊"
+    ],
+    "typoRate": 0.008,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ],
+    "historicalTweets": [
+      {
+        "text": "新框架上手第一天，特此记录。",
+        "mediaTheme": "pet",
+        "daysAgo": 10
+      },
+      {
+        "text": "上线前心跳加速，特此记录。",
+        "mediaTheme": "pet",
+        "daysAgo": 15
+      },
+      {
+        "text": "终于把那个老接口下线了，特此记录。",
+        "mediaTheme": "tech",
+        "daysAgo": 16
+      },
+      {
+        "text": "重构了一上午终于跑通，与诸位共勉。",
+        "mediaTheme": null,
+        "daysAgo": 18
+      },
+      {
+        "text": "代码 review 被夸了，持续关注中。",
+        "mediaTheme": "tech",
+        "daysAgo": 19
+      },
+      {
+        "text": "新框架上手第一天，持续关注中。",
+        "mediaTheme": "nature",
+        "daysAgo": 28
+      },
+      {
+        "text": "代码 review 被夸了，特此记录。",
+        "mediaTheme": null,
+        "daysAgo": 30
+      },
+      {
+        "text": "线上报警深夜响起，与诸位共勉。",
+        "mediaTheme": "pet",
+        "daysAgo": 30
+      }
+    ]
+  },
+  {
+    "id": "052e6471-5ae8-4197-be40-be502d39b397",
+    "displayName": "赵梅",
+    "username": "zm_dev_273",
+    "avatarSeed": "zm_dev_273",
+    "bio": "用逻辑搭建产品，用键盘记录生活，未来还长。",
+    "profession": "程序员",
+    "ageRange": "18-24",
+    "culturalBackground": "西北",
+    "worldview": "认为代码逻辑也是一种秩序，正学着与世界相处",
+    "values": "崇尚朴实与坚毅；崇尚简洁与可维护",
+    "languageStyle": "直率",
+    "catchphrase": [
+      "芭比 Q",
+      "破防了"
+    ],
+    "emojiPreference": [
+      "😅",
+      "🤣",
+      "🔥",
+      "💪",
+      "🙌"
+    ],
+    "typoRate": 0.0241,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ],
+    "historicalTweets": [
+      {
+        "text": "今天的 bug 是昨天的 feature，干就完了。",
+        "mediaTheme": "nature",
+        "daysAgo": 7
+      },
+      {
+        "text": "终于把那个老接口下线了，干就完了。",
+        "mediaTheme": "sport",
+        "daysAgo": 7
+      },
+      {
+        "text": "代码 review 被夸了，说完了。",
+        "mediaTheme": null,
+        "daysAgo": 7
+      },
+      {
+        "text": "重构了一上午终于跑通，就这事。",
+        "mediaTheme": null,
+        "daysAgo": 12
+      },
+      {
+        "text": "新框架上手第一天，就这事。",
+        "mediaTheme": null,
+        "daysAgo": 17
+      },
+      {
+        "text": "上线前心跳加速，说完了。",
+        "mediaTheme": "sport",
+        "daysAgo": 20
+      },
+      {
+        "text": "线上报警深夜响起，就这事。",
+        "mediaTheme": null,
+        "daysAgo": 22
+      },
+      {
+        "text": "新框架上手第一天，不废话。",
+        "mediaTheme": null,
+        "daysAgo": 27
+      },
+      {
+        "text": "线上报警深夜响起，不废话。",
+        "mediaTheme": null,
+        "daysAgo": 28
+      }
+    ]
+  },
+  {
+    "id": "f4463c62-194b-441c-ac7f-be98a34779e9",
+    "displayName": "李凯",
+    "username": "lk_dev_693",
+    "avatarSeed": "lk_dev_693",
+    "bio": "代码与咖啡，构建数字世界，渐入佳境。",
+    "profession": "程序员",
+    "ageRange": "25-34",
+    "culturalBackground": "西南",
+    "worldview": "认为代码逻辑也是一种秩序，正在路上慢慢验证",
+    "values": "崇尚自在与包容；崇尚简洁与可维护",
+    "languageStyle": "幽默",
+    "catchphrase": [
+      "emo 了",
+      "破防了"
+    ],
+    "emojiPreference": [
+      "🙌",
+      "🔥",
+      "💯"
+    ],
+    "typoRate": 0.0297,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ],
+    "historicalTweets": [
+      {
+        "text": "新框架上手第一天，笑死我了。",
+        "mediaTheme": "pet",
+        "daysAgo": 1
+      },
+      {
+        "text": "重构了一上午终于跑通，笑死我了。",
+        "mediaTheme": null,
+        "daysAgo": 3
+      },
+      {
+        "text": "上线前心跳加速，笑死我了。",
+        "mediaTheme": null,
+        "daysAgo": 14
+      },
+      {
+        "text": "新框架上手第一天，绝绝子。",
+        "mediaTheme": null,
+        "daysAgo": 23
+      },
+      {
+        "text": "重构了一上午终于跑通，懂的都懂。",
+        "mediaTheme": null,
+        "daysAgo": 24
+      },
+      {
+        "text": "终于把那个老接口下线了，懂的都懂。",
+        "mediaTheme": "sport",
+        "daysAgo": 28
+      },
+      {
+        "text": "重构了一上午终于跑通，绝绝子。",
+        "mediaTheme": null,
+        "daysAgo": 29
+      },
+      {
+        "text": "终于把那个老接口下线了，绝绝子。",
+        "mediaTheme": "city",
+        "daysAgo": 29
+      }
+    ]
+  },
+  {
+    "id": "ffa8f405-29de-4a53-82ab-427a9a78953b",
+    "displayName": "李敏",
+    "username": "lm_dev_581",
+    "avatarSeed": "lm_dev_581",
+    "bio": "代码与咖啡，构建数字世界，已见风雨。",
+    "profession": "程序员",
+    "ageRange": "35-44",
+    "culturalBackground": "华南",
+    "worldview": "认为代码逻辑也是一种秩序，开始懂得取舍",
+    "values": "崇尚灵活与变通；以代码为业，信守工程伦理",
+    "languageStyle": "温和",
+    "catchphrase": [
+      "emo 了",
+      "yyds"
+    ],
+    "emojiPreference": [
+      "😊",
+      "👍",
+      "🌹"
+    ],
+    "typoRate": 0.0056,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ],
+    "historicalTweets": [
+      {
+        "text": "今天的 bug 是昨天的 feature，慢慢来比较快。",
+        "mediaTheme": null,
+        "daysAgo": 5
+      },
+      {
+        "text": "上线前心跳加速，慢慢来比较快。",
+        "mediaTheme": "pet",
+        "daysAgo": 10
+      },
+      {
+        "text": "线上报警深夜响起，日子还长。",
+        "mediaTheme": null,
+        "daysAgo": 11
+      },
+      {
+        "text": "上线前心跳加速，愿你也有好心情。",
+        "mediaTheme": null,
+        "daysAgo": 14
+      },
+      {
+        "text": "新框架上手第一天，且行且珍惜。",
+        "mediaTheme": "landscape",
+        "daysAgo": 20
+      },
+      {
+        "text": "今天的 bug 是昨天的 feature，愿你也有好心情。",
+        "mediaTheme": null,
+        "daysAgo": 20
+      }
+    ]
+  },
+  {
+    "id": "6c1494eb-8db3-48f7-9bca-cd79e03a03ef",
+    "displayName": "刘浩",
+    "username": "lh_design_382",
+    "avatarSeed": "lh_design_382",
+    "bio": "把美感揉进每一个像素，渐入佳境。",
+    "profession": "设计师",
+    "ageRange": "25-34",
+    "culturalBackground": "华东",
+    "worldview": "相信美感能提升日常的尊严，野心与迷茫并存",
+    "values": "崇尚精致与务实；以用户体验为先",
+    "languageStyle": "幽默",
+    "catchphrase": [
+      "emo 了",
+      "破防了"
+    ],
+    "emojiPreference": [
+      "🔥",
+      "✨",
+      "💯"
+    ],
+    "typoRate": 0.027,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "灵感卡壳中，懂的都懂。",
+        "mediaTheme": "landscape",
+        "daysAgo": 4
+      },
+      {
+        "text": "改稿改到第十八版，破防了家人们。",
+        "mediaTheme": null,
+        "daysAgo": 8
+      },
+      {
+        "text": "终于找到了对的那一像素，笑死我了。",
+        "mediaTheme": "nature",
+        "daysAgo": 12
+      },
+      {
+        "text": "做完图发现文件没保存，懂的都懂。",
+        "mediaTheme": null,
+        "daysAgo": 16
+      },
+      {
+        "text": "配色又调了一下午，破防了家人们。",
+        "mediaTheme": null,
+        "daysAgo": 20
+      },
+      {
+        "text": "灵感卡壳中，笑死我了。",
+        "mediaTheme": null,
+        "daysAgo": 30
+      }
+    ]
+  },
+  {
+    "id": "abd12269-cc66-491f-bcdc-a049189d1722",
+    "displayName": "高敏",
+    "username": "gm_design_107",
+    "avatarSeed": "gm_design_107",
+    "bio": "把美感揉进每一个像素，已见风雨。",
+    "profession": "设计师",
+    "ageRange": "35-44",
+    "culturalBackground": "华北",
+    "worldview": "相信美感能提升日常的尊严，已见风雨仍想前行",
+    "values": "重情义、讲规矩；以用户体验为先",
+    "languageStyle": "犀利",
+    "catchphrase": [
+      "笑死"
+    ],
+    "emojiPreference": [
+      "🌹",
+      "👍"
+    ],
+    "typoRate": 0.0081,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "灵感卡壳中，话糙理不糙。",
+        "mediaTheme": null,
+        "daysAgo": 1
+      },
+      {
+        "text": "新字体上线试用，话糙理不糙。",
+        "mediaTheme": null,
+        "daysAgo": 8
+      },
+      {
+        "text": "配色又调了一下午，话糙理不糙。",
+        "mediaTheme": "pet",
+        "daysAgo": 9
+      },
+      {
+        "text": "甲方说要大气一点，看透不说透。",
+        "mediaTheme": null,
+        "daysAgo": 15
+      },
+      {
+        "text": "新字体上线试用，看透不说透。",
+        "mediaTheme": null,
+        "daysAgo": 20
+      },
+      {
+        "text": "灵感卡壳中，别再自欺欺人。",
+        "mediaTheme": null,
+        "daysAgo": 21
+      },
+      {
+        "text": "新字体上线试用，现实就这么骨感。",
+        "mediaTheme": null,
+        "daysAgo": 26
+      }
+    ]
+  },
+  {
+    "id": "c9d570b2-184f-415c-b452-6165689995f2",
+    "displayName": "Tony 李",
+    "username": "tonyl_design_669",
+    "avatarSeed": "tonyl_design_669",
+    "bio": "在留白与色彩之间寻找平衡，慢享岁月。",
+    "profession": "设计师",
+    "ageRange": "45+",
+    "culturalBackground": "海外华人",
+    "worldview": "相信细节决定体验，更愿意慢慢来",
+    "values": "看重中西兼容；信守审美与功能并重",
+    "languageStyle": "犀利",
+    "catchphrase": [
+      "笑死",
+      "yyds"
+    ],
+    "emojiPreference": [
+      "🌅"
+    ],
+    "typoRate": 0.0096,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "配色又调了一下午，话糙理不糙。",
+        "mediaTheme": "tech",
+        "daysAgo": 2
+      },
+      {
+        "text": "原型被一句话推翻，现实就这么骨感。",
+        "mediaTheme": null,
+        "daysAgo": 5
+      },
+      {
+        "text": "甲方说要大气一点，看透不说透。",
+        "mediaTheme": "landscape",
+        "daysAgo": 6
+      },
+      {
+        "text": "终于找到了对的那一像素，看透不说透。",
+        "mediaTheme": null,
+        "daysAgo": 7
+      },
+      {
+        "text": "配色又调了一下午，看透不说透。",
+        "mediaTheme": null,
+        "daysAgo": 17
+      },
+      {
+        "text": "甲方说要大气一点，话糙理不糙。",
+        "mediaTheme": "landscape",
+        "daysAgo": 21
+      }
+    ]
+  },
+  {
+    "id": "ae950a4c-cf23-4306-9873-144bf614b695",
+    "displayName": "杨霞文",
+    "username": "yxw_design_367",
+    "avatarSeed": "yxw_design_367",
+    "bio": "把美感揉进每一个像素，未来还长。",
+    "profession": "设计师",
+    "ageRange": "18-24",
+    "culturalBackground": "西北",
+    "worldview": "相信细节决定体验，正学着与世界相处",
+    "values": "重厚道、讲韧劲；以用户体验为先",
+    "languageStyle": "温和",
+    "catchphrase": [
+      "芭比 Q"
+    ],
+    "emojiPreference": [
+      "🙌",
+      "✨",
+      "🥺",
+      "🤣"
+    ],
+    "typoRate": 0.0442,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "甲方说要大气一点，且行且珍惜。",
+        "mediaTheme": null,
+        "daysAgo": 1
+      },
+      {
+        "text": "甲方说要大气一点，愿你也有好心情。",
+        "mediaTheme": "sport",
+        "daysAgo": 8
+      },
+      {
+        "text": "原型被一句话推翻，且行且珍惜。",
+        "mediaTheme": null,
+        "daysAgo": 15
+      },
+      {
+        "text": "新字体上线试用，慢慢来比较快。",
+        "mediaTheme": null,
+        "daysAgo": 27
+      },
+      {
+        "text": "原型被一句话推翻，慢慢来比较快。",
+        "mediaTheme": null,
+        "daysAgo": 28
+      },
+      {
+        "text": "终于找到了对的那一像素，日子还长。",
+        "mediaTheme": "pet",
+        "daysAgo": 28
+      }
+    ]
+  },
+  {
+    "id": "01157192-887a-4763-a71f-b2d85159f204",
+    "displayName": "李艳娟",
+    "username": "lyj_design_462",
+    "avatarSeed": "lyj_design_462",
+    "bio": "把美感揉进每一个像素，正在路上。",
+    "profession": "设计师",
+    "ageRange": "25-34",
+    "culturalBackground": "西南",
+    "worldview": "相信美感能提升日常的尊严，正在路上慢慢验证",
+    "values": "看重生活与滋味；信守审美与功能并重",
+    "languageStyle": "温和",
+    "catchphrase": [
+      "yyds",
+      "格局打开"
+    ],
+    "emojiPreference": [
+      "🔥",
+      "👍",
+      "😂",
+      "🙌"
+    ],
+    "typoRate": 0.0153,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "做完图发现文件没保存，愿你也有好心情。",
+        "mediaTheme": null,
+        "daysAgo": 6
+      },
+      {
+        "text": "配色又调了一下午，日子还长。",
+        "mediaTheme": null,
+        "daysAgo": 7
+      },
+      {
+        "text": "改稿改到第十八版，日子还长。",
+        "mediaTheme": null,
+        "daysAgo": 8
+      },
+      {
+        "text": "做完图发现文件没保存，日子还长。",
+        "mediaTheme": null,
+        "daysAgo": 9
+      },
+      {
+        "text": "甲方说要大气一点，且行且珍惜。",
+        "mediaTheme": "tech",
+        "daysAgo": 13
+      },
+      {
+        "text": "改稿改到第十八版，慢慢来比较快。",
+        "mediaTheme": null,
+        "daysAgo": 24
+      },
+      {
+        "text": "改稿改到第十八版，愿你也有好心情。",
+        "mediaTheme": null,
+        "daysAgo": 28
+      }
+    ]
+  },
+  {
+    "id": "59b381c6-36be-45e4-9caf-b1a8206a80fa",
+    "displayName": "何娟静",
+    "username": "hjj_design_983",
+    "avatarSeed": "hjj_design_983",
+    "bio": "在留白与色彩之间寻找平衡，已见风雨。",
+    "profession": "设计师",
+    "ageRange": "35-44",
+    "culturalBackground": "华南",
+    "worldview": "相信细节决定体验，已见风雨仍想前行",
+    "values": "看重开源与拼搏；信守审美与功能并重",
+    "languageStyle": "犀利",
+    "catchphrase": [
+      "栓 Q",
+      "绝绝子"
+    ],
+    "emojiPreference": [
+      "👍",
+      "🌹",
+      "🙏"
+    ],
+    "typoRate": 0.0142,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "灵感卡壳中，话糙理不糙。",
+        "mediaTheme": "nature",
+        "daysAgo": 6
+      },
+      {
+        "text": "新字体上线试用，现实就这么骨感。",
+        "mediaTheme": null,
+        "daysAgo": 7
+      },
+      {
+        "text": "终于找到了对的那一像素，话糙理不糙。",
+        "mediaTheme": null,
+        "daysAgo": 12
+      },
+      {
+        "text": "做完图发现文件没保存，看透不说透。",
+        "mediaTheme": null,
+        "daysAgo": 22
+      },
+      {
+        "text": "配色又调了一下午，看透不说透。",
+        "mediaTheme": "nature",
+        "daysAgo": 22
+      },
+      {
+        "text": "做完图发现文件没保存，别再自欺欺人。",
+        "mediaTheme": null,
+        "daysAgo": 27
+      }
+    ]
+  },
+  {
+    "id": "08a0be0e-7528-49db-a98e-d89db7b56e19",
+    "displayName": "刘婷明",
+    "username": "ltm_design_041",
+    "avatarSeed": "ltm_design_041",
+    "bio": "在留白与色彩之间寻找平衡，回头看仍热爱。",
+    "profession": "设计师",
+    "ageRange": "45+",
+    "culturalBackground": "华东",
+    "worldview": "相信美感能提升日常的尊严，回头看仍愿意相信",
+    "values": "重契约、讲分寸；信守审美与功能并重",
+    "languageStyle": "幽默",
+    "catchphrase": [
+      "格局打开",
+      "栓 Q"
+    ],
+    "emojiPreference": [
+      "👍"
+    ],
+    "typoRate": 0.01,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "新字体上线试用，笑死我了。",
+        "mediaTheme": null,
+        "daysAgo": 9
+      },
+      {
+        "text": "原型被一句话推翻，懂的都懂。",
+        "mediaTheme": "landscape",
+        "daysAgo": 10
+      },
+      {
+        "text": "灵感卡壳中，懂的都懂。",
+        "mediaTheme": null,
+        "daysAgo": 12
+      },
+      {
+        "text": "灵感卡壳中，笑死我了。",
+        "mediaTheme": null,
+        "daysAgo": 13
+      },
+      {
+        "text": "新字体上线试用，绝绝子。",
+        "mediaTheme": null,
+        "daysAgo": 14
+      },
+      {
+        "text": "终于找到了对的那一像素，笑死我了。",
+        "mediaTheme": null,
+        "daysAgo": 17
+      },
+      {
+        "text": "终于找到了对的那一像素，破防了家人们。",
+        "mediaTheme": null,
+        "daysAgo": 19
+      },
+      {
+        "text": "甲方说要大气一点，绝绝子。",
+        "mediaTheme": null,
+        "daysAgo": 26
+      },
+      {
+        "text": "甲方说要大气一点，懂的都懂。",
+        "mediaTheme": null,
+        "daysAgo": 29
+      }
+    ]
+  },
+  {
+    "id": "1e816f79-9f52-4529-af27-f23847cbbe50",
+    "displayName": "刘杰洋",
+    "username": "ljy_design_374",
+    "avatarSeed": "ljy_design_374",
+    "bio": "把美感揉进每一个像素，刚上路。",
+    "profession": "设计师",
+    "ageRange": "18-24",
+    "culturalBackground": "华北",
+    "worldview": "相信细节决定体验，正学着与世界相处",
+    "values": "重情义、讲规矩；以用户体验为先",
+    "languageStyle": "正式",
+    "catchphrase": [
+      "绝绝子",
+      "格局打开"
+    ],
+    "emojiPreference": [
+      "🥺",
+      "🔥",
+      "🙌",
+      "😭",
+      "✨"
+    ],
+    "typoRate": 0.0448,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "改稿改到第十八版，与诸位共勉。",
+        "mediaTheme": null,
+        "daysAgo": 15
+      },
+      {
+        "text": "原型被一句话推翻，望有所成。",
+        "mediaTheme": "landscape",
+        "daysAgo": 17
+      },
+      {
+        "text": "灵感卡壳中，与诸位共勉。",
+        "mediaTheme": null,
+        "daysAgo": 21
+      },
+      {
+        "text": "配色又调了一下午，望有所成。",
+        "mediaTheme": null,
+        "daysAgo": 27
+      },
+      {
+        "text": "改稿改到第十八版，望有所成。",
+        "mediaTheme": null,
+        "daysAgo": 29
+      }
+    ]
+  },
+  {
+    "id": "aebaca97-801e-4846-a44c-5905e7841474",
+    "displayName": "Tony 王",
+    "username": "tonyw_design_730",
+    "avatarSeed": "tonyw_design_730",
+    "bio": "把美感揉进每一个像素，渐入佳境。",
+    "profession": "设计师",
+    "ageRange": "25-34",
+    "culturalBackground": "海外华人",
+    "worldview": "相信美感能提升日常的尊严，正在路上慢慢验证",
+    "values": "看重中西兼容；信守审美与功能并重",
+    "languageStyle": "幽默",
+    "catchphrase": [
+      "笑死",
+      "破防了"
+    ],
+    "emojiPreference": [
+      "💯",
+      "✨",
+      "👍",
+      "🙌"
+    ],
+    "typoRate": 0.0231,
+    "activeWindows": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ],
+    "historicalTweets": [
+      {
+        "text": "新字体上线试用，懂的都懂。",
+        "mediaTheme": null,
+        "daysAgo": 8
+      },
+      {
+        "text": "新字体上线试用，破防了家人们。",
+        "mediaTheme": null,
+        "daysAgo": 9
+      },
+      {
+        "text": "原型被一句话推翻，绝绝子。",
+        "mediaTheme": "city",
+        "daysAgo": 11
+      },
+      {
+        "text": "原型被一句话推翻，懂的都懂。",
+        "mediaTheme": null,
+        "daysAgo": 12
+      },
+      {
+        "text": "配色又调了一下午，笑死我了。",
+        "mediaTheme": "city",
+        "daysAgo": 12
+      },
+      {
+        "text": "改稿改到第十八版，笑死我了。",
+        "mediaTheme": null,
+        "daysAgo": 12
+      },
+      {
+        "text": "灵感卡壳中，懂的都懂。",
+        "mediaTheme": null,
+        "daysAgo": 26
+      }
+    ]
+  }
+]
