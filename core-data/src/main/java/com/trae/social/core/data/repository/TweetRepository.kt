@@ -48,6 +48,8 @@ class TweetRepository @Inject constructor(
     suspend fun getByDeduplicationKey(key: String): TweetEntity? =
         tweetDao.getByDeduplicationKey(key)
 
+    suspend fun getById(id: String): TweetEntity? = tweetDao.getById(id)
+
     suspend fun countByAuthorSince(authorId: String, startOfDay: Long): Int =
         tweetDao.countByAuthorSince(authorId, startOfDay)
 

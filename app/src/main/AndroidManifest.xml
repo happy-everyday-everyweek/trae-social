@@ -62,6 +62,19 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- 移除 androidx.startup 默认的 WorkManager 初始化，
+             改由 SocialApp 实现 Configuration.Provider 接入 HiltWorkerFactory -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
+
         <!-- FileProvider：用于相机拍照后的文件分享 -->
         <provider
             android:name="androidx.core.content.FileProvider"
