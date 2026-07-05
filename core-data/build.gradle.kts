@@ -36,6 +36,11 @@ android {
     }
 }
 
+// Room schema 导出配置（RISK-9）：exportSchema=true 时通过 KSP 输出 JSON 至 schemas/
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
 
