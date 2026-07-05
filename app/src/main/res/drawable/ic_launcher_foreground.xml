@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 启动图标前景：白色对话气泡（自适应图标前景，108dp 视口，内容居中于安全区） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,34 C42,34 33,41.5 33,50.8 C33,60 42,67.5 54,67.5 C56,67.5 57.9,67.3 59.7,66.9 L72,71.5 L68.4,61.6 C72.3,58.4 75,54.8 75,50.8 C75,41.5 66,34 54,34 Z" />
+</vector>
