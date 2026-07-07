@@ -20,7 +20,8 @@ import timber.log.Timber
 /**
  * 调度前台服务（SubTask 8.5）。
  *
- * - foregroundServiceType=dataSync（Android 14+ 强制声明）；
+ * - foregroundServiceType=specialUse（IMPL-17：dataSync 在 Android 14+ 有 6 小时配额限制，
+ *   且本服务不做数据同步，纯为保活 WorkManager，使用 specialUse 更合规）；
  * - 常驻通知"社交生态运行中"，NotificationChannel: "scheduler"，IMPORTANCE_LOW；
  * - onStartCommand 启动 PendingInteractionWorker 的周期调度（15 分钟周期）；
  * - START_STICKY 保证被杀后系统尝试重建。
@@ -83,10 +84,12 @@ class SchedulerForegroundService : Service() {
 
     /**
      * 获取前台服务类型（Android 14+ 必须显式指定）。
+     *
+     * IMPL-17：使用 specialUse 而非 dataSync，避免 6 小时配额限制。
      */
     private fun getServiceType(): Int {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
         } else {
             0
         }

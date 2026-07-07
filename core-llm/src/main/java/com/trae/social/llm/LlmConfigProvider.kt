@@ -5,20 +5,24 @@ package com.trae.social.llm
  *
  * 由 app 模块注入实现（基于 ConfigRepository / DataStore），
  * core-llm 模块仅依赖该接口，避免与 core-data 形成循环依赖。
+ *
+ * IMPL-14：所有方法为 suspend，避免在主线程上 runBlocking 导致 ANR。
+ * [com.trae.social.llm.interceptor.AuthInterceptor] 运行在 OkHttp 线程，
+ * 可安全使用 runBlocking 调用这些方法。
  */
 interface LlmConfigProvider {
 
     /** 获取指定提供商的 API Key，未配置时返回 null。 */
-    fun getApiKey(provider: LlmProvider): String?
+    suspend fun getApiKey(provider: LlmProvider): String?
 
     /** 获取指定提供商的自定义 Base URL，未配置时返回 null（使用默认值）。 */
-    fun getBaseUrl(provider: LlmProvider): String?
+    suspend fun getBaseUrl(provider: LlmProvider): String?
 
     /** 获取指定提供商使用的模型名，未配置时返回 null（使用默认值）。 */
-    fun getModel(provider: LlmProvider): String?
+    suspend fun getModel(provider: LlmProvider): String?
 
     /** 获取用户当前的默认提供商。 */
-    fun getDefaultProvider(): LlmProvider
+    suspend fun getDefaultProvider(): LlmProvider
 }
 
 /**

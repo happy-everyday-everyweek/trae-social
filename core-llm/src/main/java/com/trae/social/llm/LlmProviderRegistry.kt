@@ -6,6 +6,8 @@ import com.trae.social.llm.gemini.GeminiApi
 import com.trae.social.llm.gemini.GeminiClient
 import com.trae.social.llm.openai.OpenAiApi
 import com.trae.social.llm.openai.OpenAiClient
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -28,6 +30,9 @@ import javax.inject.Singleton
  * - Base URL 自定义时基于共享 OkHttpClient 新建 Retrofit。
  *
  * 兼容 OpenAI 协议的第三方端点通过 [LlmProvider.CUSTOM] 接入。
+ *
+ * IMPL-14：[getClient] / [getDefaultClient] 为 suspend，避免主线程 runBlocking 导致 ANR。
+ * 使用 [Mutex] 替代 @Synchronized 保证线程安全。
  */
 @Singleton
 class LlmProviderRegistry @Inject constructor(
@@ -40,6 +45,7 @@ class LlmProviderRegistry @Inject constructor(
 ) {
 
     private val clients = ConcurrentHashMap<LlmProvider, LlmClient>()
+    private val mutex = Mutex()
 
     private val defaultOpenAiApi: OpenAiApi by lazy {
         openAiRetrofit.create(OpenAiApi::class.java)
@@ -54,18 +60,21 @@ class LlmProviderRegistry @Inject constructor(
     /**
      * 获取指定提供商的客户端，不存在则懒创建并缓存。
      */
-    @Synchronized
-    fun getClient(provider: LlmProvider): LlmClient {
+    suspend fun getClient(provider: LlmProvider): LlmClient {
         clients[provider]?.let { return it }
-        val client = createClient(provider)
-        clients[provider] = client
-        return client
+        return mutex.withLock {
+            // Double-check after acquiring lock
+            clients[provider]?.let { return it }
+            val client = createClient(provider)
+            clients[provider] = client
+            client
+        }
     }
 
     /**
      * 获取用户配置的默认提供商对应的客户端。
      */
-    fun getDefaultClient(): LlmClient = getClient(configProvider.getDefaultProvider())
+    suspend fun getDefaultClient(): LlmClient = getClient(configProvider.getDefaultProvider())
 
     /**
      * 清空所有缓存的客户端实例。
@@ -74,12 +83,11 @@ class LlmProviderRegistry @Inject constructor(
      * - 用户切换默认提供商；
      * - API Key / Base URL / 模型名变更。
      */
-    @Synchronized
     fun invalidateCache() {
         clients.clear()
     }
 
-    private fun createClient(provider: LlmProvider): LlmClient {
+    private suspend fun createClient(provider: LlmProvider): LlmClient {
         val model = configProvider.getModel(provider) ?: defaultModel(provider)
         val customBaseUrl = configProvider.getBaseUrl(provider)
 

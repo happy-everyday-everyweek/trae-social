@@ -20,8 +20,8 @@
 
     <!-- ============ 前台服务（调度任务常驻） ============ -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <!-- API 34+ 必须声明具体的前台服务类型 -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- API 34+ 必须声明具体的前台服务类型（IMPL-17：specialUse 替代 dataSync） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <!-- ============ 通知（API 33+ 运行时申请） ============ -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -56,11 +56,15 @@
             </intent-filter>
         </activity>
 
-        <!-- 调度前台服务：数据同步类型 -->
+        <!-- 调度前台服务：specialUse 类型（IMPL-17：dataSync 在 Android 14+ 有 6 小时配额限制） -->
         <service
             android:name="com.trae.social.core.scheduler.SchedulerForegroundService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="social_ai_scheduler_keepalive" />
+        </service>
 
         <!-- IMPL-18：开机自启接收器，注册 BOOT_COMPLETED + LOCKED_BOOT_COMPLETED -->
         <receiver

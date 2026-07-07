@@ -65,6 +65,11 @@ sealed interface PublishEvent {
      * 发布成功，触发缩小飞入动画并返回首页。
      */
     data object Published : PublishEvent
+
+    /**
+     * 发布失败（IMPL-15），UI 应显示错误并保留输入。
+     */
+    data object PublishFailed : PublishEvent
 }
 
 /**
@@ -145,10 +150,13 @@ class PublishViewModel @Inject constructor(
                 )
                 tweetRepository.insertTweet(tweet)
                 triggerAiInteraction(tweetId)
+                // IMPL-15：仅在成功时 emit Published，失败时 emit PublishFailed
+                _events.send(PublishEvent.Published)
             } catch (t: Throwable) {
                 Timber.e(t, "发布失败")
+                _events.send(PublishEvent.PublishFailed)
             } finally {
-                _events.send(PublishEvent.Published)
+                _uiState.update { it.copy(isPublishing = false) }
             }
         }
     }

@@ -201,7 +201,8 @@ class PersonaSeeder @Inject constructor(
         return historicalTweets.mapIndexed { index, tweet ->
             val daysAgo = tweet.daysAgo.coerceIn(1, 30)
             val withinDayOffset = Random.nextLong(0, DAY_MS)
-            val tweetTime = now - daysAgo * DAY_MS + withinDayOffset
+            // IMPL-9：减号确保 tweetTime 落入 [now-(daysAgo+1)*DAY_MS, now-daysAgo*DAY_MS]
+            val tweetTime = now - daysAgo * DAY_MS - withinDayOffset
             TweetEntity(
                 id = UUID.randomUUID().toString(),
                 authorId = id,

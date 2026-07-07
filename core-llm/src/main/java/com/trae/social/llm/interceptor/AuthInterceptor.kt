@@ -3,6 +3,7 @@ package com.trae.social.llm.interceptor
 import com.trae.social.llm.LlmConfigProvider
 import com.trae.social.llm.LlmHttp
 import com.trae.social.llm.LlmProvider
+import kotlinx.coroutines.runBlocking
 import okhttp3.Interceptor
 import okhttp3.Response
 
@@ -15,6 +16,9 @@ import okhttp3.Response
  *
  * 提供商类型通过请求头 [LlmHttp.PROVIDER_HEADER] 标记（由各 Client 注入），
  * 拦截器读取后移除该内部头，避免发送到网络。
+ *
+ * IMPL-14：[LlmConfigProvider.getApiKey] 为 suspend，此处用 runBlocking 调用。
+ * OkHttp 拦截器运行在调度线程而非主线程，runBlocking 不影响 UI。
  */
 class AuthInterceptor(
     private val configProvider: LlmConfigProvider,
@@ -25,7 +29,7 @@ class AuthInterceptor(
         val providerHeader = original.header(LlmHttp.PROVIDER_HEADER)
         val provider = parseProvider(providerHeader)
 
-        val key = configProvider.getApiKey(provider)
+        val key = runBlocking { configProvider.getApiKey(provider) }
 
         val builder = original.newBuilder().removeHeader(LlmHttp.PROVIDER_HEADER)
 

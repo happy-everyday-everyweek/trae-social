@@ -84,6 +84,10 @@ fun PublishScreen(
                         onPublished()
                     }
                 }
+                // IMPL-15：发布失败时显示错误提示，保留输入
+                PublishEvent.PublishFailed -> {
+                    // isPublishing 已在 ViewModel 中重置，用户可重试
+                }
             }
         }
     }
