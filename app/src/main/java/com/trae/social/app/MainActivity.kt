@@ -88,10 +88,11 @@ private fun SocialApp(configRepository: ConfigRepository) {
             ) {
                 composable("onboarding") {
                     OnboardingNavHost(
-                        onCompleted = {
-                            // 引导完成：写入标记并切换至主框架
+                        onCompleted = { skipped ->
+                            // IMPL-13：区分跳过与完成，写入对应标记并切换至主框架
                             scope.launch {
                                 configRepository.setOnboardingCompleted(true)
+                                configRepository.setOnboardingSkipped(skipped)
                                 navController.navigate("main") {
                                     popUpTo("onboarding") { inclusive = true }
                                 }

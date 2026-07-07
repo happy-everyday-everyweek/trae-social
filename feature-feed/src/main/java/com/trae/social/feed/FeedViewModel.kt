@@ -8,6 +8,7 @@ import com.trae.social.core.data.entity.InteractionEntity
 import com.trae.social.core.data.entity.InteractionType
 import com.trae.social.core.data.entity.TweetEntity
 import com.trae.social.core.data.repository.AccountRepository
+import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.data.repository.InteractionRepository
 import com.trae.social.core.data.repository.TweetRepository
 import com.trae.social.feed.di.FeedImageLoader
@@ -51,6 +52,7 @@ class FeedViewModel @Inject constructor(
     private val tweetRepository: TweetRepository,
     private val accountRepository: AccountRepository,
     private val interactionRepository: InteractionRepository,
+    private val configRepository: ConfigRepository,
     @FeedImageLoader val imageLoader: ImageLoader,
 ) : ViewModel() {
 
@@ -64,6 +66,10 @@ class FeedViewModel @Inject constructor(
     /** 已收藏推文 ID 集合 */
     private val _bookmarkedTweetIds = MutableStateFlow<Set<String>>(emptySet())
     val bookmarkedTweetIds: StateFlow<Set<String>> = _bookmarkedTweetIds.asStateFlow()
+
+    /** IMPL-13：是否跳过引导，FeedScreen 据此展示补全配置 banner */
+    private val _isOnboardingSkipped = MutableStateFlow(false)
+    val isOnboardingSkipped: StateFlow<Boolean> = _isOnboardingSkipped.asStateFlow()
 
     /** UI 状态 */
     private val _uiState = MutableStateFlow<FeedUiState>(FeedUiState.Loading)
@@ -82,6 +88,10 @@ class FeedViewModel @Inject constructor(
 
     init {
         _uiState.value = FeedUiState.Loading
+        // IMPL-13：读取跳过引导标记，驱动 FeedScreen 顶部 banner
+        viewModelScope.launch {
+            _isOnboardingSkipped.value = configRepository.isOnboardingSkipped()
+        }
     }
 
     /**

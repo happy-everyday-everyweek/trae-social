@@ -63,6 +63,7 @@ fun FeedScreen(
     val pagingItems = viewModel.feedFlow.collectAsLazyPagingItems()
     val likedIds by viewModel.likedTweetIds.collectAsStateWithLifecycle()
     val bookmarkedIds by viewModel.bookmarkedTweetIds.collectAsStateWithLifecycle()
+    val isOnboardingSkipped by viewModel.isOnboardingSkipped.collectAsStateWithLifecycle()
 
     // 互动弹层状态
     var commentTarget by remember { mutableStateOf<TweetWithAuthor?>(null) }
@@ -75,14 +76,19 @@ fun FeedScreen(
     val isEmpty = refreshState is LoadState.NotLoading && pagingItems.itemCount == 0
     val isRefreshing = refreshState is LoadState.Loading && pagingItems.itemCount > 0
 
-    PullToRefreshBox(
-        isRefreshing = isRefreshing,
-        onRefresh = {
-            viewModel.refresh()
-            pagingItems.refresh()
-        },
-        modifier = modifier.fillMaxSize(),
-    ) {
+    // IMPL-13：跳过引导时顶部展示补全配置 banner
+    Column(modifier = modifier.fillMaxSize()) {
+        if (isOnboardingSkipped) {
+            OnboardingSkippedBanner()
+        }
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                viewModel.refresh()
+                pagingItems.refresh()
+            },
+            modifier = Modifier.fillMaxSize(),
+        ) {
         when {
             isInitialLoading -> LoadingPlaceholderList()
             isError -> ErrorPlaceholder(
@@ -107,7 +113,8 @@ fun FeedScreen(
                 onBookmarkClick = { viewModel.bookmarkTweet(it.tweet.id) },
             )
         }
-    }
+        } // PullToRefreshBox
+    } // Column
 
     // 评论弹层
     commentTarget?.let { item ->
@@ -382,6 +389,35 @@ private fun EndOfListFooter() {
             text = "已加载全部",
             style = MaterialTheme.typography.labelMedium,
             color = colors.tertiaryLabel,
+        )
+    }
+}
+
+/**
+ * IMPL-13：跳过引导后的补全配置 banner。
+ *
+ * 提示用户前往"我的"Tab 配置 API Key 以启用 AI 功能。
+ */
+@Composable
+private fun OnboardingSkippedBanner() {
+    val colors = LocalSocialColors.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(colors.systemBlue.copy(alpha = 0.12f))
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = "AI 服务未配置，部分功能不可用",
+            style = MaterialTheme.typography.bodySmall,
+            color = colors.systemBlue,
+        )
+        Text(
+            text = "前往设置",
+            style = MaterialTheme.typography.labelLarge,
+            color = colors.systemBlue,
         )
     }
 }

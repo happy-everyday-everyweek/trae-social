@@ -24,12 +24,15 @@ import com.trae.social.designsystem.theme.LocalSocialColors
  * 流程结束时调用 [onCompleted] 通知上层切换至主框架。
  * 跳过逻辑：WelcomeScreen 的"稍后"→ [OnboardingViewModel.skip] → [onCompleted]。
  *
- * @param onCompleted 引导完成回调（由 app 模块标记完成并跳转主界面）
+ * IMPL-13：[onCompleted] 接收 `skipped` 参数区分跳过与完成，
+ * app 层据此写入 `onboardingSkipped` 标记，FeedScreen 据此展示 banner。
+ *
+ * @param onCompleted 引导完成回调（skipped=true 表示用户跳过引导）
  * @param modifier 修饰符
  */
 @Composable
 fun OnboardingNavHost(
-    onCompleted: () -> Unit,
+    onCompleted: (skipped: Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val navController: NavHostController = rememberNavController()
@@ -47,9 +50,8 @@ fun OnboardingNavHost(
             WelcomeScreen(
                 onStart = { navController.navigate(OnboardingRoute.PROVIDER) },
                 onSkip = {
-                    // 跳过引导：不写入 LLM 配置，直接进入主界面
-                    // onboarding_completed 标记由 app 层 onCompleted 回调统一写入
-                    viewModel.skip(onSkipped = onCompleted)
+                    // IMPL-13：跳过引导，传 skipped=true 使 app 层写入 onboardingSkipped
+                    viewModel.skip(onSkipped = { onCompleted(true) })
                 },
             )
         }
@@ -83,7 +85,7 @@ fun OnboardingNavHost(
         }
         composable(OnboardingRoute.DONE) {
             DoneScreen(
-                onCompleted = onCompleted,
+                onCompleted = { onCompleted(false) },
             )
         }
     }

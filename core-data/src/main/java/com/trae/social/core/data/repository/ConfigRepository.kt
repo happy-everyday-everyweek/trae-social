@@ -97,6 +97,18 @@ class ConfigRepository @Inject constructor(
         dataStore.edit { it[KEY_ONBOARDING_COMPLETED] = completed }
     }
 
+    /**
+     * IMPL-13：区分"跳过引导"与"完成引导"。
+     *
+     * 跳过时写入 skipped=true，FeedScreen 顶部展示 banner 提示用户补全 API Key。
+     */
+    suspend fun isOnboardingSkipped(): Boolean =
+        dataStore.data.map { it[KEY_ONBOARDING_SKIPPED] ?: false }.first()
+
+    suspend fun setOnboardingSkipped(skipped: Boolean) {
+        dataStore.edit { it[KEY_ONBOARDING_SKIPPED] = skipped }
+    }
+
     // ------------------------------------------------------------------
     // AI 活跃度（DataStore）
     // ------------------------------------------------------------------
@@ -117,6 +129,7 @@ class ConfigRepository @Inject constructor(
     companion object {
         private val KEY_DEFAULT_PROVIDER = stringPreferencesKey("default_provider")
         private val KEY_ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
+        private val KEY_ONBOARDING_SKIPPED = booleanPreferencesKey("onboarding_skipped")
         private val KEY_AI_ACTIVITY_LEVEL = stringPreferencesKey("ai_activity_level")
     }
 }
