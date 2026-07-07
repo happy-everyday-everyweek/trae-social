@@ -16,10 +16,10 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface TweetDao {
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(tweet: TweetEntity)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertAll(tweets: List<TweetEntity>)
 
     @Query("SELECT * FROM tweets ORDER BY createdAt DESC LIMIT :size OFFSET :offset")

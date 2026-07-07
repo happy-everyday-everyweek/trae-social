@@ -2,6 +2,7 @@ package com.trae.social.core.data.repository
 
 import com.trae.social.core.data.dao.InteractionDao
 import com.trae.social.core.data.entity.InteractionEntity
+import com.trae.social.core.data.entity.InteractionType
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -28,4 +29,16 @@ class InteractionRepository @Inject constructor(
 
     suspend fun markExecuted(interactionId: String, executedAt: Long) =
         interactionDao.markExecuted(interactionId, executedAt)
+
+    /**
+     * 原子地执行一批互动并更新推文计数（IMPL-6）。
+     */
+    suspend fun executeInteractionsAndUpdateTweet(
+        interactions: List<InteractionEntity>,
+        executedAt: Long,
+        tweetId: String,
+    ) = interactionDao.executeInteractionsAndUpdateTweet(interactions, executedAt, tweetId)
+
+    suspend fun countExecutedByType(tweetId: String, type: InteractionType): Int =
+        interactionDao.countExecutedByType(tweetId, type)
 }

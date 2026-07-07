@@ -35,6 +35,7 @@ object WorkerTags {
     const val INTERACTION = "interaction"
     const val PENDING_INTERACTION = "pending_interaction"
     const val PERSONA_UPDATE = "persona_update"
+    const val BOOT_INIT = "boot_init"
 }
 
 /**

@@ -4,8 +4,13 @@ import android.app.Application
 import android.util.Log
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import com.trae.social.core.data.seed.PersonaSeeder
 import com.trae.social.core.scheduler.SchedulerInitializer
 import dagger.hilt.android.HiltAndroidApp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
 
@@ -17,6 +22,7 @@ import javax.inject.Inject
  * 2. 注册全局未捕获异常处理器，记录崩溃信息。
  * 3. 实现 [Configuration.Provider] 接入 [HiltWorkerFactory]，使 @HiltWorker 可注入依赖。
  * 4. 调用 [SchedulerInitializer.initialize] 启动调度器（前台服务 + 调度恢复 + 周期任务）。
+ * 5. IMPL-1：触发 [PersonaSeeder.seedIfNeeded] 导入虚拟账号与历史推文。
  */
 @HiltAndroidApp
 class SocialApp : Application(), Configuration.Provider {
@@ -24,11 +30,22 @@ class SocialApp : Application(), Configuration.Provider {
     @Inject
     lateinit var workerFactory: HiltWorkerFactory
 
+    @Inject
+    lateinit var personaSeeder: PersonaSeeder
+
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     override fun onCreate() {
         super.onCreate()
 
         initTimber()
         installCrashHandler()
+
+        // IMPL-1：触发种子数据导入（虚拟账号 + 历史推文 + user-self 账号）
+        appScope.launch {
+            runCatching { personaSeeder.seedIfNeeded().collect { /* 进度可通过 StateFlow 暴露给 UI */ } }
+                .onFailure { Timber.e(it, "种子数据导入失败") }
+        }
 
         // Task 8：初始化调度器（前台服务 + 调度恢复 + 周期 Worker 入队）
         SchedulerInitializer.initialize(this)

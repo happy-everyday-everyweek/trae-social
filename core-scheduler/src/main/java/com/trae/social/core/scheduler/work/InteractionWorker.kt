@@ -14,12 +14,14 @@ import com.trae.social.core.data.repository.TweetRepository
 import com.trae.social.core.scheduler.ratelimit.SchedulerRateLimiter
 import com.trae.social.llm.ChatConfig
 import com.trae.social.llm.LlmProviderRegistry
+import com.trae.social.llm.interceptor.RateLimitedException
 import com.trae.social.llm.prompt.CommentPromptBuilder
 import com.trae.social.llm.prompt.TweetPromptBuilder
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import timber.log.Timber
 import java.util.UUID
+import kotlin.math.exp
 import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
@@ -132,6 +134,12 @@ class InteractionWorker @AssistedInject constructor(
                     WorkerKeys.KEY_TWEET_ID to tweet.id,
                 )
             )
+        } catch (e: RateLimitedException) {
+            // IMPL-19：429 限流直接跳过，不重试，避免浪费配额
+            Timber.w("InteractionWorker 遇到限流，跳过 tweetId=%s retryAfter=%s", tweetId, e.retryAfterSeconds)
+            status = "rate_limited"
+            logSchedulerEvent(tweetId, started, status, e.message)
+            return Result.success(workDataOf(WorkerKeys.KEY_RESULT to status))
         } catch (t: Throwable) {
             Timber.e(t, "InteractionWorker 执行失败 tweetId=%s", tweetId)
             error = t.message ?: t.javaClass.simpleName
@@ -148,16 +156,23 @@ class InteractionWorker @AssistedInject constructor(
     /**
      * 从虚拟账号中按人设相似度筛选 3-8 个评论者。
      *
-     * 简化实现：先按职业重合度过滤，再随机选取；
-     * 候选不足时回退到全量随机选取。
+     * 翻页加载全部虚拟账号（约 220 个），按 bio 关键词 + 职业重合度评分，
+     * 取相似度 Top 30% 后随机选取；候选不足时回退到全量随机选取。
      */
     private suspend fun selectCommenters(
         authorId: String,
         authorProfession: String,
         authorBio: String,
     ): List<com.trae.social.core.data.entity.AccountEntity> {
-        val all = runCatching { accountRepository.getAccounts(page = 1) }.getOrDefault(emptyList())
-            .filter { it.isVirtual && it.id != authorId }
+        // 翻页加载全部虚拟账号，避免只取首页 20 个
+        val all = mutableListOf<com.trae.social.core.data.entity.AccountEntity>()
+        var page = 1
+        while (page <= MAX_ACCOUNT_PAGES) {
+            val batch = runCatching { accountRepository.getAccounts(page) }.getOrDefault(emptyList())
+            if (batch.isEmpty()) break
+            all.addAll(batch.filter { it.isVirtual && it.id != authorId })
+            page++
+        }
         if (all.isEmpty()) return emptyList()
 
         val authorKeywords = extractKeywords(authorBio + " " + authorProfession)
@@ -200,7 +215,10 @@ class InteractionWorker @AssistedInject constructor(
     }
 
     /**
-     * 按对数正态分布生成互动延迟（毫秒）。
+     * 按对数正态分布生成互动延迟（毫秒）（IMPL-20）。
+     *
+     * 使用 nextGaussian()*std+mean 在 log 空间采样后取指数，
+     * 再 clamp 到 [minMs, maxMs]。
      *
      * - LIKE：30s - 5min
      * - COMMENT：2min - 15min
@@ -214,15 +232,18 @@ class InteractionWorker @AssistedInject constructor(
             InteractionType.RETWEET -> 5 * 60_000L to 30 * 60_000L
             InteractionType.FOLLOW -> 60_000L to 10 * 60_000L
         }
-        // 对数正态分布：在 [minMs, maxMs] 内取值
         val logMin = ln(minMs.toDouble())
         val logMax = ln(maxMs.toDouble())
         val mean = (logMin + logMax) / 2
         val std = (logMax - logMin) / 4
-        val sample = random.nextDouble()
-        // 简化：用均匀分布在 log 空间采样后取指数，近似对数正态
-        val logValue = logMin + sample * (logMax - logMin)
-        var raw = Math.exp(logValue).toLong()
+        // IMPL-20：用 Box-Muller 变换实现真正的对数正态分布
+        // kotlin.random.Random 无 nextGaussian()，用均匀随机数通过 Box-Muller 变换生成
+        val u1 = random.nextDouble().coerceAtLeast(Double.MIN_VALUE)
+        val u2 = random.nextDouble()
+        val gaussian = kotlin.math.sqrt(-2.0 * kotlin.math.ln(u1)) *
+            kotlin.math.cos(2.0 * kotlin.math.PI * u2)
+        val logValue = mean + std * gaussian
+        var raw = exp(logValue).toLong()
         if (raw < minMs) raw = minMs
         if (raw > maxMs) raw = maxMs
         return raw
@@ -317,6 +338,7 @@ class InteractionWorker @AssistedInject constructor(
         const val MIN_COMMENTERS = 3
         const val MAX_COMMENTERS = 8
         const val MAX_COMMENT_LENGTH = 100
+        const val MAX_ACCOUNT_PAGES = 12
         const val LIKE_THRESHOLD = 0.50
         const val COMMENT_THRESHOLD = 0.30
         const val RETWEET_THRESHOLD = 0.15

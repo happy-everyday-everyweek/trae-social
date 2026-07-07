@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
@@ -11,6 +12,7 @@ import java.time.ZonedDateTime
  * [ScheduleRuleResolver.missedWindows] 单元测试。
  *
  * 覆盖：lastRun 至 now 间完整错过的活跃窗识别、今日当前窗不视为错过、空规则。
+ * IMPL-4：验证 MissedWindow 携带日期，跨日补发时日期可区分。
  */
 class ScheduleRuleResolverMissedWindowsTest {
 
@@ -37,7 +39,8 @@ class ScheduleRuleResolverMissedWindowsTest {
         val now = ZonedDateTime.of(2026, 7, 5, 12, 0, 0, 0, zone).toInstant()
         val missed = ScheduleRuleResolver.missedWindows(r, lastRun, now, zone)
         assertEquals(1, missed.size)
-        assertEquals(TimeWindow(9, 11), missed[0])
+        assertEquals(TimeWindow(9, 11), missed[0].window)
+        assertEquals(LocalDate.of(2026, 7, 5), missed[0].date)
     }
 
     @Test
@@ -60,8 +63,8 @@ class ScheduleRuleResolverMissedWindowsTest {
         val now = ZonedDateTime.of(2026, 7, 5, 17, 0, 0, 0, zone).toInstant()
         val missed = ScheduleRuleResolver.missedWindows(r, lastRun, now, zone)
         assertEquals(2, missed.size)
-        assertEquals(TimeWindow(9, 11), missed[0])
-        assertEquals(TimeWindow(14, 16), missed[1])
+        assertEquals(TimeWindow(9, 11), missed[0].window)
+        assertEquals(TimeWindow(14, 16), missed[1].window)
     }
 
     @Test
@@ -73,7 +76,7 @@ class ScheduleRuleResolverMissedWindowsTest {
         val missed = ScheduleRuleResolver.missedWindows(r, null, now, zone)
         // 24 小时前为昨日 12:00，昨日 9-11 窗应被识别为错过
         assertTrue("应至少识别 1 个错过窗", missed.isNotEmpty())
-        assertEquals(TimeWindow(9, 11), missed.first())
+        assertEquals(TimeWindow(9, 11), missed.first().window)
     }
 
     @Test
@@ -85,7 +88,7 @@ class ScheduleRuleResolverMissedWindowsTest {
     }
 
     @Test
-    fun `跨天识别错过的窗`() {
+    fun `跨天识别错过的窗且日期可区分`() {
         // 9-11 活跃
         val r = rule(List(24) { h -> h in 9..10 })
         // lastRun = 昨日 06:00，now = 今日 12:00
@@ -94,7 +97,10 @@ class ScheduleRuleResolverMissedWindowsTest {
         val missed = ScheduleRuleResolver.missedWindows(r, lastRun, now, zone)
         // 应识别昨日 9-11 与今日 9-11 两个窗
         assertEquals(2, missed.size)
-        assertEquals(TimeWindow(9, 11), missed[0])
-        assertEquals(TimeWindow(9, 11), missed[1])
+        // IMPL-4：两个窗的 window 相同但 date 不同，使 deduplicationKey 不冲突
+        assertEquals(TimeWindow(9, 11), missed[0].window)
+        assertEquals(TimeWindow(9, 11), missed[1].window)
+        assertEquals(LocalDate.of(2026, 7, 4), missed[0].date)
+        assertEquals(LocalDate.of(2026, 7, 5), missed[1].date)
     }
 }

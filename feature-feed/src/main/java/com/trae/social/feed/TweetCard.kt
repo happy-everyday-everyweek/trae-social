@@ -84,10 +84,10 @@ fun TweetCard(
     val context = LocalContext.current
     val tweet = data.tweet
 
-    // 显示的点赞数：乐观更新（已点赞 +1，未点赞为原始值）
-    val displayLikeCount = remember(isLiked, tweet.likeCount) {
-        if (isLiked) tweet.likeCount + 1 else tweet.likeCount
-    }
+    // 显示的点赞数：DB likeCount 是唯一数据源（IMPL-11）。
+    // 乐观更新已通过 updateLikeCount(+1) 写入 DB，PagingSource 重发后 tweet.likeCount
+    // 已包含 +1，此处不再额外 +1，否则会双重计数。
+    val displayLikeCount = tweet.likeCount
 
     Column(
         modifier = modifier

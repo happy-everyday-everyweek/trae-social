@@ -27,7 +27,8 @@ enum class InteractionType {
     indices = [
         Index(value = ["scheduledAt"]),
         Index(value = ["tweetId"]),
-        Index(value = ["accountId"])
+        Index(value = ["accountId"]),
+        Index(value = ["tweetId", "accountId", "type"], unique = true)
     ]
 )
 data class InteractionEntity(

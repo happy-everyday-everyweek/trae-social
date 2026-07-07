@@ -106,7 +106,7 @@ object ScheduleRuleResolver {
      * 识别 [lastRun] 至 [now] 之间错过的活跃窗（补发用）。
      *
      * 错过定义：该活跃窗的整窗区间落在 [lastRun, now] 之内，且未被处理过。
-     * 每个被识别的窗返回一个 [TimeWindow]；调用方按需为每窗补发一条推文。
+     * 每个被识别的窗返回一个 [MissedWindow]（含日期，IMPL-4）；调用方按需为每窗补发一条推文。
      *
      * 注意：本函数仅返回窗口信息，不查库判断是否已发推。
      *
@@ -114,14 +114,14 @@ object ScheduleRuleResolver {
      * @param lastRun 上次执行时刻；为 null 或早于昨日起算点时按"昨日 00:00"处理。
      * @param now 当前时刻。
      * @param zone 时区。
-     * @return 错过的活跃窗列表（按时间升序）。
+     * @return 错过的活跃窗列表（按时间升序，含日期）。
      */
     fun missedWindows(
         rule: ScheduleRule,
         lastRun: Instant?,
         now: Instant,
         zone: ZoneId = ZoneId.systemDefault(),
-    ): List<TimeWindow> {
+    ): List<MissedWindow> {
         val windows = parseWindows(rule.activeWindows)
         if (windows.isEmpty()) return emptyList()
 
@@ -134,7 +134,7 @@ object ScheduleRuleResolver {
 
         if (!zonedLast.isBefore(zonedNow)) return emptyList()
 
-        val result = mutableListOf<TimeWindow>()
+        val result = mutableListOf<MissedWindow>()
         var day = zonedLast.toLocalDate()
         val endDay = zonedNow.toLocalDate()
 
@@ -151,7 +151,7 @@ object ScheduleRuleResolver {
                 if (!windowEnd.isAfter(zonedNow) && !windowStart.isBefore(zonedLast)) {
                     // 去重：今日当前小时所在的活跃窗若尚未结束，不视为"错过"
                     if (day == endDay && w.contains(zonedNow.hour)) continue
-                    result.add(w)
+                    result.add(MissedWindow(date = day, window = w))
                 }
             }
             day = day.plusDays(1)

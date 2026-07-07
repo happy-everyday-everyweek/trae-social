@@ -75,40 +75,32 @@ class PendingInteractionWorker @AssistedInject constructor(
                     emptyMap()
                 }
 
-                // 逐条标记执行并累加计数
-                var likeDelta = 0
-                var commentDelta = 0
-                var retweetDelta = 0
-
-                for (interaction in interactions) {
-                    val content = interaction.content
-                        ?: commentTexts[interaction.id]
-                    val executedAt = System.currentTimeMillis()
-                    try {
-                        // 若是 COMMENT 且 content 仍为空，跳过（无法生成）
-                        if (interaction.type == InteractionType.COMMENT && content.isNullOrBlank()) {
-                            Timber.w("互动 %s 评论内容生成失败，跳过", interaction.id)
-                            failed++
-                            continue
-                        }
-                        interactionRepository.markExecuted(interaction.id, executedAt)
-                        when (interaction.type) {
-                            InteractionType.LIKE -> likeDelta++
-                            InteractionType.COMMENT -> commentDelta++
-                            InteractionType.RETWEET -> retweetDelta++
-                            InteractionType.FOLLOW -> { /* FOLLOW 不影响推文计数 */ }
-                        }
-                        processed++
-                    } catch (t: Throwable) {
-                        Timber.w(t, "标记互动执行失败 id=%s", interaction.id)
-                        failed++
-                    }
+                // 筛选可执行的互动：COMMENT 必须有内容，其余类型直接执行
+                val executable = interactions.filter { interaction ->
+                    val content = interaction.content ?: commentTexts[interaction.id]
+                    !(interaction.type == InteractionType.COMMENT && content.isNullOrBlank())
+                }
+                val skipped = interactions.size - executable.size
+                failed += skipped
+                if (skipped > 0) {
+                    Timber.w("推文 %s 有 %d 条评论因内容缺失跳过", tweetId, skipped)
                 }
 
-                // 更新推文计数
-                if (likeDelta > 0) tweetRepository.updateLikeCount(tweetId, likeDelta)
-                if (commentDelta > 0) tweetRepository.updateCommentCount(tweetId, commentDelta)
-                if (retweetDelta > 0) tweetRepository.updateRetweetCount(tweetId, retweetDelta)
+                // IMPL-6：原子地标记执行并累加推文计数（同一 @Transaction）
+                if (executable.isNotEmpty()) {
+                    try {
+                        val executedAt = System.currentTimeMillis()
+                        interactionRepository.executeInteractionsAndUpdateTweet(
+                            interactions = executable,
+                            executedAt = executedAt,
+                            tweetId = tweetId,
+                        )
+                        processed += executable.size
+                    } catch (t: Throwable) {
+                        Timber.w(t, "原子执行互动批次失败 tweetId=%s", tweetId)
+                        failed += executable.size
+                    }
+                }
             }
 
             logSchedulerEvent(

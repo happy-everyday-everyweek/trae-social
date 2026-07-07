@@ -66,10 +66,17 @@ data class AnthropicContentBlock(
 data class AnthropicStreamEvent(
     val type: String? = null,
     val delta: AnthropicDelta? = null,
+    val error: AnthropicError? = null,
 )
 
 @Serializable
 data class AnthropicDelta(
     val type: String? = null,
     val text: String? = null,
+)
+
+@Serializable
+data class AnthropicError(
+    val type: String? = null,
+    val message: String? = null,
 )

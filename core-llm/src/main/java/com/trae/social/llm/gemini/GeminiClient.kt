@@ -4,6 +4,7 @@ import com.trae.social.llm.ChatConfig
 import com.trae.social.llm.ChatMessage
 import com.trae.social.llm.LlmClient
 import com.trae.social.llm.LlmProvider
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
@@ -57,11 +58,15 @@ class GeminiClient(
                     parser.finish()
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            if (!emitted) {
-                val full = runCatching { chatSync(messages, config) }.getOrDefault("")
-                if (full.isNotEmpty()) emit(full)
+            if (emitted) {
+                // IMPL-8：已 emit 部分 token 后中断，抛异常通知调用方内容不完整
+                throw IOException("streaming truncated after partial emit", e)
             }
+            val full = runCatching { chatSync(messages, config) }.getOrDefault("")
+            if (full.isNotEmpty()) emit(full)
         }
     }
 

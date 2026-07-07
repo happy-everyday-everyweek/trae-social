@@ -4,9 +4,11 @@ import com.trae.social.llm.ChatConfig
 import com.trae.social.llm.ChatMessage
 import com.trae.social.llm.LlmClient
 import com.trae.social.llm.LlmProvider
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
+import java.io.IOException
 
 /**
  * OpenAI（及兼容 OpenAI 协议的自定义端点）客户端实现。
@@ -43,11 +45,17 @@ class OpenAiClient(
                     }
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            if (!emitted) {
-                val full = runCatching { chatSync(messages, config) }.getOrDefault("")
-                if (full.isNotEmpty()) emit(full)
+            if (emitted) {
+                // IMPL-8：已 emit 部分 token 后中断，抛异常通知调用方内容不完整，
+                // 避免写入残缺推文
+                throw IOException("streaming truncated after partial emit", e)
             }
+            // 尚未 emit：降级为非流式调用
+            val full = runCatching { chatSync(messages, config) }.getOrDefault("")
+            if (full.isNotEmpty()) emit(full)
         }
     }
 

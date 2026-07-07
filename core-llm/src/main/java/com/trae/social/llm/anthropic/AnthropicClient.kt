@@ -4,9 +4,11 @@ import com.trae.social.llm.ChatConfig
 import com.trae.social.llm.ChatMessage
 import com.trae.social.llm.LlmClient
 import com.trae.social.llm.LlmProvider
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
+import java.io.IOException
 
 /**
  * Anthropic 客户端实现。
@@ -41,6 +43,10 @@ class AnthropicClient(
                     val event = runCatching {
                         json.decodeFromString<AnthropicStreamEvent>(payload)
                     }.getOrNull() ?: continue
+                    // IMPL-28：处理 SSE error 事件（quota 超限/内容被拦截）
+                    if (event.type == EVENT_ERROR) {
+                        throw IOException("anthropic stream error: ${event.error?.message ?: event.type}")
+                    }
                     if (event.type == EVENT_MESSAGE_STOP) break
                     if (event.type != EVENT_CONTENT_BLOCK_DELTA) continue
                     val token = event.delta?.text
@@ -50,11 +56,15 @@ class AnthropicClient(
                     }
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            if (!emitted) {
-                val full = runCatching { chatSync(messages, config) }.getOrDefault("")
-                if (full.isNotEmpty()) emit(full)
+            if (emitted) {
+                // IMPL-8：已 emit 部分 token 后中断，抛异常通知调用方内容不完整
+                throw IOException("streaming truncated after partial emit", e)
             }
+            val full = runCatching { chatSync(messages, config) }.getOrDefault("")
+            if (full.isNotEmpty()) emit(full)
         }
     }
 
@@ -112,6 +122,7 @@ class AnthropicClient(
         const val DATA_PREFIX = "data:"
         const val EVENT_CONTENT_BLOCK_DELTA = "content_block_delta"
         const val EVENT_MESSAGE_STOP = "message_stop"
+        const val EVENT_ERROR = "error"
         const val TYPE_TEXT = "text"
         const val JSON_MODE_HINT =
             "请严格只输出合法 JSON 对象，不要包含 markdown 代码块标记或额外说明。"

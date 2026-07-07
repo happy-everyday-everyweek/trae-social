@@ -1,6 +1,6 @@
 package com.trae.social.core.scheduler
 
-import android.app.Application
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -61,8 +61,11 @@ object SchedulerInitializer {
     /**
      * 初始化调度器。在主线程外的 IO 上下文中执行更佳，但 SocialApp.onCreate 中调用
      * 也可接受（Hilt 已完成依赖注入）。
+     *
+     * 接受 [Context] 而非 [android.app.Application]，使 Worker（持有 applicationContext）
+     * 也能直接调用。
      */
-    fun initialize(app: Application) {
+    fun initialize(app: Context) {
         val entryPoint = EntryPointAccessors.fromApplication(
             app,
             SchedulerEntryPoint::class.java,
@@ -96,7 +99,7 @@ object SchedulerInitializer {
     /**
      * 启动前台服务（Android O+ 需通过 startForegroundService）。
      */
-    private fun startForegroundService(app: Application) {
+    private fun startForegroundService(app: Context) {
         val intent = Intent(app, SchedulerForegroundService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             app.startForegroundService(intent)
@@ -144,8 +147,9 @@ object SchedulerInitializer {
 
                 // 2. 调度恢复：错过的活跃窗补发（每窗最多 1 条）
                 val missed = ScheduleRuleResolver.missedWindows(rule, lastRun, now, zone)
-                for (window in missed) {
-                    val windowStartMillis = windowStartMillis(now.atZone(zone), window.startHour, zone)
+                for (missedWindow in missed) {
+                    // IMPL-4：使用窗口实际所属日期计算 windowStartMillis，避免跨日 key 冲突
+                    val windowStartMillis = windowStartMillis(missedWindow.date, missedWindow.startHour, zone)
                     val deduplicationKey = DeduplicationKeys.forTweet(
                         accountId = account.id,
                         windowStart = windowStartMillis,
@@ -307,14 +311,15 @@ object SchedulerInitializer {
     }
 
     /**
-     * 计算活跃窗起始时刻（基于当前日期与 startHour）。
+     * 计算活跃窗起始时刻（基于指定日期与 startHour）。
+     *
+     * IMPL-4：使用窗口实际所属日期 [date]，而非"今天"，避免跨日补发时 windowStart 错误。
      */
     private fun windowStartMillis(
-        nowZoned: java.time.ZonedDateTime,
+        date: java.time.LocalDate,
         startHour: Int,
         zone: ZoneId,
     ): Long {
-        val date = nowZoned.toLocalDate()
         return java.time.LocalTime.of(startHour.coerceIn(0, 23), 0)
             .atDate(date)
             .atZone(zone)

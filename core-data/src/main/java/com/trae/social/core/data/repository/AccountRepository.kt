@@ -1,6 +1,8 @@
 package com.trae.social.core.data.repository
 
+import androidx.room.withTransaction
 import com.trae.social.core.data.dao.AccountDao
+import com.trae.social.core.data.db.AppDatabase
 import com.trae.social.core.data.entity.AccountEntity
 import com.trae.social.core.data.entity.PersonaDynamicFieldEntity
 import javax.inject.Inject
@@ -11,6 +13,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class AccountRepository @Inject constructor(
+    private val database: AppDatabase,
     private val accountDao: AccountDao
 ) {
 
@@ -30,6 +33,8 @@ class AccountRepository @Inject constructor(
 
     /**
      * 更新人设动态字段：同时写入 [PersonaDynamicFieldEntity] 与 [AccountEntity] 的动态摘要副本。
+     *
+     * IMPL-25：双写在同一事务内，崩溃后人设详情页与列表页显示一致。
      */
     suspend fun updateDynamicFields(
         accountId: String,
@@ -39,23 +44,25 @@ class AccountRepository @Inject constructor(
         mood: String,
         updatedAt: Long
     ) {
-        accountDao.upsertDynamicFields(
-            PersonaDynamicFieldEntity(
+        database.withTransaction {
+            accountDao.upsertDynamicFields(
+                PersonaDynamicFieldEntity(
+                    accountId = accountId,
+                    lifeStory = lifeStory,
+                    workInfo = workInfo,
+                    relationshipNetwork = relationshipNetwork,
+                    mood = mood,
+                    updatedAt = updatedAt
+                )
+            )
+            accountDao.updateAccountDynamicSummary(
                 accountId = accountId,
                 lifeStory = lifeStory,
                 workInfo = workInfo,
-                relationshipNetwork = relationshipNetwork,
                 mood = mood,
                 updatedAt = updatedAt
             )
-        )
-        accountDao.updateAccountDynamicSummary(
-            accountId = accountId,
-            lifeStory = lifeStory,
-            workInfo = workInfo,
-            mood = mood,
-            updatedAt = updatedAt
-        )
+        }
     }
 
     suspend fun getDynamicFields(accountId: String): PersonaDynamicFieldEntity? =

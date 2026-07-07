@@ -62,6 +62,17 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- IMPL-18：开机自启接收器，注册 BOOT_COMPLETED + LOCKED_BOOT_COMPLETED -->
+        <receiver
+            android:name="com.trae.social.core.scheduler.BootReceiver"
+            android:exported="true"
+            android:directBootAware="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
         <!-- 移除 androidx.startup 默认的 WorkManager 初始化，
              改由 SocialApp 实现 Configuration.Provider 接入 HiltWorkerFactory -->
         <provider
