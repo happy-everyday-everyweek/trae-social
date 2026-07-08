@@ -1,6 +1,7 @@
 package com.trae.social.core.data.entity
 
 import androidx.room.Entity
+import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
@@ -21,6 +22,7 @@ enum class InteractionType {
  * 执行后 markExecuted 写入 executedAt。
  *
  * 索引：scheduledAt（查询待执行互动）。
+ * IMPL-22：tweetId / accountId 外键关联，删除推文或账号时级联删除其互动记录。
  */
 @Entity(
     tableName = "interactions",
@@ -29,6 +31,20 @@ enum class InteractionType {
         Index(value = ["tweetId"]),
         Index(value = ["accountId"]),
         Index(value = ["tweetId", "accountId", "type"], unique = true)
+    ],
+    foreignKeys = [
+        ForeignKey(
+            entity = TweetEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["tweetId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+        ForeignKey(
+            entity = AccountEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["accountId"],
+            onDelete = ForeignKey.CASCADE,
+        )
     ]
 )
 data class InteractionEntity(
