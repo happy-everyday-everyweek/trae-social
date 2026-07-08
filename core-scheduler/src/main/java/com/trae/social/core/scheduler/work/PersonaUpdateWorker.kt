@@ -22,12 +22,12 @@ import kotlin.random.Random
 /**
  * 人设动态字段更新 Worker（SubTask 8.4）。
  *
- * 周期（7 天）执行：
- * 1. 随机选 20 个虚拟账号；
+ * 周期按 AI 活跃度档位缩放执行（LOW=14 天 / MEDIUM=7 天 / HIGH=3 天）：
+ * 1. 随机选 batchSize 个虚拟账号（按档位 10/20/40）；
  * 2. 加载其当前动态字段与最近活动事件；
  * 3. 调 [PersonaUpdatePromptBuilder.build] + LlmClient.chatSync；
  * 4. [PersonaUpdatePromptBuilder.parsePersonaUpdate] 解析；
- * 5. [PersonaUpdatePromptBuilder.shouldRollback] 校验（cosineSimilarity < 0.3 则回退）；
+ * 5. [PersonaUpdatePromptBuilder.shouldRollback] 校验（相似度过低则回退）；
  * 6. [AccountRepository.updateDynamicFields] 写入。
  *
  * RISK-2（人设漂移）：相似度校验确保不会出现人设突变。
@@ -102,7 +102,8 @@ class PersonaUpdateWorker @AssistedInject constructor(
     ): List<com.trae.social.core.data.entity.AccountEntity> {
         val all = mutableListOf<com.trae.social.core.data.entity.AccountEntity>()
         var page = 1
-        // 翻页加载虚拟账号，最多翻 5 页避免无限加载
+        // P1 修复：翻页加载虚拟账号，最多翻 12 页（覆盖 240 个账号），
+        // 与 SchedulerInitializer.MAX_PAGES 保持一致，避免遗漏部分账号人设更新。
         while (page <= MAX_PAGES) {
             val batch = accountRepository.getAccounts(page)
             if (batch.isEmpty()) break
@@ -163,11 +164,7 @@ class PersonaUpdateWorker @AssistedInject constructor(
 
         // 写入更新
         val now = System.currentTimeMillis()
-        val relationshipList = if (dynamic?.relationshipNetwork.isNullOrEmpty()) {
-            emptyList()
-        } else {
-            dynamic!!.relationshipNetwork
-        }
+        val relationshipList = dynamic?.relationshipNetwork?.takeIf { it.isNotEmpty() } ?: emptyList()
         accountRepository.updateDynamicFields(
             accountId = account.id,
             lifeStory = parsed.lifeStory,
@@ -204,6 +201,6 @@ class PersonaUpdateWorker @AssistedInject constructor(
     private companion object {
         const val MAX_RUN_ATTEMPTS = 3
         const val RECENT_EVENTS_LIMIT = 5
-        const val MAX_PAGES = 5
+        const val MAX_PAGES = 12
     }
 }

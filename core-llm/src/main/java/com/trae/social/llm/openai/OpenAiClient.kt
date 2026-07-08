@@ -17,19 +17,21 @@ import java.io.IOException
  * 流终止标记为 `data: [DONE]`。增量文本位于 `choices[0].delta.content`。
  *
  * 流式失败时（且尚未 emit 任何 token），自动降级为 [chatSync] 后单条 emit（RISK-4）。
+ *
+ * P1 修复：[provider] 由构造参数注入，使 CUSTOM 端点能正确报告自身 provider，
+ * 并在每次请求中动态注入 provider 头供 AuthInterceptor 读取对应 API Key。
  */
 class OpenAiClient(
     private val api: OpenAiApi,
     private val model: String,
+    override val provider: LlmProvider,
     private val json: Json = Json { ignoreUnknownKeys = true; isLenient = true },
 ) : LlmClient {
-
-    override val provider: LlmProvider = LlmProvider.OPENAI
 
     override suspend fun chat(messages: List<ChatMessage>, config: ChatConfig): Flow<String> = flow {
         var emitted = false
         try {
-            val body = api.streamChat(buildRequest(messages, config, stream = true))
+            val body = api.streamChat(buildRequest(messages, config, stream = true), provider.id)
             body.use { responseBody ->
                 val source = responseBody.source()
                 while (!source.exhausted()) {
@@ -60,7 +62,7 @@ class OpenAiClient(
     }
 
     override suspend fun chatSync(messages: List<ChatMessage>, config: ChatConfig): String {
-        val response = api.chat(buildRequest(messages, config, stream = false))
+        val response = api.chat(buildRequest(messages, config, stream = false), provider.id)
         return response.choices.firstOrNull()?.message?.content.orEmpty()
     }
 

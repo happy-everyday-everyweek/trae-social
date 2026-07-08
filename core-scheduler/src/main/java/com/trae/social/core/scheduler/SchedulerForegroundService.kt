@@ -10,6 +10,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.WorkManager
 import com.trae.social.core.scheduler.work.PendingInteractionWorker
@@ -35,7 +36,14 @@ class SchedulerForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification(), getServiceType())
+        // P0 修复：startForeground(int, Notification, int) 三参数重载自 API 29 才引入，
+        // minSdk=26 时在 API 26-28 会抛 NoSuchMethodError。使用 ServiceCompat 兼容。
+        ServiceCompat.startForeground(
+            this,
+            NOTIFICATION_ID,
+            buildNotification(),
+            getServiceType(),
+        )
         Timber.i("SchedulerForegroundService 已启动")
     }
 

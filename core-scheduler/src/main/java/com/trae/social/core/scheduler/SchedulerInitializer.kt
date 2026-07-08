@@ -24,6 +24,7 @@ import dagger.hilt.components.SingletonComponent
 import timber.log.Timber
 import java.time.Instant
 import java.time.ZoneId
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -50,6 +51,11 @@ object SchedulerInitializer {
     private val schedulerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
+     * P2 修复：幂等守卫，防止 initialize() 被多次调用后重复启动 collector 协程。
+     */
+    private val initialized = AtomicBoolean(false)
+
+    /**
      * Hilt EntryPoint：在非 Hilt 创建的对象中访问依赖。
      */
     @EntryPoint
@@ -69,6 +75,11 @@ object SchedulerInitializer {
      * 也能直接调用。
      */
     fun initialize(app: Context) {
+        // P2 修复：幂等守卫，ensure observeActivityLevelChanges 的 collector 仅启动一次
+        if (!initialized.compareAndSet(false, true)) {
+            Timber.i("SchedulerInitializer 已初始化，跳过重复调用")
+            return
+        }
         val entryPoint = EntryPointAccessors.fromApplication(
             app,
             SchedulerEntryPoint::class.java,

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.trae.social.core.data.config.LlmProvider
 import com.trae.social.core.data.repository.ConfigRepository
+import com.trae.social.core.data.repository.LlmCacheInvalidator
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,6 +21,7 @@ import timber.log.Timber
 @HiltViewModel
 class ApiKeyViewModel @Inject constructor(
     private val configRepository: ConfigRepository,
+    private val cacheInvalidator: LlmCacheInvalidator,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ApiKeyUiState(loading = true))
@@ -56,7 +58,11 @@ class ApiKeyViewModel @Inject constructor(
     fun setApiKey(provider: LlmProvider, key: String) {
         viewModelScope.launch {
             runCatching { configRepository.setApiKey(provider, key) }
-                .onSuccess { refreshProvider(provider) }
+                .onSuccess {
+                    // P2 修复：API Key 变更后失效 LlmClient 缓存，使下次请求使用新 Key
+                    cacheInvalidator.invalidateCache()
+                    refreshProvider(provider)
+                }
                 .onFailure { Timber.w(it, "保存 API Key 失败") }
         }
     }
@@ -64,7 +70,11 @@ class ApiKeyViewModel @Inject constructor(
     fun setBaseUrl(provider: LlmProvider, baseUrl: String) {
         viewModelScope.launch {
             runCatching { configRepository.setBaseUrl(provider, baseUrl) }
-                .onSuccess { refreshProvider(provider) }
+                .onSuccess {
+                    // P2 修复：Base URL 变更后失效 LlmClient 缓存，使下次请求使用新端点
+                    cacheInvalidator.invalidateCache()
+                    refreshProvider(provider)
+                }
                 .onFailure { Timber.w(it, "保存 Base URL 失败") }
         }
     }
@@ -72,7 +82,11 @@ class ApiKeyViewModel @Inject constructor(
     fun setModelName(provider: LlmProvider, model: String) {
         viewModelScope.launch {
             runCatching { configRepository.setModelName(provider, model) }
-                .onSuccess { refreshProvider(provider) }
+                .onSuccess {
+                    // P2 修复：模型名变更后失效 LlmClient 缓存，使下次请求使用新模型
+                    cacheInvalidator.invalidateCache()
+                    refreshProvider(provider)
+                }
                 .onFailure { Timber.w(it, "保存模型名失败") }
         }
     }

@@ -56,8 +56,9 @@ class FeedViewModel @Inject constructor(
     @FeedImageLoader val imageLoader: ImageLoader,
 ) : ViewModel() {
 
-    /** 账号信息内存缓存，避免分页滚动时重复查库（key = authorId） */
-    private val authorCache = mutableMapOf<String, AuthorInfo>()
+    /** 账号信息内存缓存，避免分页滚动时重复查库（key = authorId）。
+     *  P2 修复：使用 ConcurrentHashMap 保证线程安全，避免 Paging 后台线程并发访问导致 ConcurrentModificationException。 */
+    private val authorCache = java.util.concurrent.ConcurrentHashMap<String, AuthorInfo>()
 
     /** 已点赞推文 ID 集合（乐观更新） */
     private val _likedTweetIds = MutableStateFlow<Set<String>>(emptySet())

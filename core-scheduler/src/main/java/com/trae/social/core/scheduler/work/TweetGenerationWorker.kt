@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.hilt.work.HiltWorker
 import android.database.sqlite.SQLiteConstraintException
 import androidx.work.CoroutineWorker
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.trae.social.core.data.config.AiActivityLevel
@@ -19,6 +21,7 @@ import com.trae.social.data.gallery.LocalImageGallery
 import com.trae.social.data.gallery.themeToString
 import com.trae.social.llm.ChatConfig
 import com.trae.social.llm.LlmProviderRegistry
+import com.trae.social.llm.interceptor.RateLimitedException
 import com.trae.social.llm.prompt.ContentFilter
 import com.trae.social.llm.prompt.TweetPostProcessor
 import com.trae.social.llm.prompt.TweetPromptBuilder
@@ -135,7 +138,7 @@ class TweetGenerationWorker @AssistedInject constructor(
                 typoRate = account.typoRate,
                 recentMood = account.recentMood.ifBlank { "平和" },
             )
-            val timeSlotDescription = describeTimeWindow(windowStart)
+            val timeSlotDescription = describeTimeWindow(windowStart, accountZone)
             val messages = promptBuilder.build(personaInput, timeSlotDescription, recentTweets)
 
             // ------------------------------------------------------------------
@@ -150,9 +153,15 @@ class TweetGenerationWorker @AssistedInject constructor(
                         jsonMode = true,
                     ),
                 )
+            } catch (e: RateLimitedException) {
+                // P1 修复：RetryInterceptor 在 HTTP 层将 429 转为 RateLimitedException，
+                // 不会包装为 HttpException。此处显式捕获，跳过重试避免浪费配额。
+                resultStatus = "skipped_429"
+                logSchedulerEvent(accountId, started, resultStatus, e.message)
+                return Result.success(workDataOf(WorkerKeys.KEY_RESULT to resultStatus))
             } catch (httpError: retrofit2.HttpException) {
                 if (httpError.code() == WorkerKeys.HTTP_TOO_MANY_REQUESTS) {
-                    // 429：跳过本次，不重试，避免浪费配额
+                    // 429 兜底（理论上不会走到，RateLimitedException 已在上游捕获）
                     resultStatus = "skipped_429"
                     logSchedulerEvent(accountId, started, resultStatus, httpError.message())
                     return Result.success(workDataOf(WorkerKeys.KEY_RESULT to resultStatus))
@@ -245,6 +254,17 @@ class TweetGenerationWorker @AssistedInject constructor(
                 return Result.success(workDataOf(WorkerKeys.KEY_RESULT to resultStatus))
             }
 
+            // P1 修复：AI 推文入库后触发 InteractionWorker 排程互动，
+            // 使 AI 生成内容也能获得点赞/评论/转发，避免信息流"死气沉沉"。
+            runCatching {
+                val interactionRequest = OneTimeWorkRequestBuilder<InteractionWorker>()
+                    .setInputData(workDataOf(WorkerKeys.KEY_TWEET_ID to tweet.id))
+                    .setConstraints(WorkerPolicies.networkConstraints)
+                    .addTag(WorkerTags.INTERACTION)
+                    .build()
+                WorkManager.getInstance(applicationContext).enqueue(interactionRequest)
+            }.onFailure { Timber.w(it, "入队 InteractionWorker 失败") }
+
             // ------------------------------------------------------------------
             // 11. 写 SchedulerLogEntity
             // ------------------------------------------------------------------
@@ -295,12 +315,15 @@ class TweetGenerationWorker @AssistedInject constructor(
 
     /**
      * 将 windowStart（活跃窗起始时刻）转换为可读时段描述，注入 prompt。
+     *
+     * P1 修复：使用账号自身时区 [zone] 而非系统时区，避免跨时区旅行时
+     * prompt 中的时段描述与账号实际活跃窗不符。
      */
-    private fun describeTimeWindow(windowStartMillis: Long): String {
+    private fun describeTimeWindow(windowStartMillis: Long, zone: ZoneId): String {
         if (windowStartMillis <= 0L) return "当前时段"
         val zoned = ZonedDateTime.ofInstant(
             Instant.ofEpochMilli(windowStartMillis),
-            ZoneId.systemDefault(),
+            zone,
         )
         val dayOfWeek = zoned.dayOfWeek
         val isWeekend = dayOfWeek == java.time.DayOfWeek.SATURDAY || dayOfWeek == java.time.DayOfWeek.SUNDAY
