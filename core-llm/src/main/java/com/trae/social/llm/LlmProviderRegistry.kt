@@ -83,9 +83,12 @@ class LlmProviderRegistry @Inject constructor(
      * 在以下场景应调用：
      * - 用户切换默认提供商；
      * - API Key / Base URL / 模型名变更。
+     *
+     * P2 修复：获取 [mutex] 后再 clear，避免与 [getClient] 内的 createClient 产生
+     * TOCTOU 竞态（clear 后 createClient 仍可能将旧配置的 client 写回缓存）。
      */
-    fun invalidateCache() {
-        clients.clear()
+    suspend fun invalidateCache() {
+        mutex.withLock { clients.clear() }
     }
 
     private suspend fun createClient(provider: LlmProvider): LlmClient {
@@ -99,7 +102,7 @@ class LlmProviderRegistry @Inject constructor(
                 } else {
                     defaultOpenAiApi
                 }
-                OpenAiClient(api, model, json)
+                OpenAiClient(api, model, provider, json)
             }
             LlmProvider.ANTHROPIC -> {
                 val api = if (customBaseUrl != null) {

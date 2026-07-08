@@ -84,8 +84,10 @@ fun ProfileScreen(
                 Text("暂无资料", color = colors.tertiaryLabel)
             }
             is ProfileUiState.Success -> {
+                val tweets by viewModel.tweetsFlow.collectAsStateWithLifecycle()
                 ProfileHeader(
                     state = state,
+                    tweetsCount = tweets.size,
                     onFollowingClick = { onNavigateToFollowList(FollowListType.FOLLOWING) },
                     onFollowersClick = { onNavigateToFollowList(FollowListType.FOLLOWERS) },
                     avatarUrl = ProfileUtils.avatarUriFromSeed(state.account.avatarSeed),
@@ -114,6 +116,7 @@ fun ProfileScreen(
 @Composable
 private fun ProfileHeader(
     state: ProfileUiState.Success,
+    tweetsCount: Int,
     onFollowingClick: () -> Unit,
     onFollowersClick: () -> Unit,
     avatarUrl: String,
@@ -167,7 +170,7 @@ private fun ProfileHeader(
         }
         Spacer(Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-            StatItem(label = "推文", value = ProfileUtils.formatCount(state.tweetsCountPlaceholder()))
+            StatItem(label = "推文", value = ProfileUtils.formatCount(tweetsCount))
             StatItem(
                 label = "关注",
                 value = ProfileUtils.formatCount(state.followingCount),
@@ -298,5 +301,3 @@ private fun EmptyTab(text: String) {
     }
 }
 
-/** 占位：推文计数取自身推文流大小（首页加载时 tweetsFlow 可能未就绪，用 0 兜底）。 */
-private fun ProfileUiState.Success.tweetsCountPlaceholder(): Int = 0

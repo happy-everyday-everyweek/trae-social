@@ -50,4 +50,12 @@ object AssetProviderModule {
     @Provides
     @Singleton
     fun provideLlmConfigProvider(impl: AppLlmConfigProvider): com.trae.social.llm.LlmConfigProvider = impl
+
+    // P2 修复：提供 LlmCacheInvalidator 绑定，桥接 core-data 接口与 core-llm LlmProviderRegistry。
+    @Provides
+    @Singleton
+    fun provideLlmCacheInvalidator(
+        registry: com.trae.social.llm.LlmProviderRegistry,
+    ): com.trae.social.core.data.repository.LlmCacheInvalidator =
+        com.trae.social.core.data.repository.LlmCacheInvalidator { registry.invalidateCache() }
 }
