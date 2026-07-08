@@ -18,7 +18,9 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
+import androidx.navigation.navArgument
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
@@ -27,7 +29,12 @@ import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.designsystem.theme.SocialTheme
 import com.trae.social.feed.FeedScreen
 import com.trae.social.onboarding.OnboardingNavHost
+import com.trae.social.profile.ApiKeyManagementScreen
+import com.trae.social.profile.DevOptionsScreen
+import com.trae.social.profile.FollowListScreen
+import com.trae.social.profile.FollowListType
 import com.trae.social.profile.ProfileScreen
+import com.trae.social.profile.SettingsScreen
 import com.trae.social.publish.PublishScreen
 import com.trae.social.timeline.TimelineScreen
 import dagger.hilt.android.AndroidEntryPoint
@@ -121,8 +128,8 @@ private fun MainScaffold() {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
 
-    // publish 为全屏路由，隐藏底部栏使其覆盖整屏
-    val showBottomBar = currentRoute != "publish"
+    // 仅在三个主 Tab 显示底部栏；settings/devoptions/apikey/followlist/publish 为全屏路由
+    val showBottomBar = currentRoute in setOf("feed", "timeline", "profile")
 
     Scaffold(
         bottomBar = {
@@ -177,7 +184,68 @@ private fun MainScaffold() {
                 popEnterTransition = { fadeIn() },
                 popExitTransition = { fadeOut() },
             ) {
-                ProfileScreen(modifier = Modifier.fillMaxSize().padding(innerPadding))
+                ProfileScreen(
+                    onNavigateToSettings = { navController.navigate("settings") },
+                    onNavigateToFollowList = { type ->
+                        navController.navigate("followlist/${type.name}")
+                    },
+                    modifier = Modifier.fillMaxSize().padding(innerPadding),
+                )
+            }
+            composable(
+                route = "settings",
+                enterTransition = { fadeIn() },
+                exitTransition = { fadeOut() },
+                popEnterTransition = { fadeIn() },
+                popExitTransition = { fadeOut() },
+            ) {
+                SettingsScreen(
+                    onBack = { navController.popBackStack() },
+                    onNavigateToApiKey = { navController.navigate("apikey") },
+                    onNavigateToDevOptions = { navController.navigate("devoptions") },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            composable(
+                route = "apikey",
+                enterTransition = { fadeIn() },
+                exitTransition = { fadeOut() },
+                popEnterTransition = { fadeIn() },
+                popExitTransition = { fadeOut() },
+            ) {
+                ApiKeyManagementScreen(
+                    onBack = { navController.popBackStack() },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            composable(
+                route = "devoptions",
+                enterTransition = { fadeIn() },
+                exitTransition = { fadeOut() },
+                popEnterTransition = { fadeIn() },
+                popExitTransition = { fadeOut() },
+            ) {
+                DevOptionsScreen(
+                    onBack = { navController.popBackStack() },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            composable(
+                route = "followlist/{type}",
+                arguments = listOf(navArgument("type") { type = NavType.StringType }),
+                enterTransition = { fadeIn() },
+                exitTransition = { fadeOut() },
+                popEnterTransition = { fadeIn() },
+                popExitTransition = { fadeOut() },
+            ) { backStackEntry ->
+                val typeName = backStackEntry.arguments?.getString("type") ?: "FOLLOWING"
+                val type = runCatching { FollowListType.valueOf(typeName) }
+                    .getOrElse { FollowListType.FOLLOWING }
+                FollowListScreen(
+                    type = type,
+                    onBack = { navController.popBackStack() },
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
             composable(
                 route = "publish",
