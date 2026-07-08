@@ -2,8 +2,7 @@ package com.trae.social.timeline
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.rememberTransformableState
-import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,6 +19,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -32,8 +32,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -63,10 +65,12 @@ fun FullScreenImageViewer(
     dateLabel: String,
     onDismiss: () -> Unit,
 ) {
-    if (items.isEmpty()) {
-        onDismiss()
-        return
+    // IMPL-34：禁止在组合期调用 onDismiss（副作用），改为 LaunchedEffect 在挂起期执行
+    val isEmpty = items.isEmpty()
+    LaunchedEffect(isEmpty) {
+        if (isEmpty) onDismiss()
     }
+    if (isEmpty) return
 
     val safeIndex = initialIndex.coerceIn(0, items.lastIndex)
     val pagerState = rememberPagerState(initialPage = safeIndex) { items.size }
@@ -151,7 +155,10 @@ fun FullScreenImageViewer(
 /**
  * 可缩放图片：双指缩放（1x-5x）+ 双击在 1x/3x 间切换。
  *
- * 缩放与翻页互不冲突：双指手势由 transformable 处理，单指横向拖拽交给 HorizontalPager。
+ * IMPL-34：原实现使用 transformable，与 HorizontalPager 单指翻页手势冲突，
+ * 且无平移边界约束（图片可被拖出视口）。改用 detectTransformGestures，
+ * 仅响应多指手势（scale != 1f 才消费拖拽），并在 [onSizeChanged] 取得视口尺寸后
+ * 将 offset 钳制到 [-halfDelta, +halfDelta] 范围内，避免图片飘出视口。
  */
 @Composable
 private fun ZoomableImage(
@@ -161,20 +168,13 @@ private fun ZoomableImage(
 ) {
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
-
-    val transformState = rememberTransformableState { zoomChange, panChange, _ ->
-        val newScale = (scale * zoomChange).coerceIn(MIN_SCALE, MAX_SCALE)
-        scale = newScale
-        offset = if (newScale > 1f) {
-            offset + panChange
-        } else {
-            Offset.Zero
-        }
-    }
+    // 视口像素尺寸，用于计算平移边界
+    var viewport by remember { mutableStateOf(IntSize.Zero) }
 
     Box(
         modifier = modifier
             .fillMaxSize()
+            .onSizeChanged { viewport = it }
             .pointerInput(Unit) {
                 detectTapGestures(
                     onDoubleTap = {
@@ -183,11 +183,28 @@ private fun ZoomableImage(
                             offset = Offset.Zero
                         } else {
                             scale = DOUBLE_TAP_SCALE
+                            // 双击放大后重新钳制偏移
+                            offset = clampOffset(Offset.Zero, scale, viewport)
                         }
                     },
                 )
             }
-            .transformable(transformState),
+            // detectTransformGestures 仅在多指或缩放时消费拖拽，
+            // 单指横向拖拽透传给 HorizontalPager 完成翻页
+            .pointerInput(Unit) {
+                detectTransformGestures { _, pan, zoom, _ ->
+                    val newScale = (scale * zoom).coerceIn(MIN_SCALE, MAX_SCALE)
+                    // 缩放变化或已放大时才消费平移，避免拦截 Pager 的单指翻页
+                    if (newScale != scale || newScale > 1f) {
+                        scale = newScale
+                        if (newScale > 1f) {
+                            offset = clampOffset(offset + pan, newScale, viewport)
+                        } else {
+                            offset = Offset.Zero
+                        }
+                    }
+                }
+            },
         contentAlignment = Alignment.Center,
     ) {
         val context = LocalContext.current
@@ -212,6 +229,21 @@ private fun ZoomableImage(
                 ),
         )
     }
+}
+
+/**
+ * 将平移偏移钳制到视口允许范围内，避免图片被拖出可见区域。
+ *
+ * 放大后图片宽高为 viewport * scale，可平移的最大距离为 (scale - 1) / 2 * viewport。
+ */
+private fun clampOffset(raw: Offset, scale: Float, viewport: IntSize): Offset {
+    if (scale <= 1f) return Offset.Zero
+    val maxX = (viewport.width * (scale - 1f)) / 2f
+    val maxY = (viewport.height * (scale - 1f)) / 2f
+    return Offset(
+        x = raw.x.coerceIn(-maxX, maxX),
+        y = raw.y.coerceIn(-maxY, maxY),
+    )
 }
 
 private const val MIN_SCALE = 1f

@@ -10,6 +10,7 @@ import com.trae.social.core.data.dao.InteractionDao
 import com.trae.social.core.data.dao.SchedulerLogDao
 import com.trae.social.core.data.dao.TweetDao
 import com.trae.social.core.data.dao.UserConfigDao
+import com.trae.social.core.data.entity.AccountActiveHourEntity
 import com.trae.social.core.data.entity.AccountEntity
 import com.trae.social.core.data.entity.FollowRelationEntity
 import com.trae.social.core.data.entity.ImageUsageEntity
@@ -24,6 +25,7 @@ import com.trae.social.core.data.entity.UserConfigEntity
  *
  * - version=4（IMPL-22：tweets/interactions/follow_relations/persona_dynamic_fields/
  *   scheduler_logs/image_usages 添加外键约束，删除账号级联清理孤儿记录）
+ * - version=5（IMPL-38：新增 account_active_hours 反向索引表，支撑按小时 SQL 层过滤活跃账号）
  * - exportSchema=true（RISK-9：schema JSON 输出至 schemas/）
  * - TypeConverters 处理 JSON 字段与枚举
  * - 发布版 schema 变更须提供显式 Migration（RISK-9）
@@ -31,6 +33,7 @@ import com.trae.social.core.data.entity.UserConfigEntity
 @Database(
     entities = [
         AccountEntity::class,
+        AccountActiveHourEntity::class,
         TweetEntity::class,
         InteractionEntity::class,
         FollowRelationEntity::class,
@@ -39,7 +42,7 @@ import com.trae.social.core.data.entity.UserConfigEntity
         SchedulerLogEntity::class,
         ImageUsageEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = true
 )
 @TypeConverters(Converters::class)

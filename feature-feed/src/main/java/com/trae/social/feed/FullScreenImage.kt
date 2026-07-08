@@ -2,8 +2,7 @@ package com.trae.social.feed
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.rememberTransformableState
-import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -20,11 +19,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -35,11 +37,15 @@ import coil.request.ImageRequest
 /**
  * 全屏图片查看器。
  *
- * - 双指缩放（transformable）：1x - 5x
+ * - 双指缩放（detectTransformGestures）：1x - 5x，带平移边界钳制
  * - 双击切换 1x / 3x
  * - 单击关闭
  * - 顶部关闭按钮
  * - 背景黑色
+ *
+ * IMPL-34：原实现使用 transformable，无平移边界约束，图片可被拖出视口。
+ * 改用 detectTransformGestures 并在 [onSizeChanged] 取得视口尺寸后将 offset
+ * 钳制到 [-halfDelta, +halfDelta] 范围内。
  *
  * @param imageUri 图片 URI（已转换为 file:///android_asset/... 或 http(s)://...）
  * @param imageLoader 信息流专用 ImageLoader（含 SVG 解码）
@@ -55,20 +61,9 @@ fun FullScreenImage(
 
     // 缩放与位移状态
     var scale by remember { mutableFloatStateOf(1f) }
-    var offsetX by remember { mutableFloatStateOf(0f) }
-    var offsetY by remember { mutableFloatStateOf(0f) }
-
-    val transformableState = rememberTransformableState { zoomChange, panChange, _ ->
-        scale = (scale * zoomChange).coerceIn(MIN_SCALE, MAX_SCALE)
-        // 缩放到 1x 时重置位移，避免图片偏移
-        if (scale > 1f) {
-            offsetX += panChange.x
-            offsetY += panChange.y
-        } else {
-            offsetX = 0f
-            offsetY = 0f
-        }
-    }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+    // 视口像素尺寸，用于计算平移边界
+    var viewport by remember { mutableStateOf(IntSize.Zero) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -97,11 +92,12 @@ fun FullScreenImage(
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
                     .fillMaxSize()
+                    .onSizeChanged { viewport = it }
                     .graphicsLayer(
                         scaleX = scale,
                         scaleY = scale,
-                        translationX = offsetX,
-                        translationY = offsetY,
+                        translationX = offset.x,
+                        translationY = offset.y,
                     )
                     .pointerInput(Unit) {
                         detectTapGestures(
@@ -110,15 +106,25 @@ fun FullScreenImage(
                                 // 双击切换 1x / 3x
                                 if (scale > 1f) {
                                     scale = 1f
-                                    offsetX = 0f
-                                    offsetY = 0f
+                                    offset = Offset.Zero
                                 } else {
                                     scale = DOUBLE_TAP_SCALE
+                                    offset = clampOffset(Offset.Zero, scale, viewport)
                                 }
                             },
                         )
                     }
-                    .transformable(state = transformableState),
+                    .pointerInput(Unit) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            val newScale = (scale * zoom).coerceIn(MIN_SCALE, MAX_SCALE)
+                            scale = newScale
+                            if (newScale > 1f) {
+                                offset = clampOffset(offset + pan, newScale, viewport)
+                            } else {
+                                offset = Offset.Zero
+                            }
+                        }
+                    },
             )
 
             // 关闭按钮
@@ -138,6 +144,21 @@ fun FullScreenImage(
             }
         }
     }
+}
+
+/**
+ * 将平移偏移钳制到视口允许范围内，避免图片被拖出可见区域。
+ *
+ * 放大后图片宽高为 viewport * scale，可平移的最大距离为 (scale - 1) / 2 * viewport。
+ */
+private fun clampOffset(raw: Offset, scale: Float, viewport: IntSize): Offset {
+    if (scale <= 1f) return Offset.Zero
+    val maxX = (viewport.width * (scale - 1f)) / 2f
+    val maxY = (viewport.height * (scale - 1f)) / 2f
+    return Offset(
+        x = raw.x.coerceIn(-maxX, maxX),
+        y = raw.y.coerceIn(-maxY, maxY),
+    )
 }
 
 private const val MIN_SCALE = 1f

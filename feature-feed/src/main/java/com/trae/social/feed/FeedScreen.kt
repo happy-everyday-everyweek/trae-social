@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
@@ -26,10 +27,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,6 +62,8 @@ import com.trae.social.designsystem.theme.LocalSocialColors
 fun FeedScreen(
     modifier: Modifier = Modifier,
     viewModel: FeedViewModel = hiltViewModel(),
+    // IMPL-33：向 MainScaffold 派发滚动状态，供 GlassBlurContainer 减半模糊半径
+    onScrollingChange: (Boolean) -> Unit = {},
 ) {
     val pagingItems = viewModel.feedFlow.collectAsLazyPagingItems()
     val likedIds by viewModel.likedTweetIds.collectAsStateWithLifecycle()
@@ -75,6 +80,12 @@ fun FeedScreen(
     val isError = refreshState is LoadState.Error && pagingItems.itemCount == 0
     val isEmpty = refreshState is LoadState.NotLoading && pagingItems.itemCount == 0
     val isRefreshing = refreshState is LoadState.Loading && pagingItems.itemCount > 0
+    val isInListMode = !isInitialLoading && !isError && !isEmpty
+
+    // IMPL-33：非列表态（加载/错误/空）时强制清除滚动标记，避免底栏持续半径减半
+    LaunchedEffect(isInListMode) {
+        if (!isInListMode) onScrollingChange(false)
+    }
 
     // IMPL-13：跳过引导时顶部展示补全配置 banner
     Column(modifier = modifier.fillMaxSize()) {
@@ -111,6 +122,7 @@ fun FeedScreen(
                 onCommentClick = { commentTarget = it },
                 onRetweetClick = { retweetTarget = it },
                 onBookmarkClick = { viewModel.bookmarkTweet(it.tweet.id) },
+                onScrollingChange = onScrollingChange,
             )
         }
         } // PullToRefreshBox
@@ -170,9 +182,16 @@ private fun FeedList(
     onCommentClick: (TweetWithAuthor) -> Unit,
     onRetweetClick: (TweetWithAuthor) -> Unit,
     onBookmarkClick: (TweetWithAuthor) -> Unit,
+    onScrollingChange: (Boolean) -> Unit,
 ) {
     val appendState = pagingItems.loadState.append
+    // IMPL-33：由列表滚动状态派生 isScrolling，回传给 MainScaffold 供 GlassBlurContainer
+    val listState = rememberLazyListState()
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }.collect { onScrollingChange(it) }
+    }
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(vertical = 8.dp),
     ) {

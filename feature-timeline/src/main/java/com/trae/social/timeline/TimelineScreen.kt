@@ -15,16 +15,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,12 +62,20 @@ import com.trae.social.designsystem.theme.LocalSocialColors
 fun TimelineScreen(
     modifier: Modifier = Modifier,
     onPublishClick: () -> Unit = {},
+    // IMPL-33：向 MainScaffold 派发滚动状态，供 GlassBlurContainer 减半模糊半径
+    onScrollingChange: (Boolean) -> Unit = {},
 ) {
     val viewModel: TimelineViewModel = hiltViewModel()
     val state by viewModel.timelineFlow.collectAsStateWithLifecycle()
 
     // 大图浏览器目标：当前点击的分组 + 起始下标
     var viewerTarget by remember { mutableStateOf<ViewerTarget?>(null) }
+
+    val isSuccess = state is TimelineUiState.Success
+    // IMPL-33：非成功态强制清除滚动标记，避免底栏持续半径减半
+    LaunchedEffect(isSuccess) {
+        if (!isSuccess) onScrollingChange(false)
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
         when (val current = state) {
@@ -80,6 +91,7 @@ fun TimelineScreen(
                         dateLabel = group.dateLabel,
                     )
                 },
+                onScrollingChange = onScrollingChange,
             )
         }
     }
@@ -110,9 +122,16 @@ private data class ViewerTarget(
 private fun TimelineContent(
     groups: List<TimelineGroup>,
     onImageClick: (TimelineGroup, Int) -> Unit,
+    onScrollingChange: (Boolean) -> Unit,
 ) {
     val colors = LocalSocialColors.current
+    // IMPL-33：由列表滚动状态派生 isScrolling，回传给 MainScaffold 供 GlassBlurContainer
+    val listState = rememberLazyListState()
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }.collect { onScrollingChange(it) }
+    }
     LazyColumn(
+        state = listState,
         modifier = Modifier
             .fillMaxSize()
             .background(colors.systemBackground),
@@ -566,14 +585,18 @@ internal fun rememberSvgImageLoader(): ImageLoader {
 /**
  * 将 TweetEntity.mediaPath（asset 相对路径）转换为 Coil 可加载的地址。
  * 已是完整协议头（http/https/file/content）时原样返回，否则补 "file:///android_asset/" 前缀。
+ * IMPL-39：mediaPath 可能是逗号分隔的多图列表，取第一张显示。
  */
 internal fun mediaPathToCoilUrl(path: String): String {
     if (path.isBlank()) return path
-    val hasScheme = path.startsWith("http://") ||
-        path.startsWith("https://") ||
-        path.startsWith("file://") ||
-        path.startsWith("content://")
-    return if (hasScheme) path else "file:///android_asset/$path"
+    // 多图取第一张
+    val firstPath = path.substringBefore(",").trim()
+    if (firstPath.isBlank()) return firstPath
+    val hasScheme = firstPath.startsWith("http://") ||
+        firstPath.startsWith("https://") ||
+        firstPath.startsWith("file://") ||
+        firstPath.startsWith("content://")
+    return if (hasScheme) firstPath else "file:///android_asset/$firstPath"
 }
 
 private const val GRID_COLUMNS = 3

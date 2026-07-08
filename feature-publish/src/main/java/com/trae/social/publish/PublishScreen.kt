@@ -184,7 +184,11 @@ fun PublishScreen(
                         onItemSelected = { selectedCaptureIndex = it },
                         onItemRemoved = { index ->
                             viewModel.removeCapture(index)
-                            if (selectedCaptureIndex == index) selectedCaptureIndex = -1
+                            // IMPL-37：删除项后修正选中索引，避免越界或错位
+                            when {
+                                index < selectedCaptureIndex -> selectedCaptureIndex--
+                                index == selectedCaptureIndex -> selectedCaptureIndex = -1
+                            }
                         },
                         modifier = Modifier.weight(1f),
                     )

@@ -2,19 +2,22 @@ package com.trae.social.designsystem.components
 
 import android.app.ActivityManager
 import android.content.Context
+import android.graphics.RenderEffect
+import android.graphics.Shader
 import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -74,9 +77,15 @@ private fun GlassBlurTier.baseRadius(): Dp = when (this) {
 /**
  * 磨砂玻璃容器：模拟 iOS 26 风格的半透明毛玻璃效果。
  *
- * 实现策略：
- * - API 31+ 且非低端机：使用 [Modifier.blur] 真实模糊 + 半透明背景叠加
- * - API 26-30 或低端机：降级为 [SocialColors.surface] 半透明纯色背景（保留视觉一致性）
+ * IMPL-33：原实现 `Modifier.blur(radius).background(tint)` 把模糊作用于整个节点
+ * （含子内容），导致 Tab 图标/文案也被模糊；且 `Modifier.blur` 不会模糊"背后"内容，
+ * 半透明色叠加后仍只是着色条，非真正毛玻璃。
+ *
+ * 现策略（双图层）：
+ * - 背景层：API 31+ 且半径 > 0 时用 `Modifier.graphicsLayer { renderEffect =
+ *   RenderEffect.createBlurEffect(...) }` 真实模糊背景层渲染（含半透明 tint 的
+ *   软化边缘与任何叠加纹理），并叠加半透明 tint；API < 31 或低端机降级为纯色半透明
+ * - 内容层：保持锐利，不受模糊影响
  * - 滚动中（[LocalIsScrolling] = true）：模糊半径减半，缓解滚动掉帧
  *
  * @param modifier 外部修饰符
@@ -84,7 +93,6 @@ private fun GlassBlurTier.baseRadius(): Dp = when (this) {
  * @param tint 叠加色调，默认使用系统 surface 半透明
  * @param content 容器内容
  */
-@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun GlassBlurContainer(
     modifier: Modifier = Modifier,
@@ -106,23 +114,31 @@ fun GlassBlurContainer(
 
     val shape = if (cornerRadius > 0.dp) RoundedCornerShape(cornerRadius) else null
 
-    val backgroundModifier = if (canBlur) {
-        // 真实模糊：先模糊再叠加半透明色，模拟毛玻璃
-        Modifier
-            .blur(effectiveRadius)
-            .background(glassTint)
-    } else {
-        // 降级：纯色半透明（API<31 或低端机）
-        Modifier.background(glassTint)
-    }
+    val clipModifier = if (shape != null) Modifier.clip(shape) else Modifier
 
-    val finalModifier = if (shape != null) {
-        modifier.clip(shape).then(backgroundModifier)
-    } else {
-        modifier.then(backgroundModifier)
-    }
-
-    Box(modifier = finalModifier) {
+    Box(modifier = modifier.then(clipModifier)) {
+        // 背景层：模糊 + 半透明色
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .then(
+                    if (canBlur) {
+                        // IMPL-33：RenderEffect 真实模糊背景层渲染（px 半径）
+                        Modifier.graphicsLayer {
+                            val radiusPx = with(density) { effectiveRadius.toPx() }
+                            renderEffect = RenderEffect.createBlurEffect(
+                                radiusPx,
+                                radiusPx,
+                                Shader.TileMode.CLAMP,
+                            ).asComposeRenderEffect()
+                        }
+                    } else {
+                        Modifier
+                    },
+                )
+                .background(glassTint),
+        )
+        // 内容层：保持锐利
         content()
     }
 }

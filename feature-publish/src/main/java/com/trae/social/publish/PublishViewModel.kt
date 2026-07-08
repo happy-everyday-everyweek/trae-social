@@ -139,7 +139,9 @@ class PublishViewModel @Inject constructor(
                     id = tweetId,
                     authorId = AUTHOR_SELF,
                     text = current.caption,
-                    mediaPath = current.captures.firstOrNull(),
+                    // IMPL-39：多图以逗号分隔存储，不再静默丢弃
+                    mediaPath = if (current.captures.isEmpty()) null
+                        else current.captures.joinToString(","),
                     mediaTheme = null,
                     createdAt = now,
                     likeCount = 0,

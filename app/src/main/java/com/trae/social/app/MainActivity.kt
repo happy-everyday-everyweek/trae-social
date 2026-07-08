@@ -14,8 +14,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
@@ -26,6 +29,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.trae.social.app.ui.SocialBottomBar
 import com.trae.social.core.data.repository.ConfigRepository
+import com.trae.social.designsystem.components.provideIsScrolling
 import com.trae.social.designsystem.theme.SocialTheme
 import com.trae.social.feed.FeedScreen
 import com.trae.social.onboarding.OnboardingNavHost
@@ -131,52 +135,63 @@ private fun MainScaffold() {
     // 仅在三个主 Tab 显示底部栏；settings/devoptions/apikey/followlist/publish 为全屏路由
     val showBottomBar = currentRoute in setOf("feed", "timeline", "profile")
 
-    Scaffold(
-        bottomBar = {
-            if (showBottomBar) {
-                SocialBottomBar(
-                    currentRoute = currentRoute,
-                    onTabSelected = { route ->
-                        navController.navigate(route) {
-                            popUpTo(navController.graph.findStartDestination().id) {
-                                saveState = true
+    // IMPL-33：由 feed/timeline 的 LazyColumn 派生滚动状态，供 GlassBlurContainer 减半模糊半径
+    var isScrolling by remember { mutableStateOf(false) }
+
+    // 用 provideIsScrolling 包裹整个 Scaffold，使 bottomBar 内的 GlassBlurContainer 可读取
+    provideIsScrolling(isScrolling) {
+        Scaffold(
+            bottomBar = {
+                if (showBottomBar) {
+                    SocialBottomBar(
+                        currentRoute = currentRoute,
+                        onTabSelected = { route ->
+                            navController.navigate(route) {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
                             }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
-                    onPublishClick = {
-                        navController.navigate("publish") {
-                            launchSingleTop = true
-                        }
-                    },
-                )
-            }
-        },
-    ) { innerPadding ->
-        NavHost(
-            navController = navController,
-            startDestination = "feed",
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            composable(
-                route = "feed",
-                enterTransition = { fadeIn() },
-                exitTransition = { fadeOut() },
-                popEnterTransition = { fadeIn() },
-                popExitTransition = { fadeOut() },
+                        },
+                        onPublishClick = {
+                            navController.navigate("publish") {
+                                launchSingleTop = true
+                            }
+                        },
+                    )
+                }
+            },
+        ) { innerPadding ->
+            NavHost(
+                navController = navController,
+                startDestination = "feed",
+                modifier = Modifier.fillMaxSize(),
             ) {
-                FeedScreen(modifier = Modifier.fillMaxSize().padding(innerPadding))
-            }
-            composable(
-                route = "timeline",
-                enterTransition = { fadeIn() },
-                exitTransition = { fadeOut() },
-                popEnterTransition = { fadeIn() },
-                popExitTransition = { fadeOut() },
-            ) {
-                TimelineScreen(modifier = Modifier.fillMaxSize().padding(innerPadding))
-            }
+                composable(
+                    route = "feed",
+                    enterTransition = { fadeIn() },
+                    exitTransition = { fadeOut() },
+                    popEnterTransition = { fadeIn() },
+                    popExitTransition = { fadeOut() },
+                ) {
+                    FeedScreen(
+                        modifier = Modifier.fillMaxSize().padding(innerPadding),
+                        onScrollingChange = { isScrolling = it },
+                    )
+                }
+                composable(
+                    route = "timeline",
+                    enterTransition = { fadeIn() },
+                    exitTransition = { fadeOut() },
+                    popEnterTransition = { fadeIn() },
+                    popExitTransition = { fadeOut() },
+                ) {
+                    TimelineScreen(
+                        modifier = Modifier.fillMaxSize().padding(innerPadding),
+                        onScrollingChange = { isScrolling = it },
+                    )
+                }
             composable(
                 route = "profile",
                 enterTransition = { fadeIn() },
@@ -261,5 +276,6 @@ private fun MainScaffold() {
                 )
             }
         }
-    }
+        } // Scaffold
+    } // provideIsScrolling
 }

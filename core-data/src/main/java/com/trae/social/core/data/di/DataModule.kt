@@ -189,6 +189,62 @@ object DataModule {
         }
     }
 
+    /**
+     * IMPL-38：v4 → v5，新增 account_active_hours 反向索引表，并从现有 accounts 的
+     * activeWindows JSON 列回填索引行，使升级后 getActiveInHour 可直接走 SQL JOIN。
+     *
+     * JSON 格式为 `[true,false,true,...]`（24 槽 bool 数组），手动解析避免迁移期依赖
+     * kotlinx.serialization 的运行时反射。
+     */
+    private val MIGRATION_4_5 = object : Migration(4, 5) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            // 创建反向索引表（FK CASCADE 删除随账号联动）
+            database.execSQL(
+                "CREATE TABLE IF NOT EXISTS `account_active_hours` (" +
+                    "`accountId` TEXT NOT NULL, `hour` INTEGER NOT NULL, " +
+                    "PRIMARY KEY(`accountId`, `hour`), " +
+                    "FOREIGN KEY(`accountId`) REFERENCES `accounts`(`id`) " +
+                    "ON UPDATE NO ACTION ON DELETE CASCADE)"
+            )
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_account_active_hours_hour` ON `account_active_hours` (`hour`)")
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_account_active_hours_accountId` ON `account_active_hours` (`accountId`)")
+
+            // 回填：扫描现有 accounts，解析 activeWindows JSON，为 true 的小时槽插入索引行
+            database.query("SELECT `id`, `activeWindows` FROM `accounts`").use { cursor ->
+                while (cursor.moveToNext()) {
+                    val accountId = cursor.getString(0)
+                    val json = if (cursor.isNull(1)) "[]" else cursor.getString(1)
+                    val activeHours = parseActiveWindowsJson(json)
+                    activeHours.forEach { hour ->
+                        database.execSQL(
+                            "INSERT OR IGNORE INTO `account_active_hours` (`accountId`, `hour`) VALUES (?, ?)",
+                            arrayOf(accountId, hour)
+                        )
+                    }
+                }
+            }
+        }
+
+        /**
+         * 解析 `[true,false,true,...]` 格式的 JSON bool 数组，返回值为 true 的下标列表。
+         * 容错：空/非数组/非法 token 返回空列表，不抛异常（迁移期宁可丢索引行也不崩）。
+         */
+        private fun parseActiveWindowsJson(json: String): List<Int> {
+            if (json.isBlank()) return emptyList()
+            val trimmed = json.trim()
+            if (!trimmed.startsWith("[") || !trimmed.endsWith("]")) return emptyList()
+            val inner = trimmed.substring(1, trimmed.length - 1)
+            if (inner.isBlank()) return emptyList()
+            val tokens = inner.split(",").map { it.trim() }
+            val result = mutableListOf<Int>()
+            tokens.forEachIndexed { hour, token ->
+                if (hour > 23) return@forEachIndexed
+                if (token == "true") result.add(hour)
+            }
+            return result
+        }
+    }
+
     @Provides
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
@@ -199,7 +255,7 @@ object DataModule {
             AppDatabase.DATABASE_NAME
         )
             .fallbackToDestructiveMigrationOnDowngrade()
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
             .build()
     }
 

@@ -52,7 +52,7 @@ fun CapturePreviewBar(
         contentPadding = PaddingValues(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        itemsIndexed(captures) { index, path ->
+        itemsIndexed(captures, key = { _, path -> path }) { index, path ->
             val selected = index == selectedIndex
             val borderColor = if (selected) colors.systemBlue else Color.Transparent
             Box(

@@ -113,8 +113,9 @@ class PersonaSeeder @Inject constructor(
                 val tweets = personas.flatMap { dto -> dto.toHistoricalTweetEntities(now) }
 
                 // IMPL-24：accounts + tweets 在同一事务内写入，保证原子性
+                // IMPL-38：使用 upsertAllWithActiveHours 同步活跃小时反向索引
                 database.withTransaction {
-                    accountDao.upsertAll(accounts)
+                    accountDao.upsertAllWithActiveHours(accounts)
                     if (tweets.isNotEmpty()) {
                         tweetDao.insertAll(tweets)
                     }
@@ -162,7 +163,8 @@ class PersonaSeeder @Inject constructor(
             dynamicWorkInfo = "",
             recentMood = ""
         )
-        accountDao.upsert(userSelf)
+        // IMPL-38：user-self 无活跃窗口（isVirtual=false），但仍走同步方法保持索引一致
+        accountDao.upsertWithActiveHours(userSelf)
     }
 
     private fun listPersonaFiles(): Array<String>? =

@@ -28,18 +28,22 @@ internal object ProfileUtils {
 
     /**
      * 将 mediaPath 转换为 Coil 可加载的 URI。
+     * IMPL-39：mediaPath 可能是逗号分隔的多图列表，取第一张显示。
      */
     fun toImageUri(mediaPath: String?): String? {
         if (mediaPath.isNullOrBlank()) return null
-        if (mediaPath.startsWith("http://") ||
-            mediaPath.startsWith("https://") ||
-            mediaPath.startsWith("file://") ||
-            mediaPath.startsWith("content://")
+        // 多图取第一张
+        val firstPath = mediaPath.substringBefore(",").trim()
+        if (firstPath.isBlank()) return null
+        if (firstPath.startsWith("http://") ||
+            firstPath.startsWith("https://") ||
+            firstPath.startsWith("file://") ||
+            firstPath.startsWith("content://")
         ) {
-            return mediaPath
+            return firstPath
         }
-        if (mediaPath.startsWith("/")) return "file://$mediaPath"
-        return "file:///android_asset/$mediaPath"
+        if (firstPath.startsWith("/")) return "file://$firstPath"
+        return "file:///android_asset/$firstPath"
     }
 
     /**

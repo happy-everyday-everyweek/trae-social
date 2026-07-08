@@ -59,7 +59,10 @@ import com.trae.social.designsystem.components.ActionButton
 import com.trae.social.designsystem.theme.LocalSocialColors
 import com.trae.social.designsystem.theme.LocalSocialTypography
 import timber.log.Timber
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import java.io.File
+import java.io.FileOutputStream
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 
@@ -127,7 +130,15 @@ fun CameraModeContent(
 
     val onShutter: () -> Unit = {
         capturePhoto(context, imageCapture, executor) { path ->
-            if (path != null) onCapture(path)
+            if (path != null) {
+                // IMPL-35：1:1 比例时中心裁剪为正方形
+                val finalPath = if (ratio == CaptureRatio.SQUARE) {
+                    cropToSquare(path) ?: path
+                } else {
+                    path
+                }
+                onCapture(finalPath)
+            }
         }
     }
     val onSwitchCamera: () -> Unit = {
@@ -145,13 +156,14 @@ fun CameraModeContent(
                     factory = { previewView },
                     modifier = Modifier.fillMaxSize(),
                 )
-                // 1:1 由 UI 层叠加正方形遮罩裁剪（CameraX 无 RATIO_1_1 常量，RISK-7）
+                // IMPL-35：1:1 比例叠加可见正方形遮罩边框，用户可见裁剪边界
                 if (ratio == CaptureRatio.SQUARE) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.Center)
                             .fillMaxWidth()
-                            .aspectRatio(1f),
+                            .aspectRatio(1f)
+                            .border(width = 1.dp, color = Color.White.copy(alpha = 0.6f)),
                     )
                 }
             }
@@ -416,6 +428,26 @@ private fun openAppSettings(context: Context) {
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
     runCatching { context.startActivity(intent) }
+}
+
+/**
+ * IMPL-35：将 JPEG 中心裁剪为正方形，覆盖原文件。
+ * 在拍照回调线程执行，避免阻塞 UI。
+ */
+private fun cropToSquare(path: String): String? {
+    return runCatching {
+        val original = BitmapFactory.decodeFile(path) ?: return null
+        val size = minOf(original.width, original.height)
+        val x = (original.width - size) / 2
+        val y = (original.height - size) / 2
+        val cropped = Bitmap.createBitmap(original, x, y, size, size)
+        if (cropped !== original) original.recycle()
+        FileOutputStream(path).use { out ->
+            cropped.compress(Bitmap.CompressFormat.JPEG, 90, out)
+        }
+        cropped.recycle()
+        path
+    }.onFailure { Timber.w(it, "正方形裁剪失败 %s", path) }.getOrNull()
 }
 
 /**
