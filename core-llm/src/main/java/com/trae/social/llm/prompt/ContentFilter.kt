@@ -43,14 +43,39 @@ class ContentFilter {
     )
 
     /**
+     * 否定/防御前缀字符表。
+     *
+     * IMPL-29：当敏感词前紧邻这些字符时，视为合法讨论（如"反诈骗""防勒索""打击走私"），
+     * 不应误判为敏感内容。
+     */
+    private val negationPrefixes = charArrayOf('反', '防', '打', '拒', '不', '非', '抗', '治', '阻', '避')
+
+    /**
+     * 判断指定位置的匹配是否处于否定前缀上下文。
+     */
+    private fun isNegationContext(text: String, start: Int): Boolean {
+        if (start <= 0) return false
+        return text[start - 1] in negationPrefixes
+    }
+
+    /**
      * 判断文本是否包含敏感词。
      *
      * 大小写不敏感；命中任一敏感词即返回 true。
+     * IMPL-29：排除"反/防/打击"等否定前缀上下文，避免"反诈骗"等合法讨论误伤。
      */
     fun containsSensitiveContent(text: String): Boolean {
         if (text.isBlank()) return false
         val lower = text.lowercase()
-        return sensitiveWords.any { lower.contains(it.lowercase()) }
+        for (word in sensitiveWords) {
+            val w = word.lowercase()
+            var idx = lower.indexOf(w)
+            while (idx >= 0) {
+                if (!isNegationContext(lower, idx)) return true
+                idx = lower.indexOf(w, idx + w.length)
+            }
+        }
+        return false
     }
 
     /**
@@ -58,6 +83,7 @@ class ContentFilter {
      *
      * 不会修改不含敏感词的文本；大小写不敏感匹配但保留原文本大小写。
      * 若多个敏感词重叠或相邻，按首次出现位置合并区间后统一替换。
+     * IMPL-29：排除"反/防/打击"等否定前缀上下文。
      */
     fun maskSensitive(text: String): String {
         if (text.isBlank()) return text
@@ -68,7 +94,9 @@ class ContentFilter {
             val w = word.lowercase()
             var idx = lower.indexOf(w)
             while (idx >= 0) {
-                ranges.add(idx..(idx + w.length - 1))
+                if (!isNegationContext(lower, idx)) {
+                    ranges.add(idx..(idx + w.length - 1))
+                }
                 idx = lower.indexOf(w, idx + w.length)
             }
         }

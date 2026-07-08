@@ -34,7 +34,9 @@ class AuthInterceptor(
         val builder = original.newBuilder().removeHeader(LlmHttp.PROVIDER_HEADER)
 
         if (key.isNullOrBlank()) {
-            return chain.proceed(builder.build())
+            // IMPL-27：缺少 API Key 时抛异常而非静默放行，
+            // 让调用方明确区分"Key 未配置"与"网络问题"
+            throw IllegalStateException("API key not configured for $provider")
         }
 
         val authenticated = when (provider) {

@@ -48,12 +48,14 @@ class RetryInterceptor(
                 // 5xx：关闭当前响应后重试
                 if (response.code in 500..599) {
                     val backoff = computeBackoff(response, attempt)
+                    val errorCode = response.code
                     response.close()
                     if (attempt >= maxAttempts) {
-                        Timber.w("5xx 重试耗尽 attempt=%d code=%d", attempt, response.code)
-                        throw IOException("server error ${response.code} after $attempt attempts")
+                        Timber.w("5xx 重试耗尽 attempt=%d code=%d", attempt, errorCode)
+                        throw IOException("server error $errorCode after $attempt attempts")
                     }
-                    Timber.d("5xx 重试 attempt=%d/%d backoff=%dms", attempt, maxAttempts, backoff)
+                    // IMPL-32：记录每次重试的状态码与退避时间，提升可观测性
+                    Timber.d("5xx 重试 attempt=%d/%d code=%d backoff=%dms", attempt, maxAttempts, errorCode, backoff)
                     runBlocking { sleeper(backoff) }
                     continue
                 }

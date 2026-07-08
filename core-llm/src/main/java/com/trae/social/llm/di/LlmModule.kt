@@ -4,9 +4,7 @@ import com.trae.social.llm.LlmConfigProvider
 import com.trae.social.llm.LlmHttp
 import com.trae.social.llm.interceptor.AuthInterceptor
 import com.trae.social.llm.interceptor.LoggingInterceptor
-import com.trae.social.llm.interceptor.RateLimitInterceptor
 import com.trae.social.llm.interceptor.RetryInterceptor
-import com.trae.social.llm.ratelimit.RateLimiter
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -24,10 +22,16 @@ import javax.inject.Singleton
  * core-llm 模块的 Hilt 依赖注入配置。
  *
  * 提供：
- * - 全局共享 [OkHttpClient]（含 Auth / Logging / RateLimit / Retry 拦截器链）；
+ * - 全局共享 [OkHttpClient]（含 Auth / Retry / Logging 拦截器链）；
  * - 按 provider 限定的 @Named [Retrofit] 实例（使用默认 Base URL）；
- * - [RateLimiter] 令牌桶；
  * - [Json] 序列化器。
+ *
+ * IMPL-26：移除 HTTP 层 [com.trae.social.llm.interceptor.RateLimitInterceptor]，
+ * 限流统一由 core-scheduler 的 [com.trae.social.core.scheduler.ratelimit.SchedulerRateLimiter]
+ * 在调度入口处执行，避免双层限流导致 HIGH 档位仍被 30 RPM 封顶。
+ *
+ * IMPL-32：拦截器顺序 Auth → Retry → Logging，使 Logging 在 Retry 内部，
+ * 每次重试尝试都会被记录，提升可观测性。
  *
  * 注意：[LlmConfigProvider] 需由 app 模块通过独立 Hilt Module 提供，
  * 否则编译期 Hilt 会报缺失绑定。
@@ -50,21 +54,16 @@ object LlmModule {
 
     @Provides
     @Singleton
-    fun provideRateLimiter(): RateLimiter = RateLimiter(maxTokens = LlmHttp.DEFAULT_RPM)
-
-    @Provides
-    @Singleton
     fun provideOkHttpClient(
         configProvider: LlmConfigProvider,
-        rateLimiter: RateLimiter,
     ): OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(LlmHttp.CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .readTimeout(LlmHttp.READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .writeTimeout(LlmHttp.WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        // IMPL-32：Auth → Retry → Logging，Logging 在 Retry 内部记录每次尝试
         .addInterceptor(AuthInterceptor(configProvider))
-        .addInterceptor(LoggingInterceptor())
-        .addInterceptor(RateLimitInterceptor(rateLimiter))
         .addInterceptor(RetryInterceptor())
+        .addInterceptor(LoggingInterceptor())
         .build()
 
     @Provides
