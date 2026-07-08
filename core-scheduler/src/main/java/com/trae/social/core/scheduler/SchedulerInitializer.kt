@@ -38,7 +38,10 @@ import kotlinx.coroutines.launch
  *    为错过的活跃窗补发推文（每窗最多补 1 条，避免轰炸）；
  * 3. 入队下一批 TweetGenerationWorker（基于 [ScheduleRuleResolver.nextTriggerTime]）；
  * 4. 入队 PendingInteractionWorker（PeriodicWorkRequest，15 分钟周期）；
- * 5. 入队 PersonaUpdateWorker（PeriodicWorkRequest，7 天周期）。
+ * 5. 入队 PersonaUpdateWorker（PeriodicWorkRequest，周期按 AI 活跃度档位缩放）。
+ *
+ * IMPL-48：观察 [ConfigRepository.activityLevelChanges]，
+ * 档位切换后以 REPLACE 策略重新入队 PersonaUpdateWorker，使新周期立即生效。
  *
  * RISK-3（后台调度）：通过前台服务 + 调度恢复 + BootReceiver 保证调度不中断。
  */
@@ -94,6 +97,9 @@ object SchedulerInitializer {
                 Timber.e(t, "调度器初始化失败")
             }
         }
+
+        // IMPL-48：观察档位变更，切换后重新入队周期 Worker
+        observeActivityLevelChanges(configRepository, workManager)
     }
 
     /**
@@ -129,7 +135,7 @@ object SchedulerInitializer {
         val virtualAccounts = loadVirtualAccounts(accountRepository)
         if (virtualAccounts.isEmpty()) {
             Timber.w("无虚拟账号，跳过调度恢复")
-            enqueueRoutineWork(workManager)
+            enqueueRoutineWork(workManager, level)
             return
         }
 
@@ -200,7 +206,7 @@ object SchedulerInitializer {
         )
 
         // 4-5. 入队周期任务
-        enqueueRoutineWork(workManager)
+        enqueueRoutineWork(workManager, level)
     }
 
     /**
@@ -298,8 +304,10 @@ object SchedulerInitializer {
 
     /**
      * 入队周期任务：PendingInteractionWorker + PersonaUpdateWorker。
+     *
+     * IMPL-47：PersonaUpdateWorker 周期按 [level] 缩放。
      */
-    private fun enqueueRoutineWork(workManager: WorkManager) {
+    private fun enqueueRoutineWork(workManager: WorkManager, level: AiActivityLevel) {
         workManager.enqueueUniquePeriodicWork(
             WorkerTags.PENDING_INTERACTION,
             ExistingPeriodicWorkPolicy.KEEP,
@@ -308,8 +316,30 @@ object SchedulerInitializer {
         workManager.enqueueUniquePeriodicWork(
             WorkerTags.PERSONA_UPDATE,
             ExistingPeriodicWorkPolicy.KEEP,
-            WorkerPolicies.personaUpdatePeriodicRequest(),
+            WorkerPolicies.personaUpdatePeriodicRequest(level),
         )
+    }
+
+    /**
+     * IMPL-48：观察 AI 活跃度档位变更，重新入队周期 Worker。
+     *
+     * 使用 [ExistingPeriodicWorkPolicy.REPLACE] 替换现有排程，
+     * 使新档位的周期（PersonaUpdateWorker）立即生效。
+     */
+    private fun observeActivityLevelChanges(
+        configRepository: ConfigRepository,
+        workManager: WorkManager,
+    ) {
+        schedulerScope.launch {
+            configRepository.activityLevelChanges.collect { level ->
+                Timber.i("AI 活跃度档位变更: %s，重新入队 PersonaUpdateWorker", level.id)
+                workManager.enqueueUniquePeriodicWork(
+                    WorkerTags.PERSONA_UPDATE,
+                    ExistingPeriodicWorkPolicy.REPLACE,
+                    WorkerPolicies.personaUpdatePeriodicRequest(level),
+                )
+            }
+        }
     }
 
     /**

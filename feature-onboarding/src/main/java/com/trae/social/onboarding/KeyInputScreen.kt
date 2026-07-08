@@ -65,7 +65,7 @@ fun KeyInputScreen(
 
     val keyError = keyTouched && state.apiKey.isBlank()
     val urlError = urlTouched && state.baseUrl.isNotBlank() && !isHttpUrl(state.baseUrl)
-    val customUrlMissing = state.selectedProvider == com.trae.social.llm.LlmProvider.CUSTOM &&
+    val customUrlMissing = state.selectedProvider == com.trae.social.core.data.config.LlmProvider.CUSTOM &&
         state.baseUrl.isBlank()
     val urlMissingError = urlTouched && customUrlMissing
 
@@ -83,7 +83,7 @@ fun KeyInputScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(
-            text = "配置 ${state.selectedProvider.displayName()}",
+            text = "配置 ${state.selectedProvider.displayName}",
             style = typography.title1,
             color = colors.label,
         )
@@ -218,15 +218,5 @@ private fun isHttpUrl(url: String): Boolean {
     }
 }
 
-/**
- * 将 [com.trae.social.llm.LlmProvider] 映射为用户可读的展示名。
- *
- * core-llm 的 LlmProvider 枚举无 displayName 字段，此处集中维护映射，
- * 与 core-data 的 LlmProvider.displayName 保持一致。
- */
-internal fun com.trae.social.llm.LlmProvider.displayName(): String = when (this) {
-    com.trae.social.llm.LlmProvider.OPENAI -> "OpenAI"
-    com.trae.social.llm.LlmProvider.ANTHROPIC -> "Anthropic"
-    com.trae.social.llm.LlmProvider.GEMINI -> "Google Gemini"
-    com.trae.social.llm.LlmProvider.CUSTOM -> "自定义端点"
-}
+// IMPL-44：displayName 直接使用 core-data LlmProvider.displayName 属性，
+// 不再需要本地扩展函数维护重复映射。

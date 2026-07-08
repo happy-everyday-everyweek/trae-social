@@ -8,6 +8,7 @@ import androidx.work.workDataOf
 import com.trae.social.core.data.entity.PersonaDynamicFieldEntity
 import com.trae.social.core.data.entity.SchedulerLogEntity
 import com.trae.social.core.data.repository.AccountRepository
+import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.data.repository.TweetRepository
 import com.trae.social.core.scheduler.ratelimit.SchedulerRateLimiter
 import com.trae.social.llm.ChatConfig
@@ -40,6 +41,7 @@ class PersonaUpdateWorker @AssistedInject constructor(
     private val llmRegistry: LlmProviderRegistry,
     private val rateLimiter: SchedulerRateLimiter,
     private val logDao: com.trae.social.core.data.dao.SchedulerLogDao,
+    private val configRepository: ConfigRepository,
 ) : CoroutineWorker(appContext, params) {
 
     private val promptBuilder = PersonaUpdatePromptBuilder()
@@ -51,8 +53,13 @@ class PersonaUpdateWorker @AssistedInject constructor(
         var failed = 0
 
         try {
-            // 1. 随机选 20 个虚拟账号
-            val candidates = pickRandomAccounts(TARGET_ACCOUNT_COUNT)
+            // IMPL-47：按当前活跃度档位确定批次大小（LOW=10 / MEDIUM=20 / HIGH=40）
+            val level = runCatching { configRepository.getAiActivityLevel() }
+                .getOrDefault(com.trae.social.core.data.config.AiActivityLevel.MEDIUM)
+            val batchSize = level.personaUpdateBatchSize
+
+            // 1. 随机选 batchSize 个虚拟账号
+            val candidates = pickRandomAccounts(batchSize)
             if (candidates.isEmpty()) {
                 logSchedulerEvent("system", started, "no_accounts", null)
                 return Result.success(workDataOf(WorkerKeys.KEY_RESULT to "no_accounts"))
@@ -196,7 +203,6 @@ class PersonaUpdateWorker @AssistedInject constructor(
 
     private companion object {
         const val MAX_RUN_ATTEMPTS = 3
-        const val TARGET_ACCOUNT_COUNT = 20
         const val RECENT_EVENTS_LIMIT = 5
         const val MAX_PAGES = 5
     }

@@ -3,7 +3,7 @@ package com.trae.social.llm.anthropic
 import com.trae.social.llm.ChatConfig
 import com.trae.social.llm.ChatMessage
 import com.trae.social.llm.LlmClient
-import com.trae.social.llm.LlmProvider
+import com.trae.social.core.data.config.LlmProvider
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow

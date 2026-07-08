@@ -2,7 +2,7 @@ package com.trae.social.llm.interceptor
 
 import com.trae.social.llm.LlmConfigProvider
 import com.trae.social.llm.LlmHttp
-import com.trae.social.llm.LlmProvider
+import com.trae.social.core.data.config.LlmProvider
 import kotlinx.coroutines.runBlocking
 import okhttp3.Interceptor
 import okhttp3.Response

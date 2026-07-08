@@ -1,10 +1,12 @@
 package com.trae.social.llm
 
+import com.trae.social.core.data.config.LlmProvider
+
 /**
  * LLM 配置提供者抽象。
  *
  * 由 app 模块注入实现（基于 ConfigRepository / DataStore），
- * core-llm 模块仅依赖该接口，避免与 core-data 形成循环依赖。
+ * core-llm 模块通过 api 依赖 core-data 复用 [LlmProvider] 枚举。
  *
  * IMPL-14：所有方法为 suspend，避免在主线程上 runBlocking 导致 ANR。
  * [com.trae.social.llm.interceptor.AuthInterceptor] 运行在 OkHttp 线程，

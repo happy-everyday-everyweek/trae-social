@@ -37,6 +37,11 @@ android {
 }
 
 dependencies {
+    // IMPL-44：复用 core-data 的 LlmProvider 枚举（含 id/displayName 元数据），
+    // 消除 core-llm 与 core-data 间的重复枚举定义与手动映射。
+    // 使用 api 以便 LlmProvider 作为 LlmClient.provider 的公开类型对消费模块可见。
+    api(project(":core-data"))
+
     implementation(libs.androidx.core.ktx)
 
     // 网络层：Retrofit + OkHttp
@@ -59,4 +64,5 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockk)
+    testImplementation(libs.mockwebserver)
 }

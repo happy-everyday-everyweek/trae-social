@@ -79,4 +79,5 @@ dependencies {
     testImplementation(libs.room.testing)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockk)
+    testImplementation(libs.mockwebserver)
 }

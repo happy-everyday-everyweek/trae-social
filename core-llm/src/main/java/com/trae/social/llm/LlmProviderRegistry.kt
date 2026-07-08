@@ -1,5 +1,6 @@
 package com.trae.social.llm
 
+import com.trae.social.core.data.config.LlmProvider
 import com.trae.social.llm.anthropic.AnthropicApi
 import com.trae.social.llm.anthropic.AnthropicClient
 import com.trae.social.llm.gemini.GeminiApi

@@ -1,5 +1,6 @@
 package com.trae.social.llm
 
+import com.trae.social.core.data.config.LlmProvider
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -56,7 +57,5 @@ data class ChatConfig(
     val jsonMode: Boolean = false,
 )
 
-/**
- * 支持的 LLM 提供商。
- */
-enum class LlmProvider { OPENAI, ANTHROPIC, GEMINI, CUSTOM }
+// IMPL-44：LlmProvider 统一定义于 core-data 模块（含 id/displayName 元数据），
+// 此处通过 api(project(":core-data")) 传递依赖复用，消除重复枚举。

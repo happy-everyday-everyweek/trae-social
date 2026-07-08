@@ -2,12 +2,11 @@ package com.trae.social.onboarding
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.trae.social.core.data.config.LlmProvider as DataLlmProvider
+import com.trae.social.core.data.config.LlmProvider
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.llm.ChatConfig
 import com.trae.social.llm.ChatMessage
 import com.trae.social.llm.LlmClient
-import com.trae.social.llm.LlmProvider
 import com.trae.social.llm.LlmProviderRegistry
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -173,7 +172,7 @@ class OnboardingViewModel @Inject constructor(
             try {
                 val current = _uiState.value
                 persistConfig(current)
-                configRepository.setDefaultProvider(current.selectedProvider.toData())
+                configRepository.setDefaultProvider(current.selectedProvider)
                 llmProviderRegistry.invalidateCache()
 
                 // 触发冷启动内容填充（RISK-14）
@@ -205,15 +204,15 @@ class OnboardingViewModel @Inject constructor(
      * 仅写入非空字段；空字符串不覆盖已有值（避免清空历史配置）。
      */
     private suspend fun persistConfig(state: OnboardingUiState) {
-        val dataProvider = state.selectedProvider.toData()
+        val provider = state.selectedProvider
         if (state.apiKey.isNotEmpty()) {
-            configRepository.setApiKey(dataProvider, state.apiKey)
+            configRepository.setApiKey(provider, state.apiKey)
         }
         if (state.baseUrl.isNotEmpty()) {
-            configRepository.setBaseUrl(dataProvider, state.baseUrl)
+            configRepository.setBaseUrl(provider, state.baseUrl)
         }
         if (state.model.isNotEmpty()) {
-            configRepository.setModelName(dataProvider, state.model)
+            configRepository.setModelName(provider, state.model)
         }
     }
 
@@ -286,13 +285,6 @@ class OnboardingViewModel @Inject constructor(
     private fun extractHttpCodeFromMessage(message: String): Int? {
         val regex = Regex("""\b(4\d{2}|5\d{2})\b""")
         return regex.find(message)?.value?.toIntOrNull()
-    }
-
-    private fun LlmProvider.toData(): DataLlmProvider = when (this) {
-        LlmProvider.OPENAI -> DataLlmProvider.OPENAI
-        LlmProvider.ANTHROPIC -> DataLlmProvider.ANTHROPIC
-        LlmProvider.GEMINI -> DataLlmProvider.GEMINI
-        LlmProvider.CUSTOM -> DataLlmProvider.CUSTOM
     }
 
     companion object {

@@ -10,10 +10,7 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <!-- API 33+ 使用细粒度媒体权限 -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <!-- API ≤32 兼容：外部存储读取 -->
-    <uses-permission
-        android:name="android.permission.READ_EXTERNAL_STORAGE"
-        android:maxSdkVersion="32" />
+    <!-- IMPL-46：READ_EXTERNAL_STORAGE 已移除，EditorModeContent 使用 PickVisualMedia 系统代理，无需存储权限 -->
     <uses-feature
         android:name="android.hardware.camera"
         android:required="false" />
@@ -30,8 +27,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
-    <!-- ============ 电池优化白名单申请（调度保活） ============ -->
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- IMPL-46：REQUEST_IGNORE_BATTERY_OPTIMIZATIONS 已移除（Play 政策敏感且未在运行时申请） -->
 
     <application
         android:name=".SocialApp"

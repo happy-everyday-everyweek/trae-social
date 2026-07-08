@@ -11,6 +11,8 @@ import com.trae.social.core.data.config.AiActivityLevel
 import com.trae.social.core.data.config.LlmProvider
 import com.trae.social.core.data.di.SecurePreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.Dispatchers
@@ -38,6 +40,15 @@ class ConfigRepository @Inject constructor(
 ) {
 
     private val dataStore: DataStore<Preferences> get() = context.socialDataStore
+
+    /**
+     * IMPL-48：档位变更事件流。
+     *
+     * [setAiActivityLevel] 写入 DataStore 后通过此流发出新档位，
+     * SchedulerInitializer 收集后以 REPLACE 策略重新入队周期 Worker。
+     */
+    private val _activityLevelChanges = MutableSharedFlow<AiActivityLevel>(extraBufferCapacity = 1)
+    val activityLevelChanges: SharedFlow<AiActivityLevel> = _activityLevelChanges
 
     // ------------------------------------------------------------------
     // API Key（敏感，EncryptedSharedPreferences）
@@ -120,6 +131,8 @@ class ConfigRepository @Inject constructor(
 
     suspend fun setAiActivityLevel(level: AiActivityLevel) {
         dataStore.edit { it[KEY_AI_ACTIVITY_LEVEL] = level.id }
+        // IMPL-48：通知调度器重新排队
+        _activityLevelChanges.tryEmit(level)
     }
 
     private fun apiKeyEntry(provider: LlmProvider) = "api_key_${provider.id}"

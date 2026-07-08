@@ -71,7 +71,7 @@ fun ConnectionTestScreen(
             color = colors.label,
         )
         Text(
-            text = "向 ${state.selectedProvider.displayName()} 发起一次 ping 请求，验证 API Key 与端点配置是否可用",
+            text = "向 ${state.selectedProvider.displayName} 发起一次 ping 请求，验证 API Key 与端点配置是否可用",
             style = typography.subheadline,
             color = colors.secondaryLabel,
         )

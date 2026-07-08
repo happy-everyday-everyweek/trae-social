@@ -30,7 +30,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.trae.social.designsystem.components.ActionButton
 import com.trae.social.designsystem.theme.LocalSocialColors
 import com.trae.social.designsystem.theme.LocalSocialTypography
-import com.trae.social.llm.LlmProvider
+import com.trae.social.core.data.config.LlmProvider
 
 /**
  * 提供商选择页（SubTask 9.2）。

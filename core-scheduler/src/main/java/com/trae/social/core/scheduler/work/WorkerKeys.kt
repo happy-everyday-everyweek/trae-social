@@ -6,6 +6,7 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.workDataOf
+import com.trae.social.core.data.config.AiActivityLevel
 import java.util.concurrent.TimeUnit
 
 /**
@@ -101,10 +102,14 @@ object WorkerPolicies {
     }
 
     /**
-     * 构建 PersonaUpdateWorker 周期请求（7 天周期）。
+     * 构建 PersonaUpdateWorker 周期请求。
+     *
+     * IMPL-47：周期按 [level] 缩放（LOW=14 天 / MEDIUM=7 天 / HIGH=3 天）。
      */
-    fun personaUpdatePeriodicRequest(): androidx.work.PeriodicWorkRequest {
-        return PeriodicWorkRequestBuilder<PersonaUpdateWorker>(7, TimeUnit.DAYS)
+    fun personaUpdatePeriodicRequest(level: AiActivityLevel): androidx.work.PeriodicWorkRequest {
+        return PeriodicWorkRequestBuilder<PersonaUpdateWorker>(
+            level.personaUpdatePeriodDays.toLong(), TimeUnit.DAYS,
+        )
             .setConstraints(networkConstraints)
             .addTag(WorkerTags.PERSONA_UPDATE)
             .build()
