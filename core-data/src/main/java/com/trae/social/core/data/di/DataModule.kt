@@ -44,6 +44,17 @@ object DataModule {
         }
     }
 
+    /**
+     * IMPL-16：v2 → v3，accounts 表新增 timezone 列（默认 Asia/Shanghai）。
+     */
+    private val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL(
+                "ALTER TABLE `accounts` ADD COLUMN `timezone` TEXT NOT NULL DEFAULT 'Asia/Shanghai'"
+            )
+        }
+    }
+
     @Provides
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
@@ -54,7 +65,7 @@ object DataModule {
             AppDatabase.DATABASE_NAME
         )
             .fallbackToDestructiveMigrationOnDowngrade()
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
             .build()
     }
 

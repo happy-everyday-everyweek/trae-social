@@ -11,10 +11,13 @@ import java.time.ZoneId
  *
  * 查询 [TweetRepository.countByAuthorSince] 获取账号当日已发布推文数，
  * 与 [AiActivityLevel.dailyPostsPerAccount] 比较。
+ *
+ * IMPL-16：[isQuotaExhausted] / [usedToday] 接受可选 [zone] 参数，
+ * 调用方应传入账号自身时区，避免跨时区旅行时配额边界漂移。
  */
 class DailyQuotaChecker(
     private val tweetRepository: TweetRepository,
-    private val zone: ZoneId = ZoneId.systemDefault(),
+    private val defaultZone: ZoneId = ZoneId.systemDefault(),
 ) {
 
     /**
@@ -23,14 +26,16 @@ class DailyQuotaChecker(
      * @param accountId 账号 ID。
      * @param level 当前 AI 活跃度档位。
      * @param now 当前时刻；用于确定"当日"边界。
+     * @param zone 账号所属时区（IMPL-16），为空时回退到 [defaultZone]。
      * @return true 表示已达上限，应跳过本次推文生成。
      */
     suspend fun isQuotaExhausted(
         accountId: String,
         level: AiActivityLevel,
         now: Instant = Instant.now(),
+        zone: ZoneId? = null,
     ): Boolean {
-        val startOfDay = startOfDayMillis(now)
+        val startOfDay = startOfDayMillis(now, zone ?: defaultZone)
         val count = tweetRepository.countByAuthorSince(accountId, startOfDay)
         return count >= level.dailyPostsPerAccount
     }
@@ -41,12 +46,13 @@ class DailyQuotaChecker(
     suspend fun usedToday(
         accountId: String,
         now: Instant = Instant.now(),
+        zone: ZoneId? = null,
     ): Int {
-        val startOfDay = startOfDayMillis(now)
+        val startOfDay = startOfDayMillis(now, zone ?: defaultZone)
         return tweetRepository.countByAuthorSince(accountId, startOfDay)
     }
 
-    private fun startOfDayMillis(now: Instant): Long {
+    private fun startOfDayMillis(now: Instant, zone: ZoneId): Long {
         val zoned = now.atZone(zone)
         val localDate: LocalDate = zoned.toLocalDate()
         return localDate.atStartOfDay(zone).toInstant().toEpochMilli()

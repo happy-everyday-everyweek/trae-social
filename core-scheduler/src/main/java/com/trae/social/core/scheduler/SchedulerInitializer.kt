@@ -118,7 +118,6 @@ object SchedulerInitializer {
         logDao: SchedulerLogDao,
         workManager: WorkManager,
     ) {
-        val zone = ZoneId.systemDefault()
         val now = Instant.now()
         val level: AiActivityLevel = runCatching { configRepository.getAiActivityLevel() }
             .getOrDefault(AiActivityLevel.MEDIUM)
@@ -139,6 +138,9 @@ object SchedulerInitializer {
 
         for (account in virtualAccounts) {
             try {
+                // IMPL-16：使用账号自身时区，避免跨时区旅行时活跃窗偏移
+                val accountZone = runCatching { ZoneId.of(account.timezone) }
+                    .getOrElse { ZoneId.systemDefault() }
                 val rule = ScheduleRule(
                     accountId = account.id,
                     activeWindows = account.activeWindows,
@@ -146,10 +148,10 @@ object SchedulerInitializer {
                 )
 
                 // 2. 调度恢复：错过的活跃窗补发（每窗最多 1 条）
-                val missed = ScheduleRuleResolver.missedWindows(rule, lastRun, now, zone)
+                val missed = ScheduleRuleResolver.missedWindows(rule, lastRun, now, accountZone)
                 for (missedWindow in missed) {
                     // IMPL-4：使用窗口实际所属日期计算 windowStartMillis，避免跨日 key 冲突
-                    val windowStartMillis = windowStartMillis(missedWindow.date, missedWindow.startHour, zone)
+                    val windowStartMillis = windowStartMillis(missedWindow.date, missedWindow.startHour, accountZone)
                     val deduplicationKey = DeduplicationKeys.forTweet(
                         accountId = account.id,
                         windowStart = windowStartMillis,
@@ -167,7 +169,7 @@ object SchedulerInitializer {
                 }
 
                 // 3. 入队下一批 TweetGenerationWorker
-                val nextTrigger = ScheduleRuleResolver.nextTriggerTime(rule, now, zone)
+                val nextTrigger = ScheduleRuleResolver.nextTriggerTime(rule, now, accountZone)
                 if (nextTrigger != null) {
                     val windowStartMillis = nextTrigger.toEpochMilli()
                     val deduplicationKey = DeduplicationKeys.forTweet(

@@ -22,7 +22,7 @@ import com.trae.social.core.data.entity.UserConfigEntity
 /**
  * 应用主数据库。
  *
- * - version=2（IMPL-5：interactions 表新增 (tweetId,accountId,type) 唯一索引）
+ * - version=3（IMPL-16：accounts 表新增 timezone 列）
  * - exportSchema=true（RISK-9：schema JSON 输出至 schemas/）
  * - TypeConverters 处理 JSON 字段与枚举
  * - 发布版 schema 变更须提供显式 Migration（RISK-9）
@@ -38,7 +38,7 @@ import com.trae.social.core.data.entity.UserConfigEntity
         SchedulerLogEntity::class,
         ImageUsageEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 @TypeConverters(Converters::class)

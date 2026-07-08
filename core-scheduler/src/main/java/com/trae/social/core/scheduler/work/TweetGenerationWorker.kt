@@ -90,7 +90,19 @@ class TweetGenerationWorker @AssistedInject constructor(
             val level: AiActivityLevel = configRepository.getAiActivityLevel()
             rateLimiter.reconfigure(level)
 
-            if (quotaChecker.isQuotaExhausted(accountId, level)) {
+            // 先查账号以获取时区（IMPL-16：配额按账号时区计算"当日"边界）
+            val account = accountRepository.getById(accountId)
+            if (account == null) {
+                Timber.w("账号 %s 不存在，跳过推文生成", accountId)
+                resultStatus = "skipped_no_account"
+                logSchedulerEvent(accountId, started, resultStatus, "account not found")
+                return Result.success(workDataOf(WorkerKeys.KEY_RESULT to resultStatus))
+            }
+
+            // IMPL-16：使用账号自身时区检查每日配额，避免跨时区旅行时配额边界漂移
+            val accountZone = runCatching { java.time.ZoneId.of(account.timezone) }
+                .getOrElse { java.time.ZoneId.systemDefault() }
+            if (quotaChecker.isQuotaExhausted(accountId, level, zone = accountZone)) {
                 Timber.i("账号 %s 当日配额已耗尽，跳过推文生成", accountId)
                 resultStatus = "skipped_quota"
                 logSchedulerEvent(accountId, started, resultStatus, null)
@@ -99,17 +111,6 @@ class TweetGenerationWorker @AssistedInject constructor(
 
             // 限流：阻塞至令牌可用
             rateLimiter.acquire()
-
-            // ------------------------------------------------------------------
-            // 1. 查账号人设
-            // ------------------------------------------------------------------
-            val account = accountRepository.getById(accountId)
-            if (account == null) {
-                Timber.w("账号 %s 不存在，跳过推文生成", accountId)
-                resultStatus = "skipped_no_account"
-                logSchedulerEvent(accountId, started, resultStatus, "account not found")
-                return Result.success(workDataOf(WorkerKeys.KEY_RESULT to resultStatus))
-            }
 
             // ------------------------------------------------------------------
             // 2. 查最近 3 条该账号推文

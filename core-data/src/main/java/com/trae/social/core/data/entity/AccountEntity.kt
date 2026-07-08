@@ -16,6 +16,7 @@ import androidx.room.PrimaryKey
  * @param activeWindows 24 槽 bool 数组，标记每小时是否活跃（TypeConverter 序列化为 JSON）
  * @param emojiPreference 常用 emoji 列表（TypeConverter 序列化为 JSON）
  * @param catchphrase 口癖列表（TypeConverter 序列化为 JSON）
+ * @param timezone 账号所属时区（IMPL-16：避免跨时区旅行时活跃窗与配额边界漂移）
  */
 @Entity(
     tableName = "accounts",
@@ -47,5 +48,11 @@ data class AccountEntity(
     val updatedAt: Long,
     val dynamicLifeStory: String,
     val dynamicWorkInfo: String,
-    val recentMood: String
-)
+    val recentMood: String,
+    val timezone: String = DEFAULT_TIMEZONE,
+) {
+    companion object {
+        /** 默认时区：亚洲/上海（人设种子未指定时使用） */
+        const val DEFAULT_TIMEZONE = "Asia/Shanghai"
+    }
+}

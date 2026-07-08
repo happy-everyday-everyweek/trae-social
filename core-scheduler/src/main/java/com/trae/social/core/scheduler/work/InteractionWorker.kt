@@ -125,6 +125,17 @@ class InteractionWorker @AssistedInject constructor(
             }
             interactionRepository.scheduleInteractions(interactions)
 
+            // IMPL-21：短延迟（< 5min）的 LIKE/FOLLOW 用 OneTimeWorkRequest + setInitialDelay
+            // 直接调度，避免受 PendingInteractionWorker 15 分钟周期限制，使 LIKE 更像真人"秒赞"
+            val shortDelayInteractions = interactions.filter {
+                it.type == InteractionType.LIKE || it.type == InteractionType.FOLLOW
+            }.filter {
+                (it.scheduledAt - now) <= SHORT_DELAY_THRESHOLD_MS
+            }
+            if (shortDelayInteractions.isNotEmpty()) {
+                enqueueImmediateInteractionExecution(shortDelayInteractions, now)
+            }
+
             // 6. 写调度日志
             status = "scheduled_${interactions.size}"
             logSchedulerEvent(tweet.authorId, started, status, null)
@@ -333,6 +344,31 @@ class InteractionWorker @AssistedInject constructor(
         val persona: TweetPromptBuilder.PersonaInput,
     )
 
+    /**
+     * IMPL-21：为短延迟的 LIKE/FOLLOW 入队即时执行 Worker。
+     *
+     * PendingInteractionWorker 是 15 分钟周期，LIKE 设计延迟 30s-5min 会最坏延迟到 20min。
+     * 此处为短延迟互动入队 OneTimeWorkRequest + setInitialDelay，由 WorkManager 精确触发。
+     */
+    private fun enqueueImmediateInteractionExecution(
+        interactions: List<InteractionEntity>,
+        now: Long,
+    ) {
+        runCatching {
+            val workManager = androidx.work.WorkManager.getInstance(applicationContext)
+            for (interaction in interactions) {
+                val delayMs = (interaction.scheduledAt - now).coerceAtLeast(0L)
+                val request = androidx.work.OneTimeWorkRequestBuilder<PendingInteractionWorker>()
+                    .setInitialDelay(delayMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+                    .setConstraints(WorkerPolicies.networkConstraints)
+                    .addTag(WorkerTags.INTERACTION)
+                    .build()
+                workManager.enqueue(request)
+            }
+            Timber.i("IMPL-21: 为 %d 个短延迟互动入队即时执行", interactions.size)
+        }.onFailure { Timber.w(it, "即时互动入队失败，回退到周期执行") }
+    }
+
     private companion object {
         const val MAX_RUN_ATTEMPTS = 3
         const val MIN_COMMENTERS = 3
@@ -342,5 +378,7 @@ class InteractionWorker @AssistedInject constructor(
         const val LIKE_THRESHOLD = 0.50
         const val COMMENT_THRESHOLD = 0.30
         const val RETWEET_THRESHOLD = 0.15
+        /** IMPL-21：短延迟阈值，低于此值的 LIKE/FOLLOW 用 OneTimeWorkRequest 直接调度 */
+        const val SHORT_DELAY_THRESHOLD_MS = 5L * 60L * 1000L
     }
 }
