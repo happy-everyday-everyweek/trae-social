@@ -260,10 +260,29 @@ class TweetGenerationWorker @AssistedInject constructor(
                 val interactionRequest = OneTimeWorkRequestBuilder<InteractionWorker>()
                     .setInputData(workDataOf(WorkerKeys.KEY_TWEET_ID to tweet.id))
                     .setConstraints(WorkerPolicies.networkConstraints)
+                    .setBackoffCriteria(
+                        WorkerPolicies.backoffPolicy,
+                        WorkerPolicies.BACKOFF_INITIAL_SECONDS,
+                        java.util.concurrent.TimeUnit.SECONDS,
+                    )
                     .addTag(WorkerTags.INTERACTION)
                     .build()
-                WorkManager.getInstance(applicationContext).enqueue(interactionRequest)
+                // P2 修复：使用 enqueueUniqueWork 避免 InteractionWorker 重复入队
+                WorkManager.getInstance(applicationContext).enqueueUniqueWork(
+                    "interaction_${tweet.id}",
+                    androidx.work.ExistingWorkPolicy.KEEP,
+                    interactionRequest,
+                )
             }.onFailure { Timber.w(it, "入队 InteractionWorker 失败") }
+
+            // ------------------------------------------------------------------
+            // P1 修复：自链——成功生成推文后，入队下一个延迟 TweetGenerationWorker，
+            // 使连续调度链不中断。SchedulerInitializer.initialize() 只在每个进程首次启动
+            // 时入队每个账号的首个 Worker；后续触发由 Worker 自身链式入队完成。
+            // ------------------------------------------------------------------
+            runCatching {
+                scheduleNextTweetGeneration(accountId, accountZone)
+            }.onFailure { Timber.w(it, "入队下一个 TweetGenerationWorker 失败") }
 
             // ------------------------------------------------------------------
             // 11. 写 SchedulerLogEntity
@@ -314,6 +333,66 @@ class TweetGenerationWorker @AssistedInject constructor(
     }
 
     /**
+     * P1 修复：自链调度——当前 Worker 成功完成后，入队该账号的下一个延迟 TweetGenerationWorker。
+     *
+     * 通过 [ScheduleRuleResolver.nextTriggerTime] 计算下一次触发时刻，并用
+     * [TweetRepository.countByAuthorInWindow] 检查窗内已发布数是否已达上限。
+     * 计算失败或无下一窗时静默跳过（不影响本次成功结果）。
+     */
+    private suspend fun scheduleNextTweetGeneration(accountId: String, accountZone: ZoneId) {
+        val account = accountRepository.getById(accountId) ?: return
+        val level = runCatching { configRepository.getAiActivityLevel() }
+            .getOrDefault(AiActivityLevel.MEDIUM)
+        val rule = com.trae.social.core.scheduler.rule.ScheduleRule(
+            accountId = accountId,
+            activeWindows = account.activeWindows,
+            postsPerWindow = POSTS_PER_WINDOW,
+        )
+        val now = java.time.Instant.now()
+        val nextTrigger = com.trae.social.core.scheduler.rule.ScheduleRuleResolver.nextTriggerTime(
+            rule = rule,
+            now = now,
+            zone = accountZone,
+            postsInWindowProvider = { aid, ws, we ->
+                tweetRepository.countByAuthorInWindow(aid, ws, we)
+            },
+        ) ?: return
+
+        val windowStartMillis = nextTrigger.toEpochMilli()
+        val deduplicationKey = com.trae.social.core.scheduler.rule.DeduplicationKeys.forTweet(
+            accountId = accountId,
+            windowStart = windowStartMillis,
+            sequenceNo = 0,
+        )
+        val delayMillis = (nextTrigger.toEpochMilli() - System.currentTimeMillis())
+            .coerceAtLeast(0L)
+        val request = OneTimeWorkRequestBuilder<TweetGenerationWorker>()
+            .setInputData(
+                workDataOf(
+                    WorkerKeys.KEY_ACCOUNT_ID to accountId,
+                    WorkerKeys.KEY_DEDUP_KEY to deduplicationKey,
+                    WorkerKeys.KEY_WINDOW_START to windowStartMillis,
+                    WorkerKeys.KEY_SEQUENCE_NO to 0,
+                )
+            )
+            .setConstraints(WorkerPolicies.networkConstraints)
+            .setBackoffCriteria(
+                WorkerPolicies.backoffPolicy,
+                WorkerPolicies.BACKOFF_INITIAL_SECONDS,
+                java.util.concurrent.TimeUnit.SECONDS,
+            )
+            .setInitialDelay(delayMillis, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .addTag(WorkerTags.TWEET_GENERATION)
+            .build()
+        WorkManager.getInstance(applicationContext).enqueueUniqueWork(
+            deduplicationKey,
+            androidx.work.ExistingWorkPolicy.KEEP,
+            request,
+        )
+        Timber.i("账号 %s 已自链入队下一个 TweetGenerationWorker，触发时刻: %s", accountId, nextTrigger)
+    }
+
+    /**
      * 将 windowStart（活跃窗起始时刻）转换为可读时段描述，注入 prompt。
      *
      * P1 修复：使用账号自身时区 [zone] 而非系统时区，避免跨时区旅行时
@@ -355,5 +434,8 @@ class TweetGenerationWorker @AssistedInject constructor(
         const val MAX_TWEET_LENGTH = 280
         const val RECENT_TWEETS_FOR_DEDUP = 3
         const val MAX_RUN_ATTEMPTS = 3
+
+        /** P1 修复：每个活跃窗内允许发布的推文数上限（与 SchedulerInitializer 保持一致） */
+        const val POSTS_PER_WINDOW = 2
     }
 }

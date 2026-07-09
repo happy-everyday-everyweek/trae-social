@@ -61,6 +61,14 @@ interface TweetDao {
     @Query("SELECT COUNT(*) FROM tweets WHERE authorId = :authorId AND createdAt >= :startOfDay")
     suspend fun countByAuthorSince(authorId: String, startOfDay: Long): Int
 
+    /**
+     * 统计某账号在 [windowStart, windowEnd) 时间窗内已发布的推文数。
+     *
+     * P1 修复：支撑 ScheduleRuleResolver 判断窗内推文数是否已达 postsPerWindow 上限。
+     */
+    @Query("SELECT COUNT(*) FROM tweets WHERE authorId = :authorId AND createdAt >= :windowStart AND createdAt < :windowEnd")
+    suspend fun countByAuthorInWindow(authorId: String, windowStart: Long, windowEnd: Long): Int
+
     @Query("SELECT COUNT(*) FROM tweets")
     suspend fun count(): Int
 

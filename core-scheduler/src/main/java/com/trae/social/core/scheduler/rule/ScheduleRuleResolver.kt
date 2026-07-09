@@ -58,17 +58,24 @@ object ScheduleRuleResolver {
      * 3. 若今日无后续活跃窗、且今日活跃窗已用尽，则跳到次日首个活跃窗。
      * 4. 全天无活跃窗时返回 null（该账号不会被调度）。
      *
+     * P1 修复：新增 [postsInWindowProvider] 参数，调用方传入一个查询函数
+     * `(accountId, windowStartMillis, windowEndMillis) -> 已发布推文数`，
+     * 用于判断当前窗内推文数是否已达 [ScheduleRule.postsPerWindow] 上限。
+     * 若当前窗已满，则跳到下一个窗。若为 null 则不检查窗内上限（向后兼容）。
+     *
      * @param rule 调度规则。
      * @param now 当前时刻。
      * @param zone 时区，决定"小时"语义；默认系统时区。
      * @param random 随机源，便于测试。
+     * @param postsInWindowProvider 查询窗内已发布推文数的函数；返回值 >= rule.postsPerWindow 时视为窗已满。
      * @return 下一次触发时刻；rule 无活跃窗时返回 null。
      */
-    fun nextTriggerTime(
+    suspend fun nextTriggerTime(
         rule: ScheduleRule,
         now: Instant,
         zone: ZoneId = ZoneId.systemDefault(),
         random: Random = Random.Default,
+        postsInWindowProvider: (suspend (accountId: String, windowStartMillis: Long, windowEndMillis: Long) -> Int)? = null,
     ): Instant? {
         val windows = parseWindows(rule.activeWindows)
         if (windows.isEmpty()) return null
@@ -77,18 +84,32 @@ object ScheduleRuleResolver {
         val today = zonedNow.toLocalDate()
         val currentHour = zonedNow.hour
 
-        // 1. 今日当前活跃窗：若仍在窗口结束前，则在窗内取随机时刻
+        // 1. 今日当前活跃窗：若仍在窗口结束前，且窗内推文数未达上限，则在窗内取随机时刻
         val currentWindow = windows.firstOrNull { it.contains(currentHour) }
         if (currentWindow != null) {
-            val trigger = randomMomentInWindow(currentWindow, today, zone, random)
-            if (!trigger.isBefore(now)) return trigger
-            // 当前窗内随机时刻已过：取当前窗剩余时段的随机点（不早于 now + 1min）
-            val remainingEarliest = zonedNow.plusMinutes(1).toInstant()
-            val windowEnd = atWindowEndInstant(currentWindow, today, zone)
-            if (remainingEarliest.isBefore(windowEnd)) {
-                return randomInstantBetween(remainingEarliest, windowEnd, random)
+            // P1 修复：检查窗内已发布数是否已达 postsPerWindow 上限
+            val windowFull = if (postsInWindowProvider != null && rule.postsPerWindow > 0) {
+                val windowStart = windowStartMillis(currentWindow, today, zone)
+                val windowEnd = atWindowEndInstant(currentWindow, today, zone).toEpochMilli()
+                val published = runCatching {
+                    postsInWindowProvider(rule.accountId, windowStart, windowEnd)
+                }.getOrDefault(0)
+                published >= rule.postsPerWindow
+            } else {
+                false
             }
-            // 当前窗已接近结束，落入下方"今日后续窗"分支
+
+            if (!windowFull) {
+                val trigger = randomMomentInWindow(currentWindow, today, zone, random)
+                if (!trigger.isBefore(now)) return trigger
+                // 当前窗内随机时刻已过：取当前窗剩余时段的随机点（不早于 now + 1min）
+                val remainingEarliest = zonedNow.plusMinutes(1).toInstant()
+                val windowEnd = atWindowEndInstant(currentWindow, today, zone)
+                if (remainingEarliest.isBefore(windowEnd)) {
+                    return randomInstantBetween(remainingEarliest, windowEnd, random)
+                }
+            }
+            // 当前窗已满或已接近结束，落入下方"今日后续窗"分支
         }
 
         // 2. 今日后续活跃窗（startHour 严格大于当前小时）
@@ -180,6 +201,15 @@ object ScheduleRuleResolver {
         } else {
             ZonedDateTime.of(date, java.time.LocalTime.of(window.endHour, 0), zone).toInstant()
         }
+    }
+
+    /**
+     * 计算活跃窗起始时刻（毫秒）。P1 修复：供 postsInWindowProvider 查询使用。
+     */
+    private fun windowStartMillis(window: TimeWindow, date: LocalDate, zone: ZoneId): Long {
+        return ZonedDateTime.of(date, java.time.LocalTime.of(window.startHour, 0), zone)
+            .toInstant()
+            .toEpochMilli()
     }
 
     private fun randomInstantBetween(start: Instant, end: Instant, random: Random): Instant {

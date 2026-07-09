@@ -7,6 +7,7 @@ import androidx.work.WorkManager
 import com.trae.social.core.data.entity.InteractionEntity
 import com.trae.social.core.data.entity.InteractionType
 import com.trae.social.core.data.entity.TweetEntity
+import com.trae.social.core.data.repository.AccountRepository
 import com.trae.social.core.data.repository.InteractionRepository
 import com.trae.social.core.data.repository.TweetRepository
 import com.trae.social.core.scheduler.work.WorkerPolicies
@@ -89,6 +90,7 @@ class PublishViewModel @Inject constructor(
     @ApplicationContext private val appContext: Context,
     private val tweetRepository: TweetRepository,
     private val interactionRepository: InteractionRepository,
+    private val accountRepository: AccountRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PublishUiState())
@@ -167,6 +169,8 @@ class PublishViewModel @Inject constructor(
      * 触发 AI 互动排程：入队 InteractionWorker（会排程 3-8 个虚拟账号的点赞/评论/转发）。
      *
      * 降级路径：若 WorkManager 入队异常，回退为直接落库一条即时 LIKE 互动，保证流程不中断。
+     * P1 修复（IMPL-3）：降级路径的 accountId 从虚拟账号池随机选一个真实 ID，
+     * 不再使用 "ai-fallback" 硬编码，避免 UI 层 resolveAuthor 找不到账号显示异常。
      */
     private suspend fun triggerAiInteraction(tweetId: String) {
         runCatching {
@@ -176,12 +180,19 @@ class PublishViewModel @Inject constructor(
         }.onFailure { t ->
             Timber.w(t, "InteractionWorker 入队失败，回退直接落库单条互动")
             runCatching {
+                // P1 修复：从虚拟账号池随机选一个真实 ID 作为互动发起者
+                val virtualAccounts = accountRepository.getAccounts(1).filter { it.isVirtual }
+                if (virtualAccounts.isEmpty()) {
+                    Timber.w("无可用虚拟账号，跳过回退互动落库")
+                    return@runCatching
+                }
+                val fallbackAccountId = virtualAccounts.random().id
                 val now = System.currentTimeMillis()
                 interactionRepository.scheduleInteraction(
                     InteractionEntity(
                         id = UUID.randomUUID().toString(),
                         tweetId = tweetId,
-                        accountId = "ai-fallback",
+                        accountId = fallbackAccountId,
                         type = InteractionType.LIKE,
                         content = null,
                         createdAt = now,
