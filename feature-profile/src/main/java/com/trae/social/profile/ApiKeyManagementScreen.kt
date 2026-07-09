@@ -182,8 +182,15 @@ private fun ProviderConfigCard(
 
             if (!isDefault) {
                 SocialDivider(Modifier.padding(vertical = 12.dp), thickness = 0.5.dp)
-                Button(onClick = onSetDefault, modifier = Modifier.fillMaxWidth()) {
-                    Text("设为默认 provider")
+                // IMPL-27 UI 侧根因：未配置 Key 的 provider 不允许设为默认，
+                // 否则后续所有 LLM 调用静默返回空字符串，AI 功能整体失效。
+                val hasApiKey = !config.apiKeyPreview.isNullOrBlank()
+                Button(
+                    onClick = onSetDefault,
+                    enabled = hasApiKey,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (hasApiKey) "设为默认 provider" else "请先配置 API Key 后再设为默认")
                 }
             }
         }

@@ -1,6 +1,7 @@
 package com.trae.social.feed
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -64,6 +65,8 @@ fun FeedScreen(
     viewModel: FeedViewModel = hiltViewModel(),
     // IMPL-33：向 MainScaffold 派发滚动状态，供 GlassBlurContainer 减半模糊半径
     onScrollingChange: (Boolean) -> Unit = {},
+    // IMPL-13：跳过引导时 banner 点击跳转设置页
+    onNavigateToSettings: () -> Unit = {},
 ) {
     val pagingItems = viewModel.feedFlow.collectAsLazyPagingItems()
     val likedIds by viewModel.likedTweetIds.collectAsStateWithLifecycle()
@@ -90,7 +93,7 @@ fun FeedScreen(
     // IMPL-13：跳过引导时顶部展示补全配置 banner
     Column(modifier = modifier.fillMaxSize()) {
         if (isOnboardingSkipped) {
-            OnboardingSkippedBanner()
+            OnboardingSkippedBanner(onNavigateToSettings = onNavigateToSettings)
         }
         PullToRefreshBox(
             isRefreshing = isRefreshing,
@@ -416,13 +419,15 @@ private fun EndOfListFooter() {
  * IMPL-13：跳过引导后的补全配置 banner。
  *
  * 提示用户前往"我的"Tab 配置 API Key 以启用 AI 功能。
+ * 点击 banner 跳转设置页。
  */
 @Composable
-private fun OnboardingSkippedBanner() {
+private fun OnboardingSkippedBanner(onNavigateToSettings: () -> Unit) {
     val colors = LocalSocialColors.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable { onNavigateToSettings() }
             .background(colors.systemBlue.copy(alpha = 0.12f))
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -434,7 +439,7 @@ private fun OnboardingSkippedBanner() {
             color = colors.systemBlue,
         )
         Text(
-            text = "前往设置",
+            text = "前往设置 >",
             style = MaterialTheme.typography.labelLarge,
             color = colors.systemBlue,
         )

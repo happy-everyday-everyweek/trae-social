@@ -49,9 +49,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
@@ -65,6 +65,8 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * 相机模式内容（SubTask 14.2）。
@@ -95,12 +97,19 @@ fun CameraModeContent(
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
     val previewView = remember { PreviewView(context).apply { scaleType = PreviewView.ScaleType.FILL_CENTER } }
     val executor = remember { Executors.newSingleThreadExecutor() }
+    var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+    val hasCameraPermission = cameraPermission.status.isGranted
 
-    // 比例 / 镜头 / 闪光灯变化时重新绑定相机（RISK-7：比例不支持由 CameraX 自动回退）
-    LaunchedEffect(ratio, lensFacing) {
-        val provider = runCatching {
-            ProcessCameraProvider.getInstance(context).get()
-        }.getOrNull() ?: return@LaunchedEffect
+    // P1-1：避免主线程 ANR——ProcessCameraProvider.getInstance(context).get() 是阻塞调用，
+    // 切换到 IO 线程获取。
+    // P1-2：将权限状态加入 LaunchedEffect key，权限授予后自动重新绑定相机，避免黑屏。
+    LaunchedEffect(ratio, lensFacing, hasCameraPermission) {
+        if (!hasCameraPermission) return@LaunchedEffect
+        // P1-1：在 IO 线程执行阻塞的 Future.get()
+        val provider = withContext(Dispatchers.IO) {
+            runCatching { ProcessCameraProvider.getInstance(context).get() }.getOrNull()
+        } ?: return@LaunchedEffect
+        cameraProvider = provider
         runCatching {
             provider.unbindAll()
             val preview = Preview.Builder()
@@ -123,9 +132,12 @@ fun CameraModeContent(
         imageCapture?.setFlashMode(flashMode.toCameraXFlash())
     }
 
-    // 释放执行器
+    // P1-3：离开组合时解绑相机 + 释放执行器，避免 Tab 切换后相机传感器持续占用
     DisposableEffect(Unit) {
-        onDispose { runCatching { executor.shutdown() } }
+        onDispose {
+            runCatching { cameraProvider?.unbindAll() }
+            runCatching { executor.shutdown() }
+        }
     }
 
     val onShutter: () -> Unit = {
@@ -156,15 +168,31 @@ fun CameraModeContent(
                     factory = { previewView },
                     modifier = Modifier.fillMaxSize(),
                 )
-                // IMPL-35：1:1 比例叠加可见正方形遮罩边框，用户可见裁剪边界
+                // IMPL-35：1:1 比例叠加非透明黑色遮罩，正方形区域外不可见
                 if (ratio == CaptureRatio.SQUARE) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .fillMaxWidth()
-                            .aspectRatio(1f)
-                            .border(width = 1.dp, color = Color.White.copy(alpha = 0.6f)),
-                    )
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        // 上方黑色条带（占剩余空间的上半部分）
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .background(Color.Black),
+                        )
+                        // 中心正方形：全宽 + 1:1 比例，无背景色（透出预览）
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(1f)
+                                .border(width = 1.dp, color = Color.White.copy(alpha = 0.6f)),
+                        )
+                        // 下方黑色条带（占剩余空间的下半部分）
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .background(Color.Black),
+                        )
+                    }
                 }
             }
         } else {
@@ -431,12 +459,33 @@ private fun openAppSettings(context: Context) {
 }
 
 /**
- * IMPL-35：将 JPEG 中心裁剪为正方形，覆盖原文件。
+ * IMPL-35 / IMPL-36：将 JPEG 中心裁剪为正方形，覆盖原文件。
  * 在拍照回调线程执行，避免阻塞 UI。
+ *
+ * P1-5：使用 inJustDecodeBounds 探测尺寸 + 动态 inSampleSize，
+ * 避免大图全量解码导致 OOM。
  */
 private fun cropToSquare(path: String): String? {
     return runCatching {
-        val original = BitmapFactory.decodeFile(path) ?: return null
+        // P1-5：先探测原图尺寸
+        val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(path, boundsOpts)
+        val origW = boundsOpts.outWidth
+        val origH = boundsOpts.outHeight
+        if (origW <= 0 || origH <= 0) return null
+
+        // 目标正方形边长 = min(origW, origH)，采样后不低于 1080px
+        val targetSize = minOf(origW, origH)
+        val sampleTarget = if (targetSize > 1080) 1080 else targetSize
+        var sampleSize = 1
+        while (minOf(origW, origH) / (sampleSize * 2) >= sampleTarget) {
+            sampleSize *= 2
+        }
+
+        // 按采样率解码
+        val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+        val original = BitmapFactory.decodeFile(path, decodeOpts) ?: return null
+
         val size = minOf(original.width, original.height)
         val x = (original.width - size) / 2
         val y = (original.height - size) / 2
