@@ -43,19 +43,35 @@ class ContentFilter {
     )
 
     /**
-     * 否定/防御前缀字符表。
+     * 否定/防御前缀表。
      *
-     * IMPL-29：当敏感词前紧邻这些字符时，视为合法讨论（如"反诈骗""防勒索""打击走私"），
+     * IMPL-29：当敏感词前紧邻这些前缀时，视为合法讨论（如"反诈骗""防勒索""打击走私"），
      * 不应误判为敏感内容。
+     *
+     * P2 修复：支持多字符前缀（如"打击"），原实现仅检查单字符前缀导致
+     * "打击走私"被误判（"击"不在单字符前缀表中，而"打"虽在表中但
+     * "打击走私"中"走私"前一个字符是"击"）。
      */
-    private val negationPrefixes = charArrayOf('反', '防', '打', '拒', '不', '非', '抗', '治', '阻', '避')
+    private val negationPrefixes: List<String> = listOf(
+        // 单字符前缀
+        "反", "防", "拒", "不", "非", "抗", "治", "阻", "避",
+        // 双字符前缀
+        "打击", "拒绝", "反对", "防止", "抵制",
+    )
 
     /**
      * 判断指定位置的匹配是否处于否定前缀上下文。
+     *
+     * P2 修复：遍历 [negationPrefixes]，检查匹配位置前是否紧邻任一前缀。
      */
     private fun isNegationContext(text: String, start: Int): Boolean {
-        if (start <= 0) return false
-        return text[start - 1] in negationPrefixes
+        for (prefix in negationPrefixes) {
+            val prefixLen = prefix.length
+            if (start < prefixLen) continue
+            val actualPrefix = text.substring(start - prefixLen, start)
+            if (actualPrefix == prefix) return true
+        }
+        return false
     }
 
     /**

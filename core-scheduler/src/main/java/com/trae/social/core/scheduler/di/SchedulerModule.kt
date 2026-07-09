@@ -22,6 +22,11 @@ import javax.inject.Singleton
  *
  * 注意：使用 HiltWorkerFactory 需在 app 模块实现 Configuration.Provider
  * （见 [com.trae.social.app.SocialApp]）。
+ *
+ * P2 修复：限流器初始档位仍为 MEDIUM（@Provides 不支持 suspend 调用读取 DataStore），
+ * 但 [com.trae.social.core.scheduler.SchedulerInitializer.observeActivityLevelChanges]
+ * 现在会在档位变更时调用 [SchedulerRateLimiter.reconfigure]，使限流器容量立即同步，
+ * 不再依赖下一个 TweetGenerationWorker 触发。
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -30,7 +35,8 @@ object SchedulerModule {
     @Provides
     @Singleton
     fun provideSchedulerRateLimiter(): SchedulerRateLimiter {
-        // 默认 MEDIUM，运行时由各 Worker 通过 reconfigure(level) 按当前档位切换
+        // 默认 MEDIUM，运行时由各 Worker 通过 reconfigure(level) 按当前档位切换；
+        // 档位变更时由 SchedulerInitializer.observeActivityLevelChanges 立即 reconfigure。
         return SchedulerRateLimiter(initialLevel = AiActivityLevel.MEDIUM)
     }
 

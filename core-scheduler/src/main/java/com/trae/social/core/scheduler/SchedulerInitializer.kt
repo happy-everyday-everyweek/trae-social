@@ -12,6 +12,7 @@ import com.trae.social.core.data.entity.AccountEntity
 import com.trae.social.core.data.repository.AccountRepository
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.data.repository.TweetRepository
+import com.trae.social.core.scheduler.ratelimit.SchedulerRateLimiter
 import com.trae.social.core.scheduler.rule.DeduplicationKeys
 import com.trae.social.core.scheduler.rule.ScheduleRule
 import com.trae.social.core.scheduler.rule.ScheduleRuleResolver
@@ -65,6 +66,7 @@ object SchedulerInitializer {
         fun tweetRepository(): TweetRepository
         fun configRepository(): ConfigRepository
         fun schedulerLogDao(): SchedulerLogDao
+        fun schedulerRateLimiter(): SchedulerRateLimiter
     }
 
     /**
@@ -88,6 +90,7 @@ object SchedulerInitializer {
         val tweetRepository = entryPoint.tweetRepository()
         val configRepository = entryPoint.configRepository()
         val logDao = entryPoint.schedulerLogDao()
+        val rateLimiter = entryPoint.schedulerRateLimiter()
         val workManager = WorkManager.getInstance(app)
 
         // 1. 启动前台服务
@@ -109,8 +112,8 @@ object SchedulerInitializer {
             }
         }
 
-        // IMPL-48：观察档位变更，切换后重新入队周期 Worker
-        observeActivityLevelChanges(configRepository, workManager)
+        // IMPL-48：观察档位变更，切换后重新入队周期 Worker + 重新配置限流器
+        observeActivityLevelChanges(configRepository, workManager, rateLimiter)
     }
 
     /**
@@ -370,19 +373,26 @@ object SchedulerInitializer {
      *
      * 使用 [ExistingPeriodicWorkPolicy.REPLACE] 替换现有排程，
      * 使新档位的周期（PersonaUpdateWorker）立即生效。
+     *
+     * P2 修复：同时调用 [SchedulerRateLimiter.reconfigure] 使限流器容量立即同步，
+     * 不必等待下一个 TweetGenerationWorker 触发。
      */
     private fun observeActivityLevelChanges(
         configRepository: ConfigRepository,
         workManager: WorkManager,
+        rateLimiter: SchedulerRateLimiter,
     ) {
         schedulerScope.launch {
             configRepository.activityLevelChanges.collect { level ->
-                Timber.i("AI 活跃度档位变更: %s，重新入队 PersonaUpdateWorker", level.id)
+                Timber.i("AI 活跃度档位变更: %s，重新入队 PersonaUpdateWorker 并重配限流器", level.id)
                 workManager.enqueueUniquePeriodicWork(
                     WorkerTags.PERSONA_UPDATE,
                     ExistingPeriodicWorkPolicy.REPLACE,
                     WorkerPolicies.personaUpdatePeriodicRequest(level),
                 )
+                // P2 修复：档位切换后立即重新配置限流器，避免限流器容量滞后
+                runCatching { rateLimiter.reconfigure(level) }
+                    .onFailure { Timber.w(it, "重新配置限流器失败") }
             }
         }
     }

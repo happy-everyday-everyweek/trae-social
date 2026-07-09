@@ -100,7 +100,8 @@ class PersonaSeeder @Inject constructor(
             }
 
             val now = System.currentTimeMillis()
-            var imported = accountDao.count() // 已有账号数（含 user-self 与已导入文件）
+            // P2 修复：imported 只统计虚拟账号（排除 user-self），避免 imported(221) > total(220) 进度超 100%
+            var imported = (accountDao.count() - 1).coerceAtLeast(0) // 已有虚拟账号数（减去 user-self）
 
             for (fileName in personaFiles) {
                 val personas = runCatching { parsePersonaFile(fileName) }
