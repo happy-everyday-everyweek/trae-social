@@ -54,8 +54,9 @@ jobs:
 
       - name: Assemble release APK
         # keystore.properties 不存在时回退 debug 签名，CI 仍可构建出可用 release APK
-        # --no-parallel 规避 R8 minifyReleaseWithR8 的 ConcurrentModificationException（AGP 8.6 并行已知问题）
-        run: ./gradlew assembleRelease --no-daemon --no-parallel --stacktrace
+        # -PciDisableMinify 关闭 R8 混淆，规避 R8 8.6.17 minifyReleaseWithR8 的
+        # ConcurrentModificationException（确定性 bug，CI 产出未混淆的 release APK）
+        run: ./gradlew assembleRelease --no-daemon --no-parallel -PciDisableMinify --stacktrace
 
       - name: Collect APK artifacts
         run: |

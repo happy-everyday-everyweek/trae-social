@@ -51,8 +51,12 @@ android {
             versionNameSuffix = "-debug"
         }
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            // CI 构建可传 -PciDisableMinify 关闭 R8 代码混淆，规避 R8 8.6.17
+            // minifyReleaseWithR8 的 ConcurrentModificationException（确定性 bug）。
+            // 本地/正式签名构建默认开启 minify。
+            val ciDisableMinify = project.hasProperty("ciDisableMinify")
+            isMinifyEnabled = !ciDisableMinify
+            isShrinkResources = !ciDisableMinify
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
