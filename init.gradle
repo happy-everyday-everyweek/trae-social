@@ -1,0 +1,21 @@
+// 临时 init script：在 settings 评估前注入 pluginManagement repositories，
+// 确保 AGP 8.6.0 plugin marker artifact 可解析。
+beforeSettings { settings ->
+    settings.pluginManagement {
+        repositories {
+            google()
+            mavenCentral()
+            gradlePluginPortal()
+        }
+    }
+}
+
+allprojects {
+    buildscript {
+        repositories {
+            google()
+            mavenCentral()
+            gradlePluginPortal()
+        }
+    }
+}
