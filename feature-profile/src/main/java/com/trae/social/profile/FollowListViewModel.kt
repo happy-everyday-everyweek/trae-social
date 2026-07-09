@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.trae.social.core.data.dao.FollowRelationDao
 import com.trae.social.core.data.entity.AccountEntity
+import com.trae.social.core.data.entity.FollowRelationEntity
 import com.trae.social.core.data.repository.AccountRepository
 import com.trae.social.profile.di.ProfileImageLoader
 import coil.ImageLoader
@@ -30,9 +31,17 @@ class FollowListViewModel @Inject constructor(
     private val _uiState = MutableStateFlow<FollowListUiState>(FollowListUiState.Loading)
     val uiState: StateFlow<FollowListUiState> = _uiState.asStateFlow()
 
+    /** 当前用户已关注的账号 ID 集合，用于驱动列表项"关注/已关注"按钮状态。 */
+    private val _followingIds = MutableStateFlow<Set<String>>(emptySet())
+    val followingIds: StateFlow<Set<String>> = _followingIds.asStateFlow()
+
     fun load(type: FollowListType) {
         viewModelScope.launch {
             _uiState.value = FollowListUiState.Loading
+            // 先刷新"我关注了谁"集合，供按钮状态使用
+            _followingIds.value = runCatching {
+                followRelationDao.getFollowing(ProfileViewModel.SELF_ID).map { it.followeeId }.toSet()
+            }.getOrElse { emptySet() }
             val accounts = runCatching {
                 when (type) {
                     FollowListType.FOLLOWING -> {
@@ -49,6 +58,28 @@ class FollowListViewModel @Inject constructor(
                 emptyList()
             }
             _uiState.value = FollowListUiState.Success(accounts)
+        }
+    }
+
+    /**
+     * 切换对某账号的关注状态（关注/取关），写库后刷新本地集合与列表。
+     */
+    fun toggleFollow(type: FollowListType, accountId: String) {
+        viewModelScope.launch {
+            runCatching {
+                if (accountId in _followingIds.value) {
+                    followRelationDao.delete(ProfileViewModel.SELF_ID, accountId)
+                } else {
+                    followRelationDao.insert(
+                        FollowRelationEntity(
+                            followerId = ProfileViewModel.SELF_ID,
+                            followeeId = accountId,
+                            createdAt = System.currentTimeMillis(),
+                        )
+                    )
+                }
+            }.onFailure { Timber.w(it, "切换关注状态失败") }
+            load(type)
         }
     }
 }

@@ -4,10 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
 import androidx.paging.map
+import com.trae.social.core.data.entity.CommentEntity
 import com.trae.social.core.data.entity.InteractionEntity
 import com.trae.social.core.data.entity.InteractionType
 import com.trae.social.core.data.entity.TweetEntity
 import com.trae.social.core.data.repository.AccountRepository
+import com.trae.social.core.data.repository.CommentRepository
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.data.repository.InteractionRepository
 import com.trae.social.core.data.repository.TweetRepository
@@ -52,6 +54,7 @@ class FeedViewModel @Inject constructor(
     private val tweetRepository: TweetRepository,
     private val accountRepository: AccountRepository,
     private val interactionRepository: InteractionRepository,
+    private val commentRepository: CommentRepository,
     private val configRepository: ConfigRepository,
     @FeedImageLoader val imageLoader: ImageLoader,
 ) : ViewModel() {
@@ -162,13 +165,17 @@ class FeedViewModel @Inject constructor(
     }
 
     /**
-     * 评论：写入评论计数 + 排程 COMMENT 互动。
+     * 评论：写入评论计数 + 排程 COMMENT 互动 + 持久化评论到 comments 表。
      *
-     * 评论内容当前仅记录到 InteractionRepository，未单独建表存储评论列表。
+     * 评论内容同时写入独立 comments 表（供 [loadComments] 加载展示），
+     * 与 InteractionEntity(COMMENT) 的排程/审计记录并存：
+     * - InteractionEntity 受 (tweetId,accountId,type) 唯一索引约束，每用户每推文仅一条；
+     * - comments 表无此约束，支持同一用户对同一推文发表多条评论。
      */
     fun commentTweet(tweetId: String, authorId: String, text: String) {
         viewModelScope.launch {
             try {
+                val now = System.currentTimeMillis()
                 tweetRepository.updateCommentCount(tweetId, 1)
                 interactionRepository.scheduleInteraction(
                     InteractionEntity(
@@ -177,9 +184,18 @@ class FeedViewModel @Inject constructor(
                         accountId = authorId,
                         type = InteractionType.COMMENT,
                         content = text,
-                        createdAt = System.currentTimeMillis(),
-                        scheduledAt = System.currentTimeMillis(),
-                        executedAt = System.currentTimeMillis(),
+                        createdAt = now,
+                        scheduledAt = now,
+                        executedAt = now,
+                    )
+                )
+                commentRepository.addComment(
+                    CommentEntity(
+                        id = UUID.randomUUID().toString(),
+                        tweetId = tweetId,
+                        authorId = authorId,
+                        content = text,
+                        createdAt = now,
                     )
                 )
             } catch (t: Throwable) {
@@ -187,6 +203,25 @@ class FeedViewModel @Inject constructor(
             }
         }
     }
+
+    /**
+     * 加载某推文的持久化评论列表（评论弹层打开时调用）。
+     *
+     * 返回值按创建时间升序，作者信息（名/头像 seed）由 DAO JOIN accounts 带出；
+     * 账号缺失时回退为占位名 / authorId 作为头像 seed，保证可展示。
+     */
+    suspend fun loadComments(tweetId: String): List<CommentItem> =
+        runCatching {
+            commentRepository.getCommentsForTweet(tweetId).map { c ->
+                CommentItem(
+                    id = c.id,
+                    authorName = c.authorName ?: "未知用户",
+                    authorAvatarSeed = c.authorAvatarSeed ?: c.authorId,
+                    content = c.content,
+                    createdAt = c.createdAt,
+                )
+            }
+        }.onFailure { Timber.w(it, "加载评论失败") }.getOrDefault(emptyList())
 
     /**
      * 转发：写入新推文（引用原推）+ 原推转发计数 +1 + 排程 RETWEET。

@@ -8,6 +8,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.trae.social.core.data.dao.AccountDao
+import com.trae.social.core.data.dao.CommentDao
 import com.trae.social.core.data.dao.FollowRelationDao
 import com.trae.social.core.data.dao.ImageUsageDao
 import com.trae.social.core.data.dao.InteractionDao
@@ -245,6 +246,38 @@ object DataModule {
         }
     }
 
+    /**
+     * v5 → v6：新增 comments 表持久化评论列表，并从 interactions 表回填历史
+     * COMMENT 类型互动（content 非空）作为既有评论，使评论弹层打开即可展示历史评论。
+     *
+     * 注：interactions 表 (tweetId,accountId,type) 唯一索引导致历史每用户每推文
+     * 至多一条 COMMENT，回填仅迁移这些已存在的记录；后续新评论直接写入 comments 表，
+     * 不再受该唯一索引约束，支持同一用户对同一推文发表多条评论。
+     */
+    private val MIGRATION_5_6 = object : Migration(5, 6) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            // 建表结构与 Room 根据 CommentEntity 生成的 schema 保持一致
+            database.execSQL(
+                "CREATE TABLE IF NOT EXISTS `comments` (" +
+                    "`id` TEXT NOT NULL, `tweetId` TEXT NOT NULL, " +
+                    "`authorId` TEXT NOT NULL, `content` TEXT NOT NULL, " +
+                    "`createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`), " +
+                    "FOREIGN KEY(`tweetId`) REFERENCES `tweets`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE, " +
+                    "FOREIGN KEY(`authorId`) REFERENCES `accounts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)"
+            )
+            database.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_comments_tweetId` ON `comments` (`tweetId`)"
+            )
+            // 回填历史 COMMENT 互动（content 非空）作为既有评论
+            database.execSQL(
+                "INSERT INTO `comments` (`id`, `tweetId`, `authorId`, `content`, `createdAt`) " +
+                    "SELECT `id`, `tweetId`, `accountId`, `content`, `createdAt` " +
+                    "FROM `interactions` " +
+                    "WHERE `type` = 'COMMENT' AND `content` IS NOT NULL AND `content` != ''"
+            )
+        }
+    }
+
     @Provides
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
@@ -255,7 +288,7 @@ object DataModule {
             AppDatabase.DATABASE_NAME
         )
             .fallbackToDestructiveMigrationOnDowngrade()
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
             .build()
     }
 
@@ -286,6 +319,10 @@ object DataModule {
     @Provides
     @Singleton
     fun provideImageUsageDao(db: AppDatabase): ImageUsageDao = db.imageUsageDao()
+
+    @Provides
+    @Singleton
+    fun provideCommentDao(db: AppDatabase): CommentDao = db.commentDao()
 
     /**
      * 提供 EncryptedSharedPreferences（RISK-11：API Key 加密存储）。

@@ -140,6 +140,7 @@ fun FeedScreen(
             onSendComment = { text ->
                 viewModel.commentTweet(item.tweet.id, item.tweet.authorId, text)
             },
+            loadComments = { viewModel.loadComments(item.tweet.id) },
         )
     }
 

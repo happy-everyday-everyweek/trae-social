@@ -23,6 +23,10 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Repeat
+import android.content.Intent
+import android.widget.Toast
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -38,7 +42,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -82,7 +88,9 @@ fun TweetCard(
 ) {
     val colors = LocalSocialColors.current
     val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
     val tweet = data.tweet
+    var moreMenuExpanded by remember { mutableStateOf(false) }
 
     // 显示的点赞数：DB likeCount 是唯一数据源（IMPL-11）。
     // 乐观更新已通过 updateLikeCount(+1) 写入 DB，PagingSource 重发后 tweet.likeCount
@@ -135,16 +143,53 @@ fun TweetCard(
                     )
                 }
             }
-            IconButton(
-                onClick = { /* 更多操作占位 */ },
-                modifier = Modifier.size(32.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.MoreHoriz,
-                    contentDescription = "更多",
-                    tint = colors.tertiaryLabel,
-                    modifier = Modifier.size(20.dp),
-                )
+            Box {
+                IconButton(
+                    onClick = { moreMenuExpanded = true },
+                    modifier = Modifier.size(32.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreHoriz,
+                        contentDescription = "更多",
+                        tint = colors.tertiaryLabel,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                DropdownMenu(
+                    expanded = moreMenuExpanded,
+                    onDismissRequest = { moreMenuExpanded = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("复制文本") },
+                        onClick = {
+                            clipboardManager.setText(AnnotatedString(tweet.text))
+                            Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+                            moreMenuExpanded = false
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("分享") },
+                        onClick = {
+                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, tweet.text)
+                            }
+                            runCatching {
+                                context.startActivity(Intent.createChooser(shareIntent, "分享推文"))
+                            }.onFailure {
+                                Toast.makeText(context, "无可用的分享应用", Toast.LENGTH_SHORT).show()
+                            }
+                            moreMenuExpanded = false
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("不感兴趣") },
+                        onClick = {
+                            Toast.makeText(context, "已减少推荐类似内容", Toast.LENGTH_SHORT).show()
+                            moreMenuExpanded = false
+                        },
+                    )
+                }
             }
         }
 

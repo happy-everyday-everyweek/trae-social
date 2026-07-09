@@ -1,6 +1,9 @@
 package com.trae.social.profile
 
+import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,12 +16,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -54,6 +59,7 @@ fun FollowListScreen(
     viewModel: FollowListViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val followingIds by viewModel.followingIds.collectAsStateWithLifecycle()
     val imageLoader = viewModel.imageLoader
     val colors = socialColors()
 
@@ -80,7 +86,12 @@ fun FollowListScreen(
                 } else {
                     LazyColumn(Modifier.fillMaxSize()) {
                         items(state.accounts, key = { it.id }) { account ->
-                            FollowAccountRow(account = account, imageLoader = imageLoader)
+                            FollowAccountRow(
+                                account = account,
+                                imageLoader = imageLoader,
+                                isFollowing = account.id in followingIds,
+                                onToggleFollow = { viewModel.toggleFollow(type, account.id) },
+                            )
                             SocialDivider(thickness = 0.5.dp)
                         }
                     }
@@ -90,37 +101,70 @@ fun FollowListScreen(
     }
 }
 
+/**
+ * 关注/粉丝列表项。
+ *
+ * - 整行可点击：进入账号主页（当前为占位提示，账号详情路由待后续接入）
+ * - 右侧关注/已关注按钮：真实写库并刷新列表
+ */
 @Composable
-private fun FollowAccountRow(account: AccountEntity, imageLoader: coil.ImageLoader) {
+private fun FollowAccountRow(
+    account: AccountEntity,
+    imageLoader: coil.ImageLoader,
+    isFollowing: Boolean,
+    onToggleFollow: () -> Unit,
+) {
     val colors = socialColors()
     val context = LocalContext.current
     Row(
-        modifier = Modifier.fillMaxWidth().padding(16.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+                Toast.makeText(
+                    context,
+                    "查看 @${account.username} 的主页（即将开放）",
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+            .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        AsyncImage(
-            model = ImageRequest.Builder(context)
-                .data(ProfileUtils.avatarUriFromSeed(account.avatarSeed))
-                .crossfade(true)
-                .build(),
-            imageLoader = imageLoader,
-            contentDescription = "头像",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.size(44.dp).clip(CircleShape)
-                .background(colors.tertiaryBackground),
-        )
-        Spacer(Modifier.width(12.dp))
-        Column {
-            Text(
-                account.displayName.ifBlank { account.username },
-                fontWeight = FontWeight.Medium,
-                color = colors.label,
-                style = MaterialTheme.typography.bodyLarge,
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(ProfileUtils.avatarUriFromSeed(account.avatarSeed))
+                    .crossfade(true)
+                    .build(),
+                imageLoader = imageLoader,
+                contentDescription = "头像",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(44.dp).clip(CircleShape)
+                    .background(colors.tertiaryBackground),
             )
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text(
+                    account.displayName.ifBlank { account.username },
+                    fontWeight = FontWeight.Medium,
+                    color = colors.label,
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Text(
+                    "@${account.username}",
+                    color = colors.tertiaryLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+        OutlinedButton(
+            onClick = onToggleFollow,
+            modifier = Modifier.clip(RoundedCornerShape(16.dp)),
+        ) {
             Text(
-                "@${account.username}",
-                color = colors.tertiaryLabel,
-                style = MaterialTheme.typography.bodySmall,
+                text = if (isFollowing) "已关注" else "关注",
+                style = MaterialTheme.typography.labelLarge,
+                color = if (isFollowing) colors.tertiaryLabel else colors.systemBlue,
             )
         }
     }
