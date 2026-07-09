@@ -22,6 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -44,24 +45,16 @@ import com.trae.social.designsystem.theme.LocalSocialColors
 import java.util.UUID
 
 /**
- * 评论数据项（本地展示用，发送后立即追加到列表）。
- */
-private data class CommentItem(
-    val id: String,
-    val authorName: String,
-    val authorAvatarSeed: String,
-    val content: String,
-    val createdAt: Long,
-)
-
-/**
  * 评论弹层。
  *
  * - 顶部：原推文摘要（作者 + 文本前 50 字 + 图片缩略图）
- * - 中部：评论列表（LazyColumn）
+ * - 中部：评论列表（LazyColumn），打开时通过 [loadComments] 从持久化评论表加载
  * - 底部：输入框 + 发送按钮
  *
- * 评论当前仅本地展示 + 调 ViewModel 记录，未持久化为独立评论表。
+ * 发送评论后立即本地追加（乐观展示），同时经 [onSendComment] 交由 ViewModel 持久化；
+ * 下次打开时 [loadComments] 会返回包含已持久化评论的完整列表。
+ *
+ * @param loadComments 挂起函数，返回该推文已持久化的评论列表（按时间升序）
  */
 @Composable
 fun CommentSheet(
@@ -69,11 +62,22 @@ fun CommentSheet(
     imageLoader: ImageLoader,
     onDismiss: () -> Unit,
     onSendComment: (String) -> Unit,
+    loadComments: suspend () -> List<CommentItem>,
 ) {
     val colors = LocalSocialColors.current
     val context = LocalContext.current
     val comments = remember { mutableStateListOf<CommentItem>() }
     var inputText by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(true) }
+
+    // 打开时从 DB 加载已持久化评论（含历史 AI 评论）
+    LaunchedEffect(tweet.tweet.id) {
+        isLoading = true
+        val loaded = loadComments()
+        comments.clear()
+        comments.addAll(loaded)
+        isLoading = false
+    }
 
     SocialSheet(onDismiss = onDismiss) {
         Column(
@@ -114,7 +118,7 @@ fun CommentSheet(
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
-                                text = "暂无评论，发表第一条吧",
+                                text = if (isLoading) "加载中..." else "暂无评论，发表第一条吧",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = colors.tertiaryLabel,
                             )
@@ -152,8 +156,9 @@ fun CommentSheet(
                             comments.add(
                                 CommentItem(
                                     id = UUID.randomUUID().toString(),
+                                    // 与 DB 加载一致：user-self 账号 displayName="我"、avatarSeed="user-self"
                                     authorName = "我",
-                                    authorAvatarSeed = "me",
+                                    authorAvatarSeed = "user-self",
                                     content = text,
                                     createdAt = System.currentTimeMillis(),
                                 )

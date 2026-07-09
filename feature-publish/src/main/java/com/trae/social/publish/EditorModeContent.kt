@@ -16,6 +16,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -38,12 +39,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -133,8 +135,18 @@ fun EditorModeContent(
     var pickedUri by remember { mutableStateOf<Uri?>(null) }
     var sourceBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var selectedFilter by remember { mutableStateOf(FilterPreset.ORIGINAL) }
-    // 裁剪框相对容器中心的拖拽偏移（容器像素坐标）
-    var cropOffset by remember { mutableStateOf(Offset.Zero) }
+    // 裁剪框以容器尺寸的比例表示（left/top/right/bottom ∈ [0,1]），默认居中 70%
+    var cropRect by remember { mutableStateOf(Rect(0.15f, 0.15f, 0.85f, 0.85f)) }
+    // 当前裁剪比例（null = 自由）；切换图片时重置
+    var aspectRatio by remember { mutableStateOf<Float?>(null) }
+    // 容器真实像素尺寸，供裁剪坐标精确映射到源图
+    var containerSize by remember { mutableStateOf(IntSize.Zero) }
+
+    // 选图/换图时重置裁剪框与比例
+    fun resetCrop() {
+        cropRect = Rect(0.15f, 0.15f, 0.85f, 0.85f)
+        aspectRatio = null
+    }
 
     val picker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
@@ -142,7 +154,7 @@ fun EditorModeContent(
         pickedUri = uri
         if (uri != null) {
             sourceBitmap = runCatching { decodeBitmap(context, uri) }.getOrNull()
-            cropOffset = Offset.Zero
+            resetCrop()
         }
     }
 
@@ -177,16 +189,31 @@ fun EditorModeContent(
         }
 
         Column(modifier = Modifier.fillMaxSize()) {
-            // 预览 + 可拖拽裁剪框
+            // 预览 + 可拖拽裁剪框（边角可调大小）
             CropOverlay(
                 bitmap = bitmap,
                 filter = selectedFilter,
-                cropOffset = cropOffset,
-                onCropOffsetChange = { cropOffset = it },
+                cropRect = cropRect,
+                onCropRectChange = { cropRect = it },
+                containerSize = containerSize,
+                onContainerSizeChange = { containerSize = it },
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
                     .padding(16.dp),
+            )
+
+            // 裁剪比例预设条（自由 / 1:1 / 4:3 / 16:9）
+            AspectRatioRow(
+                aspectRatio = aspectRatio,
+                onSelect = { ratio ->
+                    aspectRatio = ratio
+                    // 切换比例时按容器与源图比例重新居中计算裁剪框
+                    if (containerSize != IntSize.Zero && bitmap != null) {
+                        cropRect = computeCenteredCropRect(ratio, containerSize, bitmap)
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
             )
 
             // 滤镜选择条
@@ -213,7 +240,7 @@ fun EditorModeContent(
                 ActionButton(
                     text = "确认裁剪",
                     onClick = {
-                        val edited = applyCropAndFilter(bitmap, cropOffset, selectedFilter)
+                        val edited = applyCropAndFilter(bitmap, cropRect, containerSize, selectedFilter)
                         val path = saveBitmap(context, edited)
                         // IMPL-36：裁剪结果落盘后立即释放，避免叠加原图占用双倍内存
                         if (edited !== bitmap) edited.recycle()
@@ -227,31 +254,36 @@ fun EditorModeContent(
 }
 
 /**
- * 图片预览 + 可拖拽裁剪矩形遮罩。
+ * 图片预览 + 可调大小的裁剪矩形遮罩。
  *
- * 简化实现：裁剪框为容器 70% 尺寸，跟随用户拖拽位移；拖拽范围限定在容器内。
+ * 裁剪框以归一化坐标 [cropRect]（left/top/right/bottom ∈ [0,1]）表示，相对容器尺寸。
+ * - 拖拽裁剪框内部：整体平移，钳制在容器内。
+ * - 拖拽 4 个边角 handle：调整对应角，钳制最小尺寸 [MIN_CROP_RATIO] 并保持 left<right、top<bottom。
+ * - 比例预设：由调用方在切换比例时重新居中计算 [cropRect]（见 [computeCenteredCropRect]），
+ *   拖拽时不再强制维持比例，允许自由微调。
+ *
  * IMPL-36：通过 [onSizeChanged] 拿到容器真实像素尺寸，供 [applyCropAndFilter] 按比例
- * 映射到源图坐标，取代原硬编码 48px maxOffset 近似。
+ * 映射到源图坐标，取代原硬编码近似。
  */
 @Composable
 private fun CropOverlay(
     bitmap: Bitmap,
     filter: FilterPreset,
-    cropOffset: Offset,
-    onCropOffsetChange: (Offset) -> Unit,
+    cropRect: Rect,
+    onCropRectChange: (Rect) -> Unit,
+    containerSize: IntSize,
+    onContainerSizeChange: (IntSize) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalSocialColors.current
+    val density = LocalDensity.current
     val displayBitmap = remember(filter, bitmap) { filter.apply(bitmap) }
-    // IMPL-36：记录容器尺寸，供裁剪坐标按比例映射
-    var containerSize by remember { mutableStateOf(IntSize.Zero) }
 
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
             .background(colors.tertiaryBackground)
-            .onSizeChanged { containerSize = it },
-        contentAlignment = Alignment.Center,
+            .onSizeChanged { onContainerSizeChange(it) },
     ) {
         Image(
             bitmap = displayBitmap.asImageBitmap(),
@@ -259,28 +291,245 @@ private fun CropOverlay(
             contentScale = ContentScale.Fit,
             modifier = Modifier.fillMaxSize(),
         )
-        // 裁剪框：容器 70%，可拖拽，偏移钳制在容器允许范围内
-        Box(
-            modifier = Modifier
-                .fillMaxSize(0.7f)
-                .border(width = 2.dp, color = colors.systemBlue, shape = RoundedCornerShape(4.dp))
-                .pointerInput(containerSize) {
-                    detectDragGestures { change, drag ->
-                        change.consume()
-                        // IMPL-36：拖拽范围按容器尺寸计算，使裁剪框不超出容器边界
-                        val maxX = (containerSize.width * 0.15f)
-                        val maxY = (containerSize.height * 0.15f)
-                        val newOffset = Offset(
-                            x = (cropOffset.x + drag.x).coerceIn(-maxX, maxX),
-                            y = (cropOffset.y + drag.y).coerceIn(-maxY, maxY),
-                        )
-                        onCropOffsetChange(newOffset)
-                    }
-                }
-                .offset { IntOffset(cropOffset.x.roundToInt(), cropOffset.y.roundToInt()) },
-        )
+
+        if (containerSize != IntSize.Zero) {
+            val cw = containerSize.width.toFloat()
+            val ch = containerSize.height.toFloat()
+            val leftPx = (cropRect.left * cw).roundToInt()
+            val topPx = (cropRect.top * ch).roundToInt()
+            val rightPx = (cropRect.right * cw).roundToInt()
+            val bottomPx = (cropRect.bottom * ch).roundToInt()
+            val cropWpx = (rightPx - leftPx).coerceAtLeast(1)
+            val cropHpx = (bottomPx - topPx).coerceAtLeast(1)
+            val cropWdp = with(density) { cropWpx.toDp() }
+            val cropHdp = with(density) { cropHpx.toDp() }
+
+            // 裁剪框边框 + 内部拖拽（整体平移）
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset(leftPx, topPx) }
+                    .size(cropWdp, cropHdp)
+                    .border(width = 2.dp, color = colors.systemBlue, shape = RoundedCornerShape(4.dp))
+                    .pointerInput(containerSize) {
+                        detectDragGestures { change, drag ->
+                            change.consume()
+                            // 归一化位移，钳制使裁剪框不越出容器
+                            val dxNorm = (drag.x / cw).coerceIn(-cropRect.left, 1f - cropRect.right)
+                            val dyNorm = (drag.y / ch).coerceIn(-cropRect.top, 1f - cropRect.bottom)
+                            onCropRectChange(cropRect.translate(dxNorm, dyNorm))
+                        }
+                    },
+            )
+
+            // 4 个边角拖拽 handle：分别调整 left/top、right/top、left/bottom、right/bottom
+            CornerHandle(
+                corner = Corner.TOP_LEFT,
+                centerX = leftPx,
+                centerY = topPx,
+                containerSize = containerSize,
+                cropRect = cropRect,
+                onCropRectChange = onCropRectChange,
+            )
+            CornerHandle(
+                corner = Corner.TOP_RIGHT,
+                centerX = rightPx,
+                centerY = topPx,
+                containerSize = containerSize,
+                cropRect = cropRect,
+                onCropRectChange = onCropRectChange,
+            )
+            CornerHandle(
+                corner = Corner.BOTTOM_LEFT,
+                centerX = leftPx,
+                centerY = bottomPx,
+                containerSize = containerSize,
+                cropRect = cropRect,
+                onCropRectChange = onCropRectChange,
+            )
+            CornerHandle(
+                corner = Corner.BOTTOM_RIGHT,
+                centerX = rightPx,
+                centerY = bottomPx,
+                containerSize = containerSize,
+                cropRect = cropRect,
+                onCropRectChange = onCropRectChange,
+            )
+        }
     }
 }
+
+/** 边角标识，用于 [CornerHandle] 判断拖拽时调整哪两条边。 */
+private enum class Corner { TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT }
+
+/**
+ * 单个边角拖拽 handle：以 (centerX, centerY) 像素位置为中心绘制一个小方块，
+ * 拖拽时按对应方向调整 [cropRect] 的边，保持最小尺寸与 left<right、top<bottom。
+ */
+@Composable
+private fun BoxScope.CornerHandle(
+    corner: Corner,
+    centerX: Int,
+    centerY: Int,
+    containerSize: IntSize,
+    cropRect: Rect,
+    onCropRectChange: (Rect) -> Unit,
+) {
+    val colors = LocalSocialColors.current
+    val density = LocalDensity.current
+    val handleSize = 28.dp
+    val halfPx = with(density) { (handleSize / 2).toPx() }.roundToInt()
+    val cw = containerSize.width.toFloat()
+    val ch = containerSize.height.toFloat()
+
+    Box(
+        modifier = Modifier
+            .offset { IntOffset(centerX - halfPx, centerY - halfPx) }
+            .size(handleSize)
+            .clip(RoundedCornerShape(4.dp))
+            .background(colors.systemBlue)
+            .border(width = 1.dp, color = colors.systemBackground, shape = RoundedCornerShape(4.dp))
+            .pointerInput(containerSize, corner) {
+                detectDragGestures { change, drag ->
+                    change.consume()
+                    val dxNorm = drag.x / cw
+                    val dyNorm = drag.y / ch
+                    val newRect = when (corner) {
+                        Corner.TOP_LEFT -> Rect(
+                            left = (cropRect.left + dxNorm).coerceIn(0f, cropRect.right - MIN_CROP_RATIO),
+                            top = (cropRect.top + dyNorm).coerceIn(0f, cropRect.bottom - MIN_CROP_RATIO),
+                            right = cropRect.right,
+                            bottom = cropRect.bottom,
+                        )
+                        Corner.TOP_RIGHT -> Rect(
+                            left = cropRect.left,
+                            top = (cropRect.top + dyNorm).coerceIn(0f, cropRect.bottom - MIN_CROP_RATIO),
+                            right = (cropRect.right + dxNorm).coerceIn(cropRect.left + MIN_CROP_RATIO, 1f),
+                            bottom = cropRect.bottom,
+                        )
+                        Corner.BOTTOM_LEFT -> Rect(
+                            left = (cropRect.left + dxNorm).coerceIn(0f, cropRect.right - MIN_CROP_RATIO),
+                            top = cropRect.top,
+                            right = cropRect.right,
+                            bottom = (cropRect.bottom + dyNorm).coerceIn(cropRect.top + MIN_CROP_RATIO, 1f),
+                        )
+                        Corner.BOTTOM_RIGHT -> Rect(
+                            left = cropRect.left,
+                            top = cropRect.top,
+                            right = (cropRect.right + dxNorm).coerceIn(cropRect.left + MIN_CROP_RATIO, 1f),
+                            bottom = (cropRect.bottom + dyNorm).coerceIn(cropRect.top + MIN_CROP_RATIO, 1f),
+                        )
+                    }
+                    onCropRectChange(newRect)
+                }
+            },
+    )
+}
+
+/**
+ * 裁剪比例预设条：自由 / 1:1 / 4:3 / 16:9。
+ * 选中自由时 [ratio]=null；其余为宽/高比值。
+ */
+@Composable
+private fun AspectRatioRow(
+    aspectRatio: Float?,
+    onSelect: (Float?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = LocalSocialColors.current
+    val typography = LocalSocialTypography.current
+    val options = listOf<Pair<String, Float?>>(
+        "自由" to null,
+        "1:1" to 1f,
+        "4:3" to 4f / 3f,
+        "16:9" to 16f / 9f,
+    )
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "比例",
+            style = typography.caption1,
+            color = colors.secondaryLabel,
+        )
+        options.forEach { (label, ratio) ->
+            val isSelected = ratio == aspectRatio
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(
+                        if (isSelected) colors.systemBlue else colors.tertiaryBackground,
+                    )
+                    .border(
+                        width = 1.dp,
+                        color = if (isSelected) colors.systemBlue else colors.separator,
+                        shape = RoundedCornerShape(6.dp),
+                    )
+                    .clickable { onSelect(ratio) }
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            ) {
+                Text(
+                    text = label,
+                    style = typography.caption1,
+                    color = if (isSelected) colors.systemBackground else colors.label,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 按比例 [ratio]（null=取容器内最大居中 70% 区域）计算居中裁剪框。
+ * 考虑图片在容器中以 ContentScale.Fit 显示后的实际占据区域，
+ * 使裁剪框落在图片可见范围内。
+ */
+private fun computeCenteredCropRect(
+    ratio: Float?,
+    containerSize: IntSize,
+    bitmap: Bitmap,
+): Rect {
+    val cw = containerSize.width.toFloat()
+    val ch = containerSize.height.toFloat()
+    if (cw <= 0f || ch <= 0f) return Rect(0.15f, 0.15f, 0.85f, 0.85f)
+    // 图片在容器内 Fit 后的实际显示区域（像素）
+    val scale = minOf(cw / bitmap.width, ch / bitmap.height)
+    val dispW = bitmap.width * scale
+    val dispH = bitmap.height * scale
+    val imgLeft = (cw - dispW) / 2f
+    val imgTop = (ch - dispH) / 2f
+    // 转为归一化（相对容器）
+    val imgLeftN = imgLeft / cw
+    val imgTopN = imgTop / ch
+    val imgWN = dispW / cw
+    val imgHN = dispH / ch
+
+    val targetW: Float
+    val targetH: Float
+    if (ratio == null) {
+        // 自由：取图片显示区域的 70%
+        targetW = imgWN * 0.7f
+        targetH = imgHN * 0.7f
+    } else {
+        // 按宽高比在图片显示区域内取最大居中矩形
+        if (imgWN / imgHN > ratio) {
+            // 图片更宽，以高度为基准
+            targetH = imgHN * 0.9f
+            targetW = targetH * ratio
+        } else {
+            targetW = imgWN * 0.9f
+            targetH = targetW / ratio
+        }
+    }
+    val leftN = (imgLeftN + (imgWN - targetW) / 2f).coerceIn(0f, 1f)
+    val topN = (imgTopN + (imgHN - targetH) / 2f).coerceIn(0f, 1f)
+    val rightN = (leftN + targetW).coerceIn(0f, 1f)
+    val bottomN = (topN + targetH).coerceIn(0f, 1f)
+    return Rect(leftN, topN, rightN, bottomN)
+}
+
+/** 裁剪框最小归一化边长，避免拖到不可见。 */
+private const val MIN_CROP_RATIO = 0.1f
 
 /**
  * 滤镜横向选择条：圆形缩略图 + 标签。
@@ -347,35 +596,55 @@ private fun FilterRow(
 /**
  * 应用裁剪 + 滤镜，返回新 Bitmap。
  *
- * IMPL-36：原实现 `maxOffsetPx=48f` 硬编码近似映射，裁剪框拖拽范围与容器实际尺寸脱节。
- * 现按容器尺寸（由调用方传入的 cropOffset 已被 CropOverlay 钳制到 ±15% 容器尺寸）映射：
- * 裁剪框默认居中（70% 尺寸），偏移 cropOffset 表示相对中心的位移，按比例换算到源图坐标。
+ * [cropRect] 为归一化裁剪框（相对容器尺寸），[containerSize] 为容器像素尺寸。
+ * 图片以 ContentScale.Fit 显示，故需先将裁剪框从容器坐标换算到图片显示区域坐标，
+ * 再按显示缩放比映射回源图像素坐标。
  *
- * 注：此处无法直接拿到容器尺寸，但 cropOffset 已被 CropOverlay 钳制到 ±0.15*container，
- * 而裁剪框为 70% 容器，故偏移占容器比例 = cropOffset / container ∈ [-0.15, 0.15]，
- * 映射到源图 = (cropOffset / container) * sourceDim。为避免依赖容器尺寸，这里用 cropOffset
- * 的绝对值与源图 15% 区域换算（等效于上述比例，因容器到源图是 ContentScale.Fit 的等比缩放）。
+ * 容器尺寸为 0（尚未布局）时回退到源图居中 70% 裁剪，保证可用性。
  */
 private fun applyCropAndFilter(
     source: Bitmap,
-    cropOffset: Offset,
+    cropRect: Rect,
+    containerSize: IntSize,
     filter: FilterPreset,
 ): Bitmap {
     val w = source.width
     val h = source.height
-    // 裁剪区域为源图 70%
-    val cropW = (w * 0.7f).toInt().coerceIn(1, w)
-    val cropH = (h * 0.7f).toInt().coerceIn(1, h)
-    // IMPL-36：偏移按源图 15%（等价于容器 15%，ContentScale.Fit 等比）映射到源图坐标
-    val maxOffsetX = w * 0.15f
-    val maxOffsetY = h * 0.15f
-    val ratioX = if (maxOffsetX > 0f) (cropOffset.x / maxOffsetX).coerceIn(-1f, 1f) else 0f
-    val ratioY = if (maxOffsetY > 0f) (cropOffset.y / maxOffsetY).coerceIn(-1f, 1f) else 0f
-    // 中心 + 偏移，钳制在 [0, w-cropW]
-    val left = ((w - cropW) / 2f + ratioX * (w - cropW) / 2f)
-        .roundToInt().coerceIn(0, (w - cropW).coerceAtLeast(0))
-    val top = ((h - cropH) / 2f + ratioY * (h - cropH) / 2f)
-        .roundToInt().coerceIn(0, (h - cropH).coerceAtLeast(0))
+
+    val left: Int
+    val top: Int
+    val cropW: Int
+    val cropH: Int
+    if (containerSize == IntSize.Zero) {
+        // 回退：源图居中 70%
+        cropW = (w * 0.7f).toInt().coerceIn(1, w)
+        cropH = (h * 0.7f).toInt().coerceIn(1, h)
+        left = ((w - cropW) / 2f).roundToInt().coerceIn(0, (w - cropW).coerceAtLeast(0))
+        top = ((h - cropH) / 2f).roundToInt().coerceIn(0, (h - cropH).coerceAtLeast(0))
+    } else {
+        val cw = containerSize.width.toFloat()
+        val ch = containerSize.height.toFloat()
+        // 图片 Fit 后的显示区域（像素）与缩放比
+        val scale = minOf(cw / w, ch / h)
+        val dispW = w * scale
+        val dispH = h * scale
+        val imgLeft = (cw - dispW) / 2f
+        val imgTop = (ch - dispH) / 2f
+        // 容器归一化裁剪框 -> 容器像素 -> 图片显示像素 -> 源图像素
+        val cropLeftPx = cropRect.left * cw
+        val cropTopPx = cropRect.top * ch
+        val cropRightPx = cropRect.right * cw
+        val cropBottomPx = cropRect.bottom * ch
+        val sx = ((cropLeftPx - imgLeft) / scale).roundToInt().coerceIn(0, w - 1)
+        val sy = ((cropTopPx - imgTop) / scale).roundToInt().coerceIn(0, h - 1)
+        val sx2 = ((cropRightPx - imgLeft) / scale).roundToInt().coerceIn(sx + 1, w)
+        val sy2 = ((cropBottomPx - imgTop) / scale).roundToInt().coerceIn(sy + 1, h)
+        left = sx
+        top = sy
+        cropW = sx2 - sx
+        cropH = sy2 - sy
+    }
+
     val cropped = runCatching {
         Bitmap.createBitmap(source, left, top, cropW, cropH)
     }.getOrDefault(source)

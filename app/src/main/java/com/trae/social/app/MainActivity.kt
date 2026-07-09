@@ -226,6 +226,7 @@ private fun MainScaffold() {
                 ) {
                     TimelineScreen(
                         modifier = Modifier.fillMaxSize().padding(innerPadding),
+                        onPublishClick = { navController.navigate(AppRoutes.PUBLISH) },
                         onScrollingChange = { isScrolling = it },
                     )
                 }

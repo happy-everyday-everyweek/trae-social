@@ -134,8 +134,8 @@ fun PublishScreen(
                 }
             }
 
-            // 相机模式下，captures 非空时显示顶部文本输入
-            if (selectedTab == 0 && uiState.captures.isNotEmpty()) {
+            // captures 非空时显示顶部配文输入（相机模式与编辑器模式均可用）
+            if (uiState.captures.isNotEmpty()) {
                 CaptionInput(
                     text = uiState.caption,
                     onTextChanged = viewModel::updateCaption,
