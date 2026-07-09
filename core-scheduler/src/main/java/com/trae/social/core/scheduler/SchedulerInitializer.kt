@@ -272,6 +272,9 @@ object SchedulerInitializer {
 
     /**
      * 入队 TweetGenerationWorker（立即执行）。
+     *
+     * P2 修复：使用 enqueueUniqueWork + KEEP 策略，以 deduplicationKey 作为唯一标识，
+     * 防止调度恢复或重复调用导致同一去重键的 Worker 重复入队。
      */
     private fun enqueueTweetGeneration(
         workManager: WorkManager,
@@ -286,11 +289,18 @@ object SchedulerInitializer {
             windowStart = windowStart,
             sequenceNo = sequenceNo,
         )
-        workManager.enqueue(request)
+        workManager.enqueueUniqueWork(
+            deduplicationKey,
+            androidx.work.ExistingWorkPolicy.KEEP,
+            request,
+        )
     }
 
     /**
      * 入队 TweetGenerationWorker（延迟执行，由 WorkManager 在 triggerAt 时刻触发）。
+     *
+     * P2 修复：使用 enqueueUniqueWork + KEEP 策略，与 enqueueTweetGeneration 保持一致，
+     * 防止延迟 Worker 重复入队。
      */
     private fun enqueueTweetGenerationDelayed(
         workManager: WorkManager,
@@ -321,7 +331,11 @@ object SchedulerInitializer {
             .setInitialDelay(delayMillis, java.util.concurrent.TimeUnit.MILLISECONDS)
             .addTag(WorkerTags.TWEET_GENERATION)
             .build()
-        workManager.enqueue(request)
+        workManager.enqueueUniqueWork(
+            deduplicationKey,
+            androidx.work.ExistingWorkPolicy.KEEP,
+            request,
+        )
     }
 
     /**
