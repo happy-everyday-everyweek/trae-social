@@ -74,6 +74,36 @@ class ContentFilterTest {
         assertTrue("应含 5 个星号: $masked", masked.contains("*****"))
     }
 
+    // IMPL-29 回归测试：否定/防御前缀上下文不应误判敏感词
+
+    @Test
+    fun `containsSensitiveContent 反前缀合法讨论不误伤`() {
+        assertFalse(filter.containsSensitiveContent("反诈骗人人有责"))
+        assertFalse(filter.containsSensitiveContent("防勒索病毒指南"))
+        assertFalse(filter.containsSensitiveContent("打击走私行动"))
+        assertFalse(filter.containsSensitiveContent("拒毒品行贿"))
+    }
+
+    @Test
+    fun `containsSensitiveContent 非前缀上下文仍命中`() {
+        // 否定前缀不紧邻敏感词时仍应命中
+        assertTrue(filter.containsSensitiveContent("他在搞诈骗"))
+        assertTrue(filter.containsSensitiveContent("参与毒品交易"))
+    }
+
+    @Test
+    fun `maskSensitive 反前缀合法讨论不打码`() {
+        assertEquals("反诈骗人人有责", filter.maskSensitive("反诈骗人人有责"))
+        assertEquals("防勒索病毒指南", filter.maskSensitive("防勒索病毒指南"))
+    }
+
+    @Test
+    fun `maskSensitive 非前缀上下文正常打码`() {
+        val masked = filter.maskSensitive("他在搞诈骗")
+        assertFalse(masked.contains("诈骗"))
+        assertTrue(masked.contains("**"))
+    }
+
     private fun assertEquals(expected: String, actual: String) {
         org.junit.Assert.assertEquals(expected, actual)
     }

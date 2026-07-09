@@ -147,10 +147,10 @@ class PersonaUpdatePromptBuilder {
          *
          * @param old 原文本。
          * @param new 新文本。
-         * @param threshold 相似度阈值，低于该值判定突变，默认 0.3。
+         * @param threshold 相似度阈值，低于该值判定突变，默认 0.5（与 checklist RISK-2 要求一致）。
          * @return true 表示应回退（保留旧值）。
          */
-        fun shouldRollback(old: String, new: String, threshold: Double = 0.3): Boolean {
+        fun shouldRollback(old: String, new: String, threshold: Double = 0.5): Boolean {
             return cosineSimilarity(old, new) < threshold
         }
     }

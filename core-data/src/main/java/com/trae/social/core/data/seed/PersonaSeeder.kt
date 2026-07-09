@@ -59,10 +59,11 @@ class PersonaSeeder @Inject constructor(
             return@flow
         }
         try {
-            // 幂等：accounts 表非空则跳过
-            val existing = accountDao.count()
-            if (existing > 0) {
-                emit(SeedProgress(imported = existing, total = SeedProgress.EXPECTED_TOTAL, isComplete = true))
+            // 幂等：accounts 已达预期且 tweets 非空时跳过（崩溃中断后 tweets 会缺失，需补导）
+            val existingAccounts = accountDao.count()
+            val existingTweets = tweetDao.count()
+            if (existingAccounts >= SeedProgress.EXPECTED_TOTAL && existingTweets > 0) {
+                emit(SeedProgress(imported = existingAccounts, total = SeedProgress.EXPECTED_TOTAL, isComplete = true))
                 return@flow
             }
 
@@ -99,7 +100,7 @@ class PersonaSeeder @Inject constructor(
             }
 
             val now = System.currentTimeMillis()
-            var imported = 1 // user-self 已计入
+            var imported = accountDao.count() // 已有账号数（含 user-self 与已导入文件）
 
             for (fileName in personaFiles) {
                 val personas = runCatching { parsePersonaFile(fileName) }
@@ -114,10 +115,11 @@ class PersonaSeeder @Inject constructor(
 
                 // IMPL-24：accounts + tweets 在同一事务内写入，保证原子性
                 // IMPL-38：使用 upsertAllWithActiveHours 同步活跃小时反向索引
+                // 幂等重导：accounts 用 @Upsert（不触发 CASCADE），tweets 用 insertAllOrIgnore（跳过已存在）
                 database.withTransaction {
                     accountDao.upsertAllWithActiveHours(accounts)
                     if (tweets.isNotEmpty()) {
-                        tweetDao.insertAll(tweets)
+                        tweetDao.insertAllOrIgnore(tweets)
                     }
                 }
 

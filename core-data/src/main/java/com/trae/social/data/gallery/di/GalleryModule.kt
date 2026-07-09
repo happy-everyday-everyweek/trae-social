@@ -1,9 +1,9 @@
 package com.trae.social.data.gallery.di
 
 import com.trae.social.data.gallery.ImageUsagePort
-import com.trae.social.data.gallery.InMemoryImageUsagePort
 import com.trae.social.data.gallery.LocalImageGallery
 import com.trae.social.data.gallery.LocalImageGalleryImpl
+import com.trae.social.data.gallery.RoomImageUsagePort
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -17,12 +17,8 @@ import javax.inject.Singleton
  *
  * 绑定：
  * - [LocalImageGallery] -> [LocalImageGalleryImpl]
- * - [ImageUsagePort] -> [InMemoryImageUsagePort]（默认实现，Task 3 完成 Room
- *   ImageUsageDao 后应替换该绑定）
+ * - [ImageUsagePort] -> [RoomImageUsagePort]（Room 持久化实现，配图去重 30 天窗口跨进程重启有效）
  * - 提供 kotlinx [Json] 单例，配置为忽略未知字段、容错宽松。
- *
- * 注意：[ImageUsagePort] 的默认绑定可能与 Task 3 后续的 Room 实现产生冲突，
- * 届时需删除下方 [bindImageUsagePort] 并由 core-data 的 Room 模块提供绑定。
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -34,7 +30,7 @@ abstract class GalleryModule {
 
     @Binds
     @Singleton
-    abstract fun bindImageUsagePort(impl: InMemoryImageUsagePort): ImageUsagePort
+    abstract fun bindImageUsagePort(impl: RoomImageUsagePort): ImageUsagePort
 
     companion object {
 
