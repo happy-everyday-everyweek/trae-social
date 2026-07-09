@@ -3,6 +3,7 @@ package com.trae.social.profile
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.trae.social.core.data.config.AiActivityLevel
@@ -93,6 +94,8 @@ class DevOptionsViewModel @Inject constructor(
      * RISK-15：手动触发一次推文生成调度。
      *
      * 从虚拟账号中随机选取一个，入队即时 TweetGenerationWorker。
+     *
+     * P2 修复：使用 enqueueUniqueWork + REPLACE 策略，防止短时间多次点击重复入队。
      */
     fun triggerTweetGeneration() {
         viewModelScope.launch {
@@ -111,7 +114,11 @@ class DevOptionsViewModel @Inject constructor(
                     windowStart = windowStart,
                     sequenceNo = 0,
                 )
-                WorkManager.getInstance(appContext).enqueue(request)
+                WorkManager.getInstance(appContext).enqueueUniqueWork(
+                    UNIQUE_WORK_TWEET_GENERATION,
+                    ExistingWorkPolicy.REPLACE,
+                    request,
+                )
                 _triggerResult.value = "已触发：账号 ${account.id} 的推文生成"
             }.onFailure {
                 Timber.e(it, "手动触发推文生成失败")
@@ -122,6 +129,8 @@ class DevOptionsViewModel @Inject constructor(
 
     /**
      * RISK-15：手动触发一次待执行互动处理。
+     *
+     * P2 修复：使用 enqueueUniqueWork + REPLACE 策略，防止短时间多次点击重复入队。
      */
     fun triggerPendingInteractions() {
         viewModelScope.launch {
@@ -129,7 +138,11 @@ class DevOptionsViewModel @Inject constructor(
                 val request = OneTimeWorkRequestBuilder<PendingInteractionWorker>()
                     .addTag(WorkerTags.PENDING_INTERACTION)
                     .build()
-                WorkManager.getInstance(appContext).enqueue(request)
+                WorkManager.getInstance(appContext).enqueueUniqueWork(
+                    UNIQUE_WORK_PENDING_INTERACTION,
+                    ExistingWorkPolicy.REPLACE,
+                    request,
+                )
                 _triggerResult.value = "已触发：待执行互动处理"
             }.onFailure {
                 Timber.e(it, "手动触发互动处理失败")
@@ -140,6 +153,8 @@ class DevOptionsViewModel @Inject constructor(
 
     /**
      * RISK-15：手动触发一次人设更新。
+     *
+     * P2 修复：使用 enqueueUniqueWork + REPLACE 策略，防止短时间多次点击重复入队。
      */
     fun triggerPersonaUpdate() {
         viewModelScope.launch {
@@ -147,7 +162,11 @@ class DevOptionsViewModel @Inject constructor(
                 val request = OneTimeWorkRequestBuilder<PersonaUpdateWorker>()
                     .addTag(WorkerTags.PERSONA_UPDATE)
                     .build()
-                WorkManager.getInstance(appContext).enqueue(request)
+                WorkManager.getInstance(appContext).enqueueUniqueWork(
+                    UNIQUE_WORK_PERSONA_UPDATE,
+                    ExistingWorkPolicy.REPLACE,
+                    request,
+                )
                 _triggerResult.value = "已触发：人设动态字段更新"
             }.onFailure {
                 Timber.e(it, "手动触发人设更新失败")
@@ -162,5 +181,10 @@ class DevOptionsViewModel @Inject constructor(
 
     companion object {
         private const val LOG_LIMIT = 200
+
+        /** P2：手动触发调度的唯一工作名，防止重复入队 */
+        private const val UNIQUE_WORK_TWEET_GENERATION = "manual_tweet_generation"
+        private const val UNIQUE_WORK_PENDING_INTERACTION = "manual_pending_interaction"
+        private const val UNIQUE_WORK_PERSONA_UPDATE = "manual_persona_update"
     }
 }

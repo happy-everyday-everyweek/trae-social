@@ -35,6 +35,7 @@ import androidx.navigation.navArgument
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.trae.social.app.ui.AppRoutes
 import com.trae.social.app.ui.SocialBottomBar
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.scheduler.SchedulerInitializer
@@ -127,26 +128,26 @@ private fun SocialApp(configRepository: ConfigRepository) {
             Box(Modifier.fillMaxSize())
         }
         else -> {
-            val startDestination = if (done) "main" else "onboarding"
+            val startDestination = if (done) AppRoutes.MAIN else AppRoutes.ONBOARDING
             NavHost(
                 navController = navController,
                 startDestination = startDestination,
             ) {
-                composable("onboarding") {
+                composable(AppRoutes.ONBOARDING) {
                     OnboardingNavHost(
                         onCompleted = { skipped ->
                             // IMPL-13：区分跳过与完成，写入对应标记并切换至主框架
                             scope.launch {
                                 configRepository.setOnboardingCompleted(true)
                                 configRepository.setOnboardingSkipped(skipped)
-                                navController.navigate("main") {
-                                    popUpTo("onboarding") { inclusive = true }
+                                navController.navigate(AppRoutes.MAIN) {
+                                    popUpTo(AppRoutes.ONBOARDING) { inclusive = true }
                                 }
                             }
                         },
                     )
                 }
-                composable("main") {
+                composable(AppRoutes.MAIN) {
                     MainScaffold()
                 }
             }
@@ -168,7 +169,7 @@ private fun MainScaffold() {
     val currentRoute = backStackEntry?.destination?.route
 
     // 仅在三个主 Tab 显示底部栏；settings/devoptions/apikey/followlist/publish 为全屏路由
-    val showBottomBar = currentRoute in setOf("feed", "timeline", "profile")
+    val showBottomBar = currentRoute in setOf(AppRoutes.FEED, AppRoutes.TIMELINE, AppRoutes.PROFILE)
 
     // IMPL-33：由 feed/timeline 的 LazyColumn 派生滚动状态，供 GlassBlurContainer 减半模糊半径
     var isScrolling by remember { mutableStateOf(false) }
@@ -190,7 +191,7 @@ private fun MainScaffold() {
                             }
                         },
                         onPublishClick = {
-                            navController.navigate("publish") {
+                            navController.navigate(AppRoutes.PUBLISH) {
                                 launchSingleTop = true
                             }
                         },
@@ -200,11 +201,11 @@ private fun MainScaffold() {
         ) { innerPadding ->
             NavHost(
                 navController = navController,
-                startDestination = "feed",
+                startDestination = AppRoutes.FEED,
                 modifier = Modifier.fillMaxSize(),
             ) {
                 composable(
-                    route = "feed",
+                    route = AppRoutes.FEED,
                     enterTransition = { fadeIn() },
                     exitTransition = { fadeOut() },
                     popEnterTransition = { fadeIn() },
@@ -213,11 +214,11 @@ private fun MainScaffold() {
                     FeedScreen(
                         modifier = Modifier.fillMaxSize().padding(innerPadding),
                         onScrollingChange = { isScrolling = it },
-                        onNavigateToSettings = { navController.navigate("settings") },
+                        onNavigateToSettings = { navController.navigate(AppRoutes.SETTINGS) },
                     )
                 }
                 composable(
-                    route = "timeline",
+                    route = AppRoutes.TIMELINE,
                     enterTransition = { fadeIn() },
                     exitTransition = { fadeOut() },
                     popEnterTransition = { fadeIn() },
@@ -229,22 +230,22 @@ private fun MainScaffold() {
                     )
                 }
             composable(
-                route = "profile",
+                route = AppRoutes.PROFILE,
                 enterTransition = { fadeIn() },
                 exitTransition = { fadeOut() },
                 popEnterTransition = { fadeIn() },
                 popExitTransition = { fadeOut() },
             ) {
                 ProfileScreen(
-                    onNavigateToSettings = { navController.navigate("settings") },
+                    onNavigateToSettings = { navController.navigate(AppRoutes.SETTINGS) },
                     onNavigateToFollowList = { type ->
-                        navController.navigate("followlist/${type.name}")
+                        navController.navigate(AppRoutes.followList(type.name))
                     },
                     modifier = Modifier.fillMaxSize().padding(innerPadding),
                 )
             }
             composable(
-                route = "settings",
+                route = AppRoutes.SETTINGS,
                 enterTransition = { fadeIn() },
                 exitTransition = { fadeOut() },
                 popEnterTransition = { fadeIn() },
@@ -252,13 +253,13 @@ private fun MainScaffold() {
             ) {
                 SettingsScreen(
                     onBack = { navController.popBackStack() },
-                    onNavigateToApiKey = { navController.navigate("apikey") },
-                    onNavigateToDevOptions = { navController.navigate("devoptions") },
+                    onNavigateToApiKey = { navController.navigate(AppRoutes.API_KEY) },
+                    onNavigateToDevOptions = { navController.navigate(AppRoutes.DEV_OPTIONS) },
                     modifier = Modifier.fillMaxSize(),
                 )
             }
             composable(
-                route = "apikey",
+                route = AppRoutes.API_KEY,
                 enterTransition = { fadeIn() },
                 exitTransition = { fadeOut() },
                 popEnterTransition = { fadeIn() },
@@ -270,7 +271,7 @@ private fun MainScaffold() {
                 )
             }
             composable(
-                route = "devoptions",
+                route = AppRoutes.DEV_OPTIONS,
                 enterTransition = { fadeIn() },
                 exitTransition = { fadeOut() },
                 popEnterTransition = { fadeIn() },
@@ -282,14 +283,14 @@ private fun MainScaffold() {
                 )
             }
             composable(
-                route = "followlist/{type}",
-                arguments = listOf(navArgument("type") { type = NavType.StringType }),
+                route = AppRoutes.FOLLOW_LIST,
+                arguments = listOf(navArgument(AppRoutes.FOLLOW_LIST_TYPE_ARG) { type = NavType.StringType }),
                 enterTransition = { fadeIn() },
                 exitTransition = { fadeOut() },
                 popEnterTransition = { fadeIn() },
                 popExitTransition = { fadeOut() },
             ) { backStackEntry ->
-                val typeName = backStackEntry.arguments?.getString("type") ?: "FOLLOWING"
+                val typeName = backStackEntry.arguments?.getString(AppRoutes.FOLLOW_LIST_TYPE_ARG) ?: "FOLLOWING"
                 val type = runCatching { FollowListType.valueOf(typeName) }
                     .getOrElse { FollowListType.FOLLOWING }
                 FollowListScreen(
@@ -299,7 +300,7 @@ private fun MainScaffold() {
                 )
             }
             composable(
-                route = "publish",
+                route = AppRoutes.PUBLISH,
                 enterTransition = { slideInVertically(initialOffsetY = { it }) },
                 exitTransition = { fadeOut() },
                 popExitTransition = { slideOutVertically(targetOffsetY = { it }) },
