@@ -12,6 +12,7 @@ import com.trae.social.core.data.entity.AccountEntity
 import com.trae.social.core.data.repository.AccountRepository
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.data.repository.TweetRepository
+import com.trae.social.core.scheduler.ratelimit.SchedulerRateLimiter
 import com.trae.social.core.scheduler.rule.DeduplicationKeys
 import com.trae.social.core.scheduler.rule.ScheduleRule
 import com.trae.social.core.scheduler.rule.ScheduleRuleResolver
@@ -65,6 +66,7 @@ object SchedulerInitializer {
         fun tweetRepository(): TweetRepository
         fun configRepository(): ConfigRepository
         fun schedulerLogDao(): SchedulerLogDao
+        fun schedulerRateLimiter(): SchedulerRateLimiter
     }
 
     /**
@@ -88,6 +90,7 @@ object SchedulerInitializer {
         val tweetRepository = entryPoint.tweetRepository()
         val configRepository = entryPoint.configRepository()
         val logDao = entryPoint.schedulerLogDao()
+        val rateLimiter = entryPoint.schedulerRateLimiter()
         val workManager = WorkManager.getInstance(app)
 
         // 1. 启动前台服务
@@ -109,8 +112,8 @@ object SchedulerInitializer {
             }
         }
 
-        // IMPL-48：观察档位变更，切换后重新入队周期 Worker
-        observeActivityLevelChanges(configRepository, workManager)
+        // IMPL-48：观察档位变更，切换后重新入队周期 Worker + 重新配置限流器
+        observeActivityLevelChanges(configRepository, workManager, rateLimiter)
     }
 
     /**
@@ -169,10 +172,11 @@ object SchedulerInitializer {
                 // IMPL-16：使用账号自身时区，避免跨时区旅行时活跃窗偏移
                 val accountZone = runCatching { ZoneId.of(account.timezone) }
                     .getOrElse { ZoneId.systemDefault() }
+                // P1 修复：postsPerWindow 为每窗上限（默认 2 条），与 dailyPostsPerAccount（每日上限）区分
                 val rule = ScheduleRule(
                     accountId = account.id,
                     activeWindows = account.activeWindows,
-                    postsPerWindow = level.dailyPostsPerAccount,
+                    postsPerWindow = POSTS_PER_WINDOW,
                 )
 
                 // 2. 调度恢复：错过的活跃窗补发（每窗最多 1 条）
@@ -197,7 +201,15 @@ object SchedulerInitializer {
                 }
 
                 // 3. 入队下一批 TweetGenerationWorker
-                val nextTrigger = ScheduleRuleResolver.nextTriggerTime(rule, now, accountZone)
+                // P1 修复：传入 postsInWindowProvider 检查窗内已发布数，达上限时跳到下一窗
+                val nextTrigger = ScheduleRuleResolver.nextTriggerTime(
+                    rule = rule,
+                    now = now,
+                    zone = accountZone,
+                    postsInWindowProvider = { accountId, ws, we ->
+                        tweetRepository.countByAuthorInWindow(accountId, ws, we)
+                    },
+                )
                 if (nextTrigger != null) {
                     val windowStartMillis = nextTrigger.toEpochMilli()
                     val deduplicationKey = DeduplicationKeys.forTweet(
@@ -361,19 +373,26 @@ object SchedulerInitializer {
      *
      * 使用 [ExistingPeriodicWorkPolicy.REPLACE] 替换现有排程，
      * 使新档位的周期（PersonaUpdateWorker）立即生效。
+     *
+     * P2 修复：同时调用 [SchedulerRateLimiter.reconfigure] 使限流器容量立即同步，
+     * 不必等待下一个 TweetGenerationWorker 触发。
      */
     private fun observeActivityLevelChanges(
         configRepository: ConfigRepository,
         workManager: WorkManager,
+        rateLimiter: SchedulerRateLimiter,
     ) {
         schedulerScope.launch {
             configRepository.activityLevelChanges.collect { level ->
-                Timber.i("AI 活跃度档位变更: %s，重新入队 PersonaUpdateWorker", level.id)
+                Timber.i("AI 活跃度档位变更: %s，重新入队 PersonaUpdateWorker 并重配限流器", level.id)
                 workManager.enqueueUniquePeriodicWork(
                     WorkerTags.PERSONA_UPDATE,
                     ExistingPeriodicWorkPolicy.REPLACE,
                     WorkerPolicies.personaUpdatePeriodicRequest(level),
                 )
+                // P2 修复：档位切换后立即重新配置限流器，避免限流器容量滞后
+                runCatching { rateLimiter.reconfigure(level) }
+                    .onFailure { Timber.w(it, "重新配置限流器失败") }
             }
         }
     }
@@ -397,4 +416,7 @@ object SchedulerInitializer {
 
     private const val LAST_RUN_LOOKUP_LIMIT: Int = 50
     private const val MAX_PAGES: Int = 12
+
+    /** P1 修复：每个活跃窗内允许发布的推文数上限（spec 默认 2 条/窗） */
+    private const val POSTS_PER_WINDOW: Int = 2
 }

@@ -130,8 +130,10 @@ class PersonaUpdatePromptBuilder {
          * 一空一非空相似度记为 0.0。
          *
          * 不依赖任何 NLP 库，满足"不引入额外依赖"约束。
+         *
+         * P2 修复：函数名从 cosineSimilarity 改为 jaccardSimilarity，名实相符。
          */
-        fun cosineSimilarity(a: String, b: String): Double {
+        fun jaccardSimilarity(a: String, b: String): Double {
             if (a.isEmpty() && b.isEmpty()) return 1.0
             if (a.isEmpty() || b.isEmpty()) return 0.0
             val setA = a.toSet()
@@ -151,7 +153,7 @@ class PersonaUpdatePromptBuilder {
          * @return true 表示应回退（保留旧值）。
          */
         fun shouldRollback(old: String, new: String, threshold: Double = 0.5): Boolean {
-            return cosineSimilarity(old, new) < threshold
+            return jaccardSimilarity(old, new) < threshold
         }
     }
 }

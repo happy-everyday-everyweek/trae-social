@@ -36,13 +36,17 @@ interface SchedulerLogDao {
 
     /**
      * RISK-15：LLM 调用统计——按 result 分组计数（成功/失败/限流等）。
+     *
+     * P2 修复：
+     * 1. 使用 COALESCE(SUM, 0) 防止空表时 SUM 返回 NULL。
+     * 2. 分类条件互斥：rate_limited 优先判定，避免与 error/failed 重复计数。
      */
     @Query(
         """
         SELECT
-            SUM(CASE WHEN result LIKE 'success%' OR result LIKE 'updated%' OR result LIKE 'published%' THEN 1 ELSE 0 END) as successCount,
-            SUM(CASE WHEN result LIKE '%error%' OR result LIKE '%failed%' THEN 1 ELSE 0 END) as errorCount,
-            SUM(CASE WHEN result LIKE 'rate_limited%' THEN 1 ELSE 0 END) as rateLimitedCount,
+            COALESCE(SUM(CASE WHEN result LIKE 'rate_limited%' THEN 1 ELSE 0 END), 0) as rateLimitedCount,
+            COALESCE(SUM(CASE WHEN (result LIKE 'success%' OR result LIKE 'updated%' OR result LIKE 'published%') AND result NOT LIKE 'rate_limited%' THEN 1 ELSE 0 END), 0) as successCount,
+            COALESCE(SUM(CASE WHEN (result LIKE '%error%' OR result LIKE '%failed%') AND result NOT LIKE 'rate_limited%' THEN 1 ELSE 0 END), 0) as errorCount,
             COUNT(*) as totalCount
         FROM scheduler_logs
         """

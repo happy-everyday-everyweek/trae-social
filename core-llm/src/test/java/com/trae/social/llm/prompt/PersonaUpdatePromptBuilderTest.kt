@@ -11,7 +11,7 @@ import org.junit.Test
  * PersonaUpdatePromptBuilder 单元测试。
  *
  * 重点覆盖：
- * - cosineSimilarity 字符级 Jaccard 计算正确。
+ * - jaccardSimilarity 字符级 Jaccard 计算正确。
  * - shouldRollback 阈值判定。
  * - parsePersonaUpdate 成功与失败降级。
  */
@@ -63,47 +63,47 @@ class PersonaUpdatePromptBuilderTest {
     }
 
     @Test
-    fun `cosineSimilarity 相同字符串返回 1`() {
+    fun `jaccardSimilarity 相同字符串返回 1`() {
         val s = "今天天气真好"
-        assertEquals(1.0, PersonaUpdatePromptBuilder.cosineSimilarity(s, s), 0.0001)
+        assertEquals(1.0, PersonaUpdatePromptBuilder.jaccardSimilarity(s, s), 0.0001)
     }
 
     @Test
-    fun `cosineSimilarity 完全不同字符返回 0`() {
+    fun `jaccardSimilarity 完全不同字符返回 0`() {
         val a = "abc"
         val b = "xyz"
-        assertEquals(0.0, PersonaUpdatePromptBuilder.cosineSimilarity(a, b), 0.0001)
+        assertEquals(0.0, PersonaUpdatePromptBuilder.jaccardSimilarity(a, b), 0.0001)
     }
 
     @Test
-    fun `cosineSimilarity 部分重叠按 Jaccard 计算`() {
+    fun `jaccardSimilarity 部分重叠按 Jaccard 计算`() {
         // 字符集合：{a,b,c} 与 {b,c,d}
         // 交集 {b,c} size=2，并集 {a,b,c,d} size=4，相似度 0.5
         val a = "abc"
         val b = "bcd"
-        assertEquals(0.5, PersonaUpdatePromptBuilder.cosineSimilarity(a, b), 0.0001)
+        assertEquals(0.5, PersonaUpdatePromptBuilder.jaccardSimilarity(a, b), 0.0001)
     }
 
     @Test
-    fun `cosineSimilarity 两空串返回 1`() {
-        assertEquals(1.0, PersonaUpdatePromptBuilder.cosineSimilarity("", ""), 0.0001)
+    fun `jaccardSimilarity 两空串返回 1`() {
+        assertEquals(1.0, PersonaUpdatePromptBuilder.jaccardSimilarity("", ""), 0.0001)
     }
 
     @Test
-    fun `cosineSimilarity 一空一非空返回 0`() {
-        assertEquals(0.0, PersonaUpdatePromptBuilder.cosineSimilarity("abc", ""), 0.0001)
-        assertEquals(0.0, PersonaUpdatePromptBuilder.cosineSimilarity("", "abc"), 0.0001)
+    fun `jaccardSimilarity 一空一非空返回 0`() {
+        assertEquals(0.0, PersonaUpdatePromptBuilder.jaccardSimilarity("abc", ""), 0.0001)
+        assertEquals(0.0, PersonaUpdatePromptBuilder.jaccardSimilarity("", "abc"), 0.0001)
     }
 
     @Test
     fun `shouldRollback 相似度低于阈值返回 true`() {
-        // 完全不同的字符，相似度 0 < 0.3
+        // 完全不同的字符，相似度 0 < 0.5
         assertTrue(PersonaUpdatePromptBuilder.shouldRollback("abc", "xyz"))
     }
 
     @Test
     fun `shouldRollback 相似度高于阈值返回 false`() {
-        // 相同字符串相似度 1.0 > 0.3
+        // 相同字符串相似度 1.0 > 0.5
         assertFalse(PersonaUpdatePromptBuilder.shouldRollback("今天天气真好", "今天天气真好"))
     }
 
