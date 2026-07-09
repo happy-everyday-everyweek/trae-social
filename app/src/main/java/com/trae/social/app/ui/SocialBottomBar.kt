@@ -44,11 +44,13 @@ private data class TabSpec(
 
 /**
  * 三个主 Tab：首页、时间线、我的。
+ *
+ * P2 修复：路由字符串改用 [AppRoutes] 常量，避免硬编码。
  */
 private val MainTabs = listOf(
-    TabSpec(route = "feed", icon = Icons.Filled.Home, label = "首页"),
-    TabSpec(route = "timeline", icon = Icons.Filled.GridView, label = "时间线"),
-    TabSpec(route = "profile", icon = Icons.Filled.Person, label = "我的"),
+    TabSpec(route = AppRoutes.FEED, icon = Icons.Filled.Home, label = "首页"),
+    TabSpec(route = AppRoutes.TIMELINE, icon = Icons.Filled.GridView, label = "时间线"),
+    TabSpec(route = AppRoutes.PROFILE, icon = Icons.Filled.Person, label = "我的"),
 )
 
 /**
