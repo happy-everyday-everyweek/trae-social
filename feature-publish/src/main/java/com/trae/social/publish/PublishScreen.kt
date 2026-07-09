@@ -24,6 +24,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -70,6 +72,7 @@ fun PublishScreen(
     var selectedTab by remember { mutableStateOf(0) } // 0 = 相机, 1 = 编辑器
     var selectedCaptureIndex by remember { mutableStateOf(-1) }
     var showPublishAnimation by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     // 监听发布完成事件：触发飞入动画，动画结束后回调 onPublished
     LaunchedEffect(viewModel) {
@@ -87,6 +90,12 @@ fun PublishScreen(
                 // IMPL-15：发布失败时显示错误提示，保留输入
                 PublishEvent.PublishFailed -> {
                     // isPublishing 已在 ViewModel 中重置，用户可重试
+                    scope.launch {
+                        snackbarHostState.showSnackbar(
+                            message = "发布失败，请重试",
+                            withDismissAction = true,
+                        )
+                    }
                 }
             }
         }
@@ -206,6 +215,12 @@ fun PublishScreen(
             visible = showPublishAnimation,
             imagePath = uiState.captures.firstOrNull(),
             modifier = Modifier.fillMaxSize(),
+        )
+
+        // IMPL-15：发布失败时的错误提示
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter),
         )
     }
 }

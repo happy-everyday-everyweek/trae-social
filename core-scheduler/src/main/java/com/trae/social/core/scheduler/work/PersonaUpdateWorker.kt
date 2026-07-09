@@ -13,6 +13,7 @@ import com.trae.social.core.data.repository.TweetRepository
 import com.trae.social.core.scheduler.ratelimit.SchedulerRateLimiter
 import com.trae.social.llm.ChatConfig
 import com.trae.social.llm.LlmProviderRegistry
+import com.trae.social.llm.interceptor.RateLimitedException
 import com.trae.social.llm.prompt.PersonaUpdatePromptBuilder
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -74,6 +75,9 @@ class PersonaUpdateWorker @AssistedInject constructor(
                         UpdateResult.ROLLED_BACK -> rolledBack++
                         UpdateResult.SKIPPED -> failed++
                     }
+                } catch (e: RateLimitedException) {
+                    // IMPL-19：429 限流向上抛出，由 doWork 统一捕获并跳过整个批次
+                    throw e
                 } catch (t: Throwable) {
                     Timber.w(t, "账号 %s 人设更新失败", account.id)
                     failed++
@@ -83,6 +87,11 @@ class PersonaUpdateWorker @AssistedInject constructor(
             val status = "updated_${updated}_rolledBack_${rolledBack}_failed_$failed"
             logSchedulerEvent("system", started, status, if (failed > 0) "$failed failed" else null)
             return Result.success(workDataOf(WorkerKeys.KEY_RESULT to status))
+        } catch (e: RateLimitedException) {
+            // IMPL-19：429 限流直接跳过，不重试，避免浪费配额
+            Timber.w("PersonaUpdateWorker 遇到限流，跳过 retryAfter=%s", e.retryAfterSeconds)
+            logSchedulerEvent("system", started, "rate_limited", e.message)
+            return Result.success(workDataOf(WorkerKeys.KEY_RESULT to "rate_limited"))
         } catch (t: Throwable) {
             Timber.e(t, "PersonaUpdateWorker 执行失败")
             logSchedulerEvent("system", started, "error", t.message)
@@ -142,6 +151,9 @@ class PersonaUpdateWorker @AssistedInject constructor(
                 messages = messages,
                 config = ChatConfig(temperature = 0.7f, maxTokens = 512, jsonMode = true),
             )
+        } catch (e: RateLimitedException) {
+            // IMPL-19：429 限流向上抛出，由 doWork 统一捕获并跳过
+            throw e
         } catch (t: Throwable) {
             Timber.w(t, "账号 %s 人设更新 LLM 调用失败", account.id)
             return UpdateResult.SKIPPED

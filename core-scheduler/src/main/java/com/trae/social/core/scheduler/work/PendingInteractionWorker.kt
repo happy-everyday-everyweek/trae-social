@@ -13,6 +13,7 @@ import com.trae.social.core.data.repository.TweetRepository
 import com.trae.social.core.scheduler.ratelimit.SchedulerRateLimiter
 import com.trae.social.llm.ChatConfig
 import com.trae.social.llm.LlmProviderRegistry
+import com.trae.social.llm.interceptor.RateLimitedException
 import com.trae.social.llm.prompt.CommentPromptBuilder
 import com.trae.social.llm.prompt.TweetPromptBuilder
 import dagger.assisted.Assisted
@@ -115,6 +116,16 @@ class PendingInteractionWorker @AssistedInject constructor(
                     "failed" to failed,
                 )
             )
+        } catch (e: RateLimitedException) {
+            // IMPL-19：429 限流直接跳过，不重试，避免浪费配额
+            Timber.w("PendingInteractionWorker 遇到限流，跳过 retryAfter=%s", e.retryAfterSeconds)
+            logSchedulerEvent(
+                accountId = "system",
+                startedAt = started,
+                status = "rate_limited",
+                error = e.message,
+            )
+            return Result.success(workDataOf(WorkerKeys.KEY_RESULT to "rate_limited"))
         } catch (t: Throwable) {
             Timber.e(t, "PendingInteractionWorker 执行失败")
             logSchedulerEvent(
@@ -167,6 +178,9 @@ class PendingInteractionWorker @AssistedInject constructor(
                 messages = messages,
                 config = ChatConfig(temperature = 0.9f, maxTokens = 512, jsonMode = true),
             )
+        } catch (e: RateLimitedException) {
+            // IMPL-19：429 限流向上抛出，由 doWork 统一捕获并跳过
+            throw e
         } catch (t: Throwable) {
             Timber.w(t, "批量生成评论失败")
             return emptyMap()

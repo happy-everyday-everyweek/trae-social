@@ -15,14 +15,19 @@ import kotlinx.coroutines.flow.Flow
  * 账号数据访问对象。
  *
  * 同时承载 [PersonaDynamicFieldEntity] 的操作（人设动态字段与人设账号 1:1 关联）。
+ *
+ * 注意：upsert / upsertAll 使用 [@Upsert][Upsert] 而非 `@Insert(REPLACE)`。
+ * IMPL-22 引入 CASCADE 外键后，REPLACE 会先 DELETE 再 INSERT，级联删除 tweets /
+ * interactions / image_usages 等全部子表数据。@Upsert 仅在主键冲突时 UPDATE，
+ * 不触发级联删除，保证 upsert 已存在账号时不丢数据。
  */
 @Dao
 abstract class AccountDao {
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     abstract suspend fun upsertAll(accounts: List<AccountEntity>)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     abstract suspend fun upsert(account: AccountEntity)
 
     @Query("SELECT * FROM accounts WHERE id = :id")

@@ -27,4 +27,43 @@ interface SchedulerLogDao {
 
     @Query("DELETE FROM scheduler_logs WHERE timestamp < :before")
     suspend fun deleteBefore(before: Long): Int
+
+    /**
+     * RISK-15：LLM 调用统计——按 action 分组计数。
+     */
+    @Query("SELECT action, COUNT(*) as count FROM scheduler_logs GROUP BY action")
+    suspend fun countByAction(): List<ActionCount>
+
+    /**
+     * RISK-15：LLM 调用统计——按 result 分组计数（成功/失败/限流等）。
+     */
+    @Query(
+        """
+        SELECT
+            SUM(CASE WHEN result LIKE 'success%' OR result LIKE 'updated%' OR result LIKE 'published%' THEN 1 ELSE 0 END) as successCount,
+            SUM(CASE WHEN result LIKE '%error%' OR result LIKE '%failed%' THEN 1 ELSE 0 END) as errorCount,
+            SUM(CASE WHEN result LIKE 'rate_limited%' THEN 1 ELSE 0 END) as rateLimitedCount,
+            COUNT(*) as totalCount
+        FROM scheduler_logs
+        """
+    )
+    suspend fun getCallStatistics(): CallStatistics
 }
+
+/**
+ * RISK-15：按 action 分组的计数结果。
+ */
+data class ActionCount(
+    val action: String,
+    val count: Int,
+)
+
+/**
+ * RISK-15：LLM 调用统计聚合结果。
+ */
+data class CallStatistics(
+    val successCount: Int,
+    val errorCount: Int,
+    val rateLimitedCount: Int,
+    val totalCount: Int,
+)

@@ -190,6 +190,8 @@ class FeedViewModel @Inject constructor(
 
     /**
      * 转发：写入新推文（引用原推）+ 原推转发计数 +1 + 排程 RETWEET。
+     *
+     * 转发推文的 authorId 为当前用户（user-self），而非原推作者。
      */
     fun retweetTweet(original: TweetEntity) {
         viewModelScope.launch {
@@ -197,7 +199,7 @@ class FeedViewModel @Inject constructor(
                 val now = System.currentTimeMillis()
                 val retweet = TweetEntity(
                     id = UUID.randomUUID().toString(),
-                    authorId = original.authorId,
+                    authorId = USER_SELF_ID,
                     text = "转发：${original.text}",
                     mediaPath = original.mediaPath,
                     mediaTheme = original.mediaTheme,
@@ -214,7 +216,7 @@ class FeedViewModel @Inject constructor(
                     InteractionEntity(
                         id = UUID.randomUUID().toString(),
                         tweetId = original.id,
-                        accountId = original.authorId,
+                        accountId = USER_SELF_ID,
                         type = InteractionType.RETWEET,
                         content = null,
                         createdAt = now,
@@ -270,4 +272,9 @@ class FeedViewModel @Inject constructor(
         val username: String,
         val avatarSeed: String
     )
+
+    private companion object {
+        /** 当前用户账号 ID，与 PersonaSeeder.USER_SELF_ID / PublishViewModel.AUTHOR_SELF 一致 */
+        const val USER_SELF_ID = "user-self"
+    }
 }

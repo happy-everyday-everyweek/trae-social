@@ -34,8 +34,8 @@ abstract class InteractionDao {
     @Query("SELECT * FROM interactions WHERE scheduledAt <= :time AND executedAt IS NULL ORDER BY scheduledAt ASC")
     abstract fun observePendingBefore(time: Long): Flow<List<InteractionEntity>>
 
-    @Query("UPDATE interactions SET executedAt = :executedAt WHERE id = :id")
-    abstract suspend fun markExecuted(id: String, executedAt: Long)
+    @Query("UPDATE interactions SET executedAt = :executedAt WHERE id = :id AND executedAt IS NULL")
+    abstract suspend fun markExecuted(id: String, executedAt: Long): Int
 
     @Query("SELECT COUNT(*) FROM interactions WHERE tweetId = :tweetId AND type = :type AND executedAt IS NOT NULL")
     abstract suspend fun countExecutedByType(tweetId: String, type: InteractionType): Int
@@ -55,6 +55,9 @@ abstract class InteractionDao {
      * 整个操作在同一事务内：任一步骤失败则全部回滚，保证 executedAt 与
      * likeCount/commentCount/retweetCount 的一致性。
      *
+     * 幂等守卫：[markExecuted] 仅在 `executedAt IS NULL` 时更新（返回受影响行数），
+     * 已执行的互动不会重复计数，避免 Worker 重试导致 likeCount 翻倍。
+     *
      * @param interactions 待执行的互动列表（调用方需预先过滤掉无法执行的项，如无内容的评论）
      * @param executedAt 执行时刻
      * @param tweetId 这些互动关联的推文 ID
@@ -69,7 +72,9 @@ abstract class InteractionDao {
         var commentDelta = 0
         var retweetDelta = 0
         for (interaction in interactions) {
-            markExecuted(interaction.id, executedAt)
+            val rowsAffected = markExecuted(interaction.id, executedAt)
+            // 已执行的互动（rowsAffected == 0）跳过计数，防重复累加
+            if (rowsAffected == 0) continue
             when (interaction.type) {
                 InteractionType.LIKE -> likeDelta++
                 InteractionType.COMMENT -> commentDelta++

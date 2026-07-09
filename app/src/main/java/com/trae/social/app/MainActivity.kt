@@ -213,6 +213,7 @@ private fun MainScaffold() {
                     FeedScreen(
                         modifier = Modifier.fillMaxSize().padding(innerPadding),
                         onScrollingChange = { isScrolling = it },
+                        onNavigateToSettings = { navController.navigate("settings") },
                     )
                 }
                 composable(

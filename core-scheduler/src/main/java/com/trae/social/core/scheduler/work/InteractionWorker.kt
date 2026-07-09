@@ -286,6 +286,9 @@ class InteractionWorker @AssistedInject constructor(
                 messages = messages,
                 config = ChatConfig(temperature = 0.9f, maxTokens = 512, jsonMode = true),
             )
+        } catch (e: RateLimitedException) {
+            // IMPL-19：429 限流向上抛出，由 doWork 统一捕获并跳过，不在此处吞掉
+            throw e
         } catch (t: Throwable) {
             Timber.w(t, "批量生成评论失败，跳过评论内容")
             return emptyMap()

@@ -22,6 +22,15 @@ interface TweetDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertAll(tweets: List<TweetEntity>)
 
+    /**
+     * 批量插入，主键/deduplicationKey 冲突时跳过（IGNORE）。
+     *
+     * 专用于种子数据幂等重导入：崩溃中断后重启时，已导入的文件重新导入不会
+     * 因 unique deduplicationKey 冲突而整个事务回滚。
+     */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAllOrIgnore(tweets: List<TweetEntity>)
+
     @Query("SELECT * FROM tweets ORDER BY createdAt DESC LIMIT :size OFFSET :offset")
     suspend fun getFeed(offset: Int, size: Int): List<TweetEntity>
 
@@ -51,6 +60,9 @@ interface TweetDao {
 
     @Query("SELECT COUNT(*) FROM tweets WHERE authorId = :authorId AND createdAt >= :startOfDay")
     suspend fun countByAuthorSince(authorId: String, startOfDay: Long): Int
+
+    @Query("SELECT COUNT(*) FROM tweets")
+    suspend fun count(): Int
 
     @Query("UPDATE tweets SET likeCount = likeCount + :delta WHERE id = :tweetId")
     suspend fun updateLikeCount(tweetId: String, delta: Int)
