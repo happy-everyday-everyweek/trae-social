@@ -115,13 +115,24 @@ object SchedulerInitializer {
 
     /**
      * 启动前台服务（Android O+ 需通过 startForegroundService）。
+     *
+     * 若调用方处于后台上下文（如开机后的 [com.trae.social.core.scheduler.work.SchedulerInitializerWorker]
+     * 或进程被 WorkManager 唤起时），Android 12+（targetSdk 31+）会抛
+     * ForegroundServiceStartNotAllowedException（IllegalStateException 子类）。
+     * 此处捕获以免崩溃；keep-alive 服务缺位不影响调度——周期任务由 WorkManager 兜底。
      */
     private fun startForegroundService(app: Context) {
         val intent = Intent(app, SchedulerForegroundService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            app.startForegroundService(intent)
-        } else {
-            app.startService(intent)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                app.startForegroundService(intent)
+            } else {
+                app.startService(intent)
+            }
+        } catch (e: IllegalStateException) {
+            Timber.e(e, "启动调度前台服务失败：当前处于后台上下文")
+        } catch (e: SecurityException) {
+            Timber.e(e, "启动调度前台服务失败：权限被拒绝")
         }
     }
 

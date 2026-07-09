@@ -5,7 +5,6 @@ import android.util.Log
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import com.trae.social.core.data.seed.PersonaSeeder
-import com.trae.social.core.scheduler.SchedulerInitializer
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,8 +20,12 @@ import javax.inject.Inject
  * 1. 初始化 Timber 日志（debug 树 + release 脱敏树）。
  * 2. 注册全局未捕获异常处理器，记录崩溃信息。
  * 3. 实现 [Configuration.Provider] 接入 [HiltWorkerFactory]，使 @HiltWorker 可注入依赖。
- * 4. 调用 [SchedulerInitializer.initialize] 启动调度器（前台服务 + 调度恢复 + 周期任务）。
- * 5. IMPL-1：触发 [PersonaSeeder.seedIfNeeded] 导入虚拟账号与历史推文。
+ * 4. IMPL-1：触发 [PersonaSeeder.seedIfNeeded] 导入虚拟账号与历史推文。
+ *
+ * 注意：调度器初始化（[com.trae.social.core.scheduler.SchedulerInitializer.initialize]）
+ * 已移至 [MainActivity.onCreate] 执行——Application.onCreate 运行于后台上下文，
+ * 在 Android 12+（targetSdk 31+）从后台启动前台服务会抛
+ * ForegroundServiceStartNotAllowedException 导致应用启动即崩。
  */
 @HiltAndroidApp
 class SocialApp : Application(), Configuration.Provider {
@@ -47,8 +50,7 @@ class SocialApp : Application(), Configuration.Provider {
                 .onFailure { Timber.e(it, "种子数据导入失败") }
         }
 
-        // Task 8：初始化调度器（前台服务 + 调度恢复 + 周期 Worker 入队）
-        SchedulerInitializer.initialize(this)
+        // 调度器初始化已移至 MainActivity.onCreate，避免在后台上下文启动前台服务导致崩溃。
     }
 
     /**

@@ -37,6 +37,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.trae.social.app.ui.SocialBottomBar
 import com.trae.social.core.data.repository.ConfigRepository
+import com.trae.social.core.scheduler.SchedulerInitializer
 import com.trae.social.designsystem.components.provideIsScrolling
 import com.trae.social.designsystem.theme.SocialTheme
 import com.trae.social.feed.FeedScreen
@@ -70,6 +71,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // 在前台上下文（Activity 启动）初始化调度器并启动前台服务。
+        // 不能放在 Application.onCreate：此时无可见 Activity，Android 12+ 会因
+        // 从后台启动前台服务抛 ForegroundServiceStartNotAllowedException 导致启动即崩。
+        // SchedulerInitializer 内部有幂等守卫，Activity 重建时不会重复初始化。
+        SchedulerInitializer.initialize(this)
         setContent {
             SocialTheme {
                 SocialApp(configRepository = configRepository)
