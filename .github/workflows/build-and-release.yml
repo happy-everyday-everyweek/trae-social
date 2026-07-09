@@ -32,7 +32,8 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
 
       - name: Compile all modules (debug)
-        run: ./gradlew compileDebugKotlin --no-daemon --stacktrace
+        # --no-parallel 规避 org.gradle.parallel=true 下 R8/编译器偶发并发问题
+        run: ./gradlew compileDebugKotlin --no-daemon --no-parallel --stacktrace
 
   # tag 推送：构建 release APK 并发布
   release:
@@ -53,7 +54,8 @@ jobs:
 
       - name: Assemble release APK
         # keystore.properties 不存在时回退 debug 签名，CI 仍可构建出可用 release APK
-        run: ./gradlew assembleRelease --no-daemon --stacktrace
+        # --no-parallel 规避 R8 minifyReleaseWithR8 的 ConcurrentModificationException（AGP 8.6 并行已知问题）
+        run: ./gradlew assembleRelease --no-daemon --no-parallel --stacktrace
 
       - name: Collect APK artifacts
         run: |
