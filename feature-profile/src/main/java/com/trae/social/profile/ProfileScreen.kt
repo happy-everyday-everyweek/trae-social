@@ -24,7 +24,6 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -36,7 +35,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
@@ -44,6 +42,7 @@ import com.trae.social.core.data.entity.TweetEntity
 import com.trae.social.designsystem.components.CapsuleTab
 import com.trae.social.designsystem.components.SocialDivider
 import com.trae.social.designsystem.components.socialClickable
+import com.trae.social.designsystem.theme.LocalSocialTypography
 import com.trae.social.designsystem.theme.socialColors
 
 /**
@@ -123,9 +122,11 @@ private fun ProfileHeader(
     imageLoader: coil.ImageLoader,
 ) {
     val colors = socialColors()
+    val typography = LocalSocialTypography.current
     val account = state.account
+    // #20：资料区分段留白，头像与名称行顶部对齐，增加呼吸感与层次
     Column(Modifier.fillMaxWidth().padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.Top) {
             AsyncImage(
                 model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
                     .data(avatarUrl)
@@ -138,38 +139,39 @@ private fun ProfileHeader(
                     .background(colors.tertiaryBackground),
             )
             Spacer(Modifier.width(16.dp))
-            Column {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     text = account.displayName.ifBlank { "我" },
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
+                    style = typography.title2,
                     color = colors.label,
                 )
                 Text(
                     text = "@${account.username}",
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = typography.callout,
                     color = colors.tertiaryLabel,
                 )
             }
         }
         if (account.bio.isNotBlank()) {
-            Spacer(Modifier.height(12.dp))
+            // #20：名称行↔bio 间距 16dp
+            Spacer(Modifier.height(16.dp))
             Text(
                 text = account.bio,
-                style = MaterialTheme.typography.bodyMedium,
+                style = typography.body,
                 color = colors.label,
             )
         }
         if (account.profession.isNotBlank()) {
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(6.dp))
             Text(
                 text = account.profession,
-                style = MaterialTheme.typography.bodySmall,
+                style = typography.subheadline,
                 color = colors.secondaryLabel,
             )
         }
-        Spacer(Modifier.height(16.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+        // #20：bio↔统计行间距提升到 20dp；#32：统计行间距 24dp→20dp
+        Spacer(Modifier.height(20.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
             StatItem(label = "推文", value = ProfileUtils.formatCount(tweetsCount))
             StatItem(
                 label = "关注",
@@ -188,12 +190,14 @@ private fun ProfileHeader(
 @Composable
 private fun StatItem(label: String, value: String, onClick: (() -> Unit)? = null) {
     val colors = socialColors()
+    val typography = LocalSocialTypography.current
     // #21：可点击统计项加水波纹按压反馈
     val mod = if (onClick != null) Modifier.socialClickable { onClick() } else Modifier
+    // #20/#30：value 用 headline（17sp SemiBold），label 用 caption1，间距 6dp
     Row(mod, verticalAlignment = Alignment.Bottom) {
-        Text(value, fontWeight = FontWeight.Bold, color = colors.label, fontSize = 16.sp)
-        Spacer(Modifier.width(4.dp))
-        Text(label, color = colors.tertiaryLabel, fontSize = 13.sp)
+        Text(value, style = typography.headline, color = colors.label)
+        Spacer(Modifier.width(6.dp))
+        Text(label, style = typography.caption1, color = colors.tertiaryLabel)
     }
 }
 
@@ -218,17 +222,18 @@ private fun TweetsTab(
 @Composable
 private fun ProfileTweetRow(tweet: TweetEntity, imageLoader: coil.ImageLoader) {
     val colors = socialColors()
+    val typography = LocalSocialTypography.current
     Column(Modifier.fillMaxWidth().padding(16.dp)) {
         Text(
             text = ProfileUtils.formatRelativeTime(tweet.createdAt),
-            style = MaterialTheme.typography.labelSmall,
+            style = typography.caption2,
             color = colors.tertiaryLabel,
         )
         Spacer(Modifier.height(4.dp))
         if (tweet.text.isNotBlank()) {
             Text(
                 text = tweet.text,
-                style = MaterialTheme.typography.bodyMedium,
+                style = typography.callout,
                 color = colors.label,
             )
         }
@@ -256,10 +261,11 @@ private fun ProfileTweetRow(tweet: TweetEntity, imageLoader: coil.ImageLoader) {
 @Composable
 private fun InteractionCount(label: String, count: Int) {
     val colors = socialColors()
+    val typography = LocalSocialTypography.current
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(ProfileUtils.formatCount(count), color = colors.secondaryLabel, fontSize = 13.sp)
+        Text(ProfileUtils.formatCount(count), color = colors.secondaryLabel, style = typography.footnote)
         Spacer(Modifier.width(2.dp))
-        Text(label, color = colors.tertiaryLabel, fontSize = 13.sp)
+        Text(label, color = colors.tertiaryLabel, style = typography.footnote)
     }
 }
 
