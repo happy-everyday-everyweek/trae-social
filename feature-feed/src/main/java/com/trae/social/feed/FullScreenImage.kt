@@ -1,5 +1,12 @@
 package com.trae.social.feed
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.MutableTransitionState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -13,6 +20,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -66,83 +74,103 @@ fun FullScreenImage(
     // 视口像素尺寸，用于计算平移边界
     var viewport by remember { mutableStateOf(IntSize.Zero) }
 
+    // #24：大图查看器进出场过渡。
+    // 初始 targetState=true 触发 scaleIn+fadeIn 进入；关闭时置 false，
+    // 待退场动画完成（currentState 回到 false）后再回调 onDismiss 移除弹层。
+    val visibleState = remember { MutableTransitionState(false).apply { targetState = true } }
+    LaunchedEffect(visibleState.currentState) {
+        if (!visibleState.currentState && !visibleState.targetState) {
+            onDismiss()
+        }
+    }
+    val requestDismiss = { visibleState.targetState = false }
+
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = requestDismiss,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
             decorFitsSystemWindows = false,
         ),
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black),
-            contentAlignment = Alignment.Center,
+        AnimatedVisibility(
+            visibleState = visibleState,
+            enter = scaleIn(animationSpec = tween(durationMillis = 250), initialScale = 0.9f) +
+                fadeIn(animationSpec = tween(durationMillis = 250)),
+            exit = scaleOut(animationSpec = tween(durationMillis = 200), targetScale = 0.9f) +
+                fadeOut(animationSpec = tween(durationMillis = 200)),
+            label = "fullScreenImage",
         ) {
-            val request = remember(imageUri, context) {
-                ImageRequest.Builder(context)
-                    .data(imageUri)
-                    .crossfade(true)
-                    .build()
-            }
-
-            AsyncImage(
-                model = request,
-                imageLoader = imageLoader,
-                contentDescription = "大图",
-                contentScale = ContentScale.Fit,
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .onSizeChanged { viewport = it }
-                    .graphicsLayer(
-                        scaleX = scale,
-                        scaleY = scale,
-                        translationX = offset.x,
-                        translationY = offset.y,
-                    )
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onTap = { onDismiss() },
-                            onDoubleTap = {
-                                // 双击切换 1x / 3x
-                                if (scale > 1f) {
-                                    scale = 1f
-                                    offset = Offset.Zero
-                                } else {
-                                    scale = DOUBLE_TAP_SCALE
-                                    offset = clampOffset(Offset.Zero, scale, viewport)
-                                }
-                            },
-                        )
-                    }
-                    .pointerInput(Unit) {
-                        detectTransformGestures { _, pan, zoom, _ ->
-                            val newScale = (scale * zoom).coerceIn(MIN_SCALE, MAX_SCALE)
-                            scale = newScale
-                            if (newScale > 1f) {
-                                offset = clampOffset(offset + pan, newScale, viewport)
-                            } else {
-                                offset = Offset.Zero
-                            }
-                        }
-                    },
-            )
-
-            // 关闭按钮
-            IconButton(
-                onClick = onDismiss,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .statusBarsPadding()
-                    .padding(16.dp)
-                    .size(40.dp),
+                    .background(Color.Black),
+                contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "关闭",
-                    tint = Color.White,
-                    modifier = Modifier.size(28.dp),
+                val request = remember(imageUri, context) {
+                    ImageRequest.Builder(context)
+                        .data(imageUri)
+                        .crossfade(true)
+                        .build()
+                }
+
+                AsyncImage(
+                    model = request,
+                    imageLoader = imageLoader,
+                    contentDescription = "大图",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .onSizeChanged { viewport = it }
+                        .graphicsLayer(
+                            scaleX = scale,
+                            scaleY = scale,
+                            translationX = offset.x,
+                            translationY = offset.y,
+                        )
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onTap = { requestDismiss() },
+                                onDoubleTap = {
+                                    // 双击切换 1x / 3x
+                                    if (scale > 1f) {
+                                        scale = 1f
+                                        offset = Offset.Zero
+                                    } else {
+                                        scale = DOUBLE_TAP_SCALE
+                                        offset = clampOffset(Offset.Zero, scale, viewport)
+                                    }
+                                },
+                            )
+                        }
+                        .pointerInput(Unit) {
+                            detectTransformGestures { _, pan, zoom, _ ->
+                                val newScale = (scale * zoom).coerceIn(MIN_SCALE, MAX_SCALE)
+                                scale = newScale
+                                if (newScale > 1f) {
+                                    offset = clampOffset(offset + pan, newScale, viewport)
+                                } else {
+                                    offset = Offset.Zero
+                                }
+                            }
+                        },
                 )
+
+                // 关闭按钮
+                IconButton(
+                    onClick = requestDismiss,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .statusBarsPadding()
+                        .padding(16.dp)
+                        .size(40.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "关闭",
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
             }
         }
     }

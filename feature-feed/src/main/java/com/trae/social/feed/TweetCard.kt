@@ -26,9 +26,12 @@ import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Repeat
 import android.content.Intent
 import android.widget.Toast
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -57,7 +60,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.ImageLoader
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
+import com.trae.social.designsystem.components.LoadingShimmer
 import com.trae.social.designsystem.components.SocialDivider
 import com.trae.social.designsystem.components.socialClickable
 import com.trae.social.designsystem.theme.LocalSocialColors
@@ -220,10 +225,11 @@ fun TweetCard(
             val request = remember(imageUri, context) {
                 ImageRequest.Builder(context)
                     .data(imageUri)
-                    .crossfade(true)
+                    .crossfade(250)
                     .build()
             }
-            AsyncImage(
+            // #24：改用 SubcomposeAsyncImage，加载中/失败展示 shimmer 占位，避免进场生硬
+            SubcomposeAsyncImage(
                 model = request,
                 imageLoader = imageLoader,
                 contentDescription = "推文图片",
@@ -233,6 +239,18 @@ fun TweetCard(
                     .heightIn(max = 400.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .clickable { onImageClick(imageUri) },
+                loading = {
+                    LoadingShimmer(
+                        modifier = Modifier.fillMaxWidth().height(240.dp),
+                        cornerRadius = 12.dp,
+                    )
+                },
+                error = {
+                    LoadingShimmer(
+                        modifier = Modifier.fillMaxWidth().height(240.dp),
+                        cornerRadius = 12.dp,
+                    )
+                },
             )
         }
 
@@ -298,7 +316,9 @@ private fun TweetText(
     val needCollapse = text.length > limit
     val displayText = if (needCollapse && !expanded) text.take(limit) else text
 
-    Column {
+    Column(
+        modifier = Modifier.animateContentSize(animationSpec = tween(durationMillis = 250)),
+    ) {
         Text(
             text = displayText,
             style = typography.body,
@@ -306,12 +326,19 @@ private fun TweetText(
         )
         if (needCollapse) {
             Spacer(Modifier.height(4.dp))
-            Text(
-                text = if (expanded) "收起" else "展开全文",
-                style = typography.caption1.copy(fontWeight = FontWeight.SemiBold),
-                color = LocalSocialColors.current.systemBlue,
-                modifier = Modifier.clickable { expanded = !expanded },
-            )
+            // #24：展开/收起文案用 Crossfade 过渡，避免文案瞬切生硬
+            Crossfade(
+                targetState = expanded,
+                animationSpec = tween(durationMillis = 200),
+                label = "expandToggle",
+            ) { isExpanded ->
+                Text(
+                    text = if (isExpanded) "收起" else "展开全文",
+                    style = typography.caption1.copy(fontWeight = FontWeight.SemiBold),
+                    color = LocalSocialColors.current.systemBlue,
+                    modifier = Modifier.clickable { expanded = !expanded },
+                )
+            }
         }
     }
 }
