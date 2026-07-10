@@ -41,6 +41,7 @@ import coil.request.ImageRequest
 import com.trae.social.designsystem.components.SocialDivider
 import com.trae.social.designsystem.components.SocialSheet
 import com.trae.social.designsystem.theme.LocalSocialColors
+import com.trae.social.designsystem.theme.LocalSocialSpacing
 import com.trae.social.designsystem.theme.LocalSocialTypography
 import java.util.UUID
 
@@ -66,6 +67,7 @@ fun CommentSheet(
 ) {
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
+    val spacing = LocalSocialSpacing.current
     val context = LocalContext.current
     val comments = remember { mutableStateListOf<CommentItem>() }
     var inputText by remember { mutableStateOf("") }
@@ -97,7 +99,7 @@ fun CommentSheet(
                 text = "评论 ${comments.size}",
                 style = typography.subheadline.copy(fontWeight = FontWeight.SemiBold),
                 color = colors.secondaryLabel,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                modifier = Modifier.padding(horizontal = spacing.lg, vertical = spacing.sm),
             )
 
             // 中部：评论列表
@@ -106,8 +108,8 @@ fun CommentSheet(
                     .weight(1f)
                     .fillMaxWidth(),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    horizontal = 16.dp,
-                    vertical = 4.dp,
+                    horizontal = spacing.lg,
+                    vertical = spacing.xs,
                 ),
             ) {
                 if (comments.isEmpty()) {
@@ -115,7 +117,7 @@ fun CommentSheet(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 24.dp),
+                                .padding(vertical = spacing.xl),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
@@ -128,7 +130,7 @@ fun CommentSheet(
                 }
                 items(comments, key = { it.id }) { comment ->
                     CommentRow(comment = comment, imageLoader = imageLoader, context = context)
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(spacing.sm))
                 }
             }
 
@@ -138,7 +140,7 @@ fun CommentSheet(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(horizontal = spacing.md, vertical = spacing.sm),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 OutlinedTextField(
@@ -149,7 +151,7 @@ fun CommentSheet(
                     maxLines = 3,
                     shape = RoundedCornerShape(20.dp),
                 )
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(spacing.sm))
                 IconButton(
                     onClick = {
                         val text = inputText.trim()
@@ -192,6 +194,7 @@ private fun TweetSummary(
 ) {
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
+    val spacing = LocalSocialSpacing.current
     val summary = remember(tweet.tweet.text) {
         if (tweet.tweet.text.length > 50) tweet.tweet.text.take(50) + "..." else tweet.tweet.text
     }
@@ -205,7 +208,7 @@ private fun TweetSummary(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp),
+            .padding(spacing.lg),
     ) {
         AsyncImage(
             model = remember(avatarUrl, context) {
@@ -218,7 +221,7 @@ private fun TweetSummary(
                 .size(32.dp)
                 .clip(CircleShape),
         )
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(spacing.sm))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = tweet.authorName,
@@ -261,6 +264,7 @@ private fun CommentRow(
 ) {
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
+    val spacing = LocalSocialSpacing.current
     val avatarUrl = remember(comment.authorAvatarSeed) {
         FeedUtils.avatarUriFromSeed(comment.authorAvatarSeed)
     }
@@ -276,7 +280,7 @@ private fun CommentRow(
                 .size(28.dp)
                 .clip(CircleShape),
         )
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(spacing.sm))
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(

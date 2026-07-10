@@ -53,6 +53,7 @@ import coil.ImageLoader
 import com.trae.social.designsystem.components.LoadingShimmer
 import com.trae.social.designsystem.components.SocialCard
 import com.trae.social.designsystem.theme.LocalSocialColors
+import com.trae.social.designsystem.theme.LocalSocialSpacing
 import com.trae.social.designsystem.theme.LocalSocialTypography
 
 /**
@@ -253,12 +254,13 @@ private fun LoadingPlaceholderList() {
 
 @Composable
 private fun ShimmerCard() {
+    val spacing = LocalSocialSpacing.current
     Row(modifier = Modifier.fillMaxWidth()) {
         LoadingShimmer(
             modifier = Modifier.size(36.dp),
             cornerRadius = 18.dp,
         )
-        Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.width(spacing.sm))
         Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             LoadingShimmer(
                 modifier = Modifier
@@ -553,12 +555,13 @@ private fun OnboardingSkippedBanner(onNavigateToSettings: () -> Unit) {
     val colors = LocalSocialColors.current
     // #30：统一使用 LocalSocialTypography token
     val typography = LocalSocialTypography.current
+    val spacing = LocalSocialSpacing.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onNavigateToSettings() }
             .background(colors.systemBlue.copy(alpha = 0.12f))
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = spacing.lg, vertical = spacing.sm),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
