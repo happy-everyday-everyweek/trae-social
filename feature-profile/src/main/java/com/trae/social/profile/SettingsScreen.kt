@@ -12,7 +12,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -20,6 +22,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -45,8 +49,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.trae.social.core.data.config.AiActivityLevel
 import com.trae.social.designsystem.components.SocialCard
 import com.trae.social.designsystem.components.SocialDivider
-import com.trae.social.designsystem.theme.socialColors
 import com.trae.social.designsystem.theme.LocalSocialTypography
+import com.trae.social.designsystem.theme.ThemeMode
+import com.trae.social.designsystem.theme.ThemePreferences
+import com.trae.social.designsystem.theme.socialColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -55,7 +61,8 @@ import timber.log.Timber
 /**
  * 设置页（IMPL-2）。
  *
- * AI 活跃度档位切换、API Key 管理、人设管理、清除缓存、关于、开发者选项（连点 7 次解锁）。
+ * 外观（浅色/深色/跟随系统）、AI 活跃度档位切换、API Key 管理、人设管理、清除缓存、关于、
+ * 开发者选项（连点 7 次解锁）。
  *
  * @param onBack 返回
  * @param onNavigateToApiKey 进入 API Key 管理
@@ -85,6 +92,15 @@ fun SettingsScreen(
     var showAboutDialog by rememberSaveable { mutableStateOf(false) }
     var showClearCacheDialog by rememberSaveable { mutableStateOf(false) }
 
+    // #12：主题模式（读取全局可观察状态，切换后整页与 SocialTheme 重组）
+    val currentThemeMode = ThemePreferences.themeMode
+    // 关于卡片所需版本号
+    val appVersionName = remember {
+        runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrElse { "unknown" }
+    }
+
     Box(modifier.fillMaxSize().background(colors.systemBackground)) {
         Column(Modifier.fillMaxSize()) {
             TopAppBar(
@@ -95,69 +111,143 @@ fun SettingsScreen(
                     }
                 },
             )
-            Spacer(Modifier.height(8.dp))
+            // #12：内容区可滚动，避免条目增多后溢出
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                Spacer(Modifier.height(8.dp))
 
-            // AI 活跃度档位
-            Text(
-                "AI 活跃度",
-                style = typography.subheadline,
-                color = colors.secondaryLabel,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            )
-            SocialCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                Column {
-                    AiActivityLevel.values().forEach { level ->
-                        ActivityLevelRow(
-                            level = level,
-                            selected = level == activityLevel,
-                            onClick = { viewModel.setActivityLevel(level) },
+                // 外观：浅色 / 深色 / 跟随系统
+                Text(
+                    "外观",
+                    style = typography.subheadline,
+                    color = colors.secondaryLabel,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+                SocialCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                    Column {
+                        ThemeModeRow(
+                            title = "浅色",
+                            selected = currentThemeMode == ThemeMode.LIGHT,
+                            onClick = { ThemePreferences.setThemeMode(context, ThemeMode.LIGHT) },
                         )
-                        if (level.ordinal < AiActivityLevel.values().lastIndex) {
-                            SocialDivider(thickness = 0.5.dp)
-                        }
+                        SocialDivider(thickness = 0.5.dp)
+                        ThemeModeRow(
+                            title = "深色",
+                            selected = currentThemeMode == ThemeMode.DARK,
+                            onClick = { ThemePreferences.setThemeMode(context, ThemeMode.DARK) },
+                        )
+                        SocialDivider(thickness = 0.5.dp)
+                        ThemeModeRow(
+                            title = "跟随系统",
+                            selected = currentThemeMode == ThemeMode.SYSTEM,
+                            onClick = { ThemePreferences.setThemeMode(context, ThemeMode.SYSTEM) },
+                        )
                     }
                 }
-            }
 
-            Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(24.dp))
 
-            // 功能入口
-            Text(
-                "高级",
-                style = typography.subheadline,
-                color = colors.secondaryLabel,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            )
-            SocialCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                Column {
-                    SettingsEntryRow(title = "API Key 管理", onClick = onNavigateToApiKey)
-                    SocialDivider(thickness = 0.5.dp)
-                    SettingsEntryRow(title = "人设管理", onClick = {
-                        // 人设管理跳转至个人页面（当前用户人设展示在 Profile 页）
-                        onBack()
-                    })
-                    SocialDivider(thickness = 0.5.dp)
-                    SettingsEntryRow(title = "清除缓存", onClick = { showClearCacheDialog = true })
-                    SocialDivider(thickness = 0.5.dp)
-                    // IMPL-2 / spec L439："关于"连点 7 次解锁"开发者选项"
-                    SettingsEntryRow(title = "关于", onClick = {
-                        showAboutDialog = true
-                        if (!devOptionsUnlocked) {
-                            aboutTapCount++
-                            if (aboutTapCount >= REQUIRED_TAPS_TO_UNLOCK) {
-                                devOptionsUnlocked = true
-                                scope.launch {
-                                    snackbarHostState.showSnackbar("开发者选项已解锁")
-                                }
+                // AI 活跃度档位
+                Text(
+                    "AI 活跃度",
+                    style = typography.subheadline,
+                    color = colors.secondaryLabel,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+                SocialCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                    Column {
+                        AiActivityLevel.values().forEach { level ->
+                            ActivityLevelRow(
+                                level = level,
+                                selected = level == activityLevel,
+                                onClick = { viewModel.setActivityLevel(level) },
+                            )
+                            if (level.ordinal < AiActivityLevel.values().lastIndex) {
+                                SocialDivider(thickness = 0.5.dp)
                             }
                         }
-                    })
-                    // 开发者选项：解锁后显示
-                    if (devOptionsUnlocked) {
-                        SocialDivider(thickness = 0.5.dp)
-                        SettingsEntryRow(title = "开发者选项", onClick = onNavigateToDevOptions)
                     }
                 }
+
+                Spacer(Modifier.height(24.dp))
+
+                // 功能入口
+                Text(
+                    "高级",
+                    style = typography.subheadline,
+                    color = colors.secondaryLabel,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+                SocialCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                    Column {
+                        SettingsEntryRow(title = "API Key 管理", onClick = onNavigateToApiKey)
+                        SocialDivider(thickness = 0.5.dp)
+                        SettingsEntryRow(title = "人设管理", onClick = {
+                            // 人设管理跳转至个人页面（当前用户人设展示在 Profile 页）
+                            onBack()
+                        })
+                        SocialDivider(thickness = 0.5.dp)
+                        SettingsEntryRow(title = "清除缓存", onClick = { showClearCacheDialog = true })
+                        SocialDivider(thickness = 0.5.dp)
+                        // IMPL-2 / spec L439："关于"连点 7 次解锁"开发者选项"
+                        SettingsEntryRow(title = "关于", onClick = {
+                            showAboutDialog = true
+                            if (!devOptionsUnlocked) {
+                                aboutTapCount++
+                                if (aboutTapCount >= REQUIRED_TAPS_TO_UNLOCK) {
+                                    devOptionsUnlocked = true
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar("开发者选项已解锁")
+                                    }
+                                }
+                            }
+                        })
+                        // 开发者选项：解锁后显示
+                        if (devOptionsUnlocked) {
+                            SocialDivider(thickness = 0.5.dp)
+                            SettingsEntryRow(title = "开发者选项", onClick = onNavigateToDevOptions)
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(24.dp))
+
+                // #12：关于（版本号 / 开源协议 / 免责声明 / GitHub）
+                Text(
+                    "关于",
+                    style = typography.subheadline,
+                    color = colors.secondaryLabel,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+                SocialCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                    Column {
+                        AboutInfoRow(label = "版本", value = appVersionName)
+                        SocialDivider(thickness = 0.5.dp)
+                        AboutInfoRow(label = "开源协议", value = "PolyForm Noncommercial")
+                        SocialDivider(thickness = 0.5.dp)
+                        AboutInfoRow(label = "GitHub", value = "github.com/happy-everyday-everyweek/trae-social")
+                        SocialDivider(thickness = 0.5.dp)
+                        Column(Modifier.padding(16.dp)) {
+                            Text(
+                                "免责声明",
+                                style = typography.subheadline,
+                                color = colors.secondaryLabel,
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "本应用为开源学习项目，不收集任何用户隐私数据，所有内容均在本地生成与存储。",
+                                style = typography.subheadline,
+                                color = colors.tertiaryLabel,
+                            )
+                        }
+                    }
+                }
+
+                // 底部预留空间，避免内容被系统导航栏遮挡
+                Spacer(Modifier.height(24.dp))
             }
         }
 
@@ -296,6 +386,47 @@ private fun SettingsEntryRow(title: String, onClick: () -> Unit) {
             contentDescription = null,
             tint = colors.tertiaryLabel,
         )
+    }
+}
+
+/**
+ * #12：主题模式单选行，左侧标题，右侧 RadioButton。
+ */
+@Composable
+private fun ThemeModeRow(
+    title: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = socialColors()
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable { onClick() }.padding(16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(title, color = colors.label, fontWeight = FontWeight.Medium)
+        RadioButton(
+            selected = selected,
+            onClick = onClick,
+            colors = RadioButtonDefaults.colors(selectedColor = colors.systemBlue),
+        )
+    }
+}
+
+/**
+ * #12：关于卡片中的键值信息行（不可点击）。
+ */
+@Composable
+private fun AboutInfoRow(label: String, value: String) {
+    val colors = socialColors()
+    val typography = LocalSocialTypography.current
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, color = colors.secondaryLabel, style = typography.subheadline)
+        Text(value, color = colors.label, style = typography.subheadline)
     }
 }
 
