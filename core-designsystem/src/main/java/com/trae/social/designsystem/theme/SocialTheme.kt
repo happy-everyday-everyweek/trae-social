@@ -45,12 +45,17 @@ fun SocialTheme(
         SideEffect {
             view.context.findActivity()?.let { activity ->
                 val window = activity.window
-                // 透明状态栏，内容延伸至状态栏下方（edge-to-edge）
+                // 透明状态栏 + 导航栏，内容延伸至系统栏下方（edge-to-edge）
+                // #56：补设 navigationBarColor=Transparent，清除 enableEdgeToEdge()
+                // （activity-compose 1.9.1）默认对导航栏施加的半透明 contrast tint，
+                // 否则导航栏区域带系统着色与底栏玻璃叠加产生色差。
                 window.statusBarColor = Color.Transparent.toArgb()
+                window.navigationBarColor = Color.Transparent.toArgb()
                 WindowCompat.setDecorFitsSystemWindows(window, false)
-                // 状态栏图标外观：深色模式使用浅色图标，明色模式使用深色图标
+                // 状态栏 / 导航栏图标外观：深色模式浅色图标，明色模式深色图标
                 val insetsController = WindowCompat.getInsetsController(window, view)
                 insetsController.isAppearanceLightStatusBars = !darkTheme
+                insetsController.isAppearanceLightNavigationBars = !darkTheme
             }
         }
     }

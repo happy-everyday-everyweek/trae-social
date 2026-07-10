@@ -87,14 +87,16 @@ fun SocialBottomBar(
     onPublishClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // #45/#56：navigationBarsPadding 移到内部 Row，让 GlassBlurContainer 的玻璃背景层
+    // fillMaxSize 延伸到屏幕底部（覆盖系统导航栏区域），仅内容避让导航栏 inset。
+    // 原先加在外层会把玻璃层抬到导航栏之上，下方露出后方内容，造成底栏"悬浮/错位"。
     GlassBlurContainer(
-        modifier = modifier
-            .fillMaxWidth()
-            .navigationBarsPadding(),
+        modifier = modifier.fillMaxWidth(),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .navigationBarsPadding()
                 .height(56.dp)
                 .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
