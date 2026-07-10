@@ -28,7 +28,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -166,11 +165,12 @@ private fun WelcomeIllustration(modifier: Modifier = Modifier) {
                 .background(blue.copy(alpha = 0.7f)),
         )
         // 中央矩形：模拟卡片
+        // #27：改用主题色 token 替代硬编码白色，避免深色模式纯黑背景上出现刺眼白块
         Box(
             modifier = Modifier
                 .size(width = 96.dp, height = 60.dp)
                 .clip(RoundedCornerShape(12.dp))
-                .background(Color.White.copy(alpha = 0.9f)),
+                .background(colors.tertiaryBackground),
         )
     }
 }

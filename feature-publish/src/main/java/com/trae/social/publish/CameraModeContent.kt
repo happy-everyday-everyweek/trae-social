@@ -286,7 +286,7 @@ private fun ControlButton(
         modifier = modifier
             .size(44.dp)
             .clip(CircleShape)
-            .background(Color.Black.copy(alpha = 0.4f))
+            .background(Color.Black.copy(alpha = 0.6f))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -324,7 +324,7 @@ private fun BottomCameraBar(
         ) {
             CaptureRatio.values().forEach { r ->
                 val selected = r == ratio
-                val bgColor = if (selected) colors.systemBlue else Color.Black.copy(alpha = 0.4f)
+                val bgColor = if (selected) colors.systemBlue else Color.Black.copy(alpha = 0.6f)
                 val textColor = if (selected) Color.White else Color.White.copy(alpha = 0.7f)
                 Box(
                     modifier = Modifier

@@ -70,7 +70,7 @@ val DarkSocialColors = SocialColors(
     label = Color(0xFFFFFFFF),
     secondaryLabel = Color(0x99EBEBF5),
     tertiaryLabel = Color(0x4DEBEBF5),
-    separator = Color(0x99545458),
+    separator = Color(0x44545458),
     surface = Color(0xFF1C1C1E),
 )
 
