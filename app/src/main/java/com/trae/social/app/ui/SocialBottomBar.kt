@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -79,6 +80,11 @@ private val MainTabs = listOf(
  * @param onTabSelected Tab 点击回调，传入目标路由
  * @param onPublishClick 发布按钮点击回调
  * @param modifier 修饰符
+ * @param backgroundLayer 可选的已捕获内容图层，用于真正的背后内容模糊；
+ *   由外层通过 `rememberGraphicsLayer()` + `Modifier.drawWithContent` 捕获并传入。
+ *   为 null 时回退为纯色半透明（向后兼容）。
+ * @param backgroundLayerOffsetY 背景图层的 Y 轴平移偏移（px），用于将内容中
+ *   对应底栏位置的区域对齐到容器顶部。
  */
 @Composable
 fun SocialBottomBar(
@@ -86,12 +92,17 @@ fun SocialBottomBar(
     onTabSelected: (String) -> Unit,
     onPublishClick: () -> Unit,
     modifier: Modifier = Modifier,
+    backgroundLayer: GraphicsLayer? = null,
+    backgroundLayerOffsetY: Float = 0f,
 ) {
     // #45/#56：navigationBarsPadding 移到内部 Row，让 GlassBlurContainer 的玻璃背景层
     // fillMaxSize 延伸到屏幕底部（覆盖系统导航栏区域），仅内容避让导航栏 inset。
     // 原先加在外层会把玻璃层抬到导航栏之上，下方露出后方内容，造成底栏"悬浮/错位"。
+    // #2：将外层捕获的内容图层透传给 GlassBlurContainer，实现真正的"模糊背后内容"。
     GlassBlurContainer(
         modifier = modifier.fillMaxWidth(),
+        backgroundLayer = backgroundLayer,
+        backgroundLayerOffsetY = backgroundLayerOffsetY,
     ) {
         Row(
             modifier = Modifier

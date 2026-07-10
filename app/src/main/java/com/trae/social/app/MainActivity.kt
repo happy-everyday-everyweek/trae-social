@@ -26,6 +26,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -174,6 +178,15 @@ private fun MainScaffold() {
     // IMPL-33：由 feed/timeline 的 LazyColumn 派生滚动状态，供 GlassBlurContainer 减半模糊半径
     var isScrolling by remember { mutableStateOf(false) }
 
+    // #2：可记录的 GraphicsLayer，用于捕获 NavHost 内容并在底栏中作为模糊背景重绘，
+    // 实现"真正模糊背后内容"的毛玻璃效果（替代原先仅模糊纯色 tint 的伪效果）。
+    val backgroundLayer = rememberGraphicsLayer()
+    // 内容区与底栏的实测高度（px），用于计算背景图层的平移偏移：
+    // 偏移 = 底栏高度 - 内容高度，使内容底部条带对齐到底栏区域，
+    // 形成内容"延伸到栏后并被磨砂"的视觉。
+    var contentHeightPx by remember { mutableStateOf(0f) }
+    var barHeightPx by remember { mutableStateOf(0f) }
+
     // 用 provideIsScrolling 包裹整个 Scaffold，使 bottomBar 内的 GlassBlurContainer 可读取
     provideIsScrolling(isScrolling) {
         Scaffold(
@@ -195,6 +208,12 @@ private fun MainScaffold() {
                                 launchSingleTop = true
                             }
                         },
+                        // #2：将捕获的内容图层及其平移偏移透传给底栏。
+                        backgroundLayer = backgroundLayer,
+                        backgroundLayerOffsetY = barHeightPx - contentHeightPx,
+                        modifier = Modifier.onGloballyPositioned { coords ->
+                            barHeightPx = coords.size.height.toFloat()
+                        },
                     )
                 }
             },
@@ -205,7 +224,20 @@ private fun MainScaffold() {
             NavHost(
                 navController = navController,
                 startDestination = AppRoutes.FEED,
-                modifier = Modifier.fillMaxSize().padding(innerPadding),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .onGloballyPositioned { coords ->
+                        contentHeightPx = coords.size.height.toFloat()
+                    }
+                    // #2：将内容绘制指令记录到 backgroundLayer（供底栏模糊重绘），
+                    // 同时正常绘制内容本身，保证内容区可见性不变。
+                    .drawWithContent {
+                        backgroundLayer.record {
+                            this@drawWithContent.drawContent()
+                        }
+                        drawLayer(backgroundLayer)
+                    },
             ) {
                 composable(
                     route = AppRoutes.FEED,
