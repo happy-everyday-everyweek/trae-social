@@ -38,6 +38,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import com.trae.social.designsystem.components.GlassBlurContainer
 import com.trae.social.designsystem.components.socialClickable
@@ -128,6 +130,7 @@ private fun TabItem(
 ) {
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
+    val hapticFeedback = LocalHapticFeedback.current
     // #22：选中/未选中颜色平滑过渡，避免瞬间跳变
     val contentColor by animateColorAsState(
         targetValue = if (selected) colors.systemBlue else colors.tertiaryLabel,
@@ -142,7 +145,13 @@ private fun TabItem(
     )
 
     Column(
-        modifier = modifier.socialClickable(onClick = onClick),
+        modifier = modifier.socialClickable(onClick = {
+            // #3：切换 Tab 时触感反馈（仅切换到新 Tab 时触发，避免重复点击震动）
+            if (!selected) {
+                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+            }
+            onClick()
+        }),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {

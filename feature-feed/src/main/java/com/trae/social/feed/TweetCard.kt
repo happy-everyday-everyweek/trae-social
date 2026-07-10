@@ -26,12 +26,16 @@ import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Repeat
 import android.content.Intent
 import android.widget.Toast
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,9 +45,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -258,6 +265,10 @@ fun TweetCard(
                 tint = if (isLiked) colors.systemRed else colors.tertiaryLabel,
                 contentDescription = if (isLiked) "取消点赞" else "点赞",
                 onClick = onLikeClick,
+                // #3：点赞心跳弹跳 + 触感反馈
+                bounceWhenActive = true,
+                active = isLiked,
+                hapticOnPress = true,
             )
             InteractionButton(
                 icon = if (isBookmarked) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
@@ -265,6 +276,8 @@ fun TweetCard(
                 tint = if (isBookmarked) colors.systemBlue else colors.tertiaryLabel,
                 contentDescription = if (isBookmarked) "取消收藏" else "收藏",
                 onClick = onBookmarkClick,
+                // #3：收藏触感反馈
+                hapticOnPress = true,
             )
         }
     }
@@ -305,6 +318,9 @@ private fun TweetText(
 
 /**
  * 互动按钮：图标 + 计数（count 为 null 时不显示数字）。
+ *
+ * #3：点赞（[bounceWhenActive] + [active]）在 false→true 跳变时做 overshoot 弹跳，
+ * 营造心跳反馈；[hapticOnPress] 在按下时触发触感反馈，提升社交鲜活感。
  */
 @Composable
 private fun InteractionButton(
@@ -313,8 +329,28 @@ private fun InteractionButton(
     tint: Color,
     contentDescription: String,
     onClick: () -> Unit,
+    bounceWhenActive: Boolean = false,
+    active: Boolean = false,
+    hapticOnPress: Boolean = false,
 ) {
     val typography = LocalSocialTypography.current
+    val hapticFeedback = LocalHapticFeedback.current
+    // #3：仅在 false→true 跳变时弹跳，hasObserved 防止首帧（已点赞项）误触动画
+    val scale = remember { Animatable(1f) }
+    var hasObserved by remember { mutableStateOf(false) }
+    LaunchedEffect(active) {
+        if (bounceWhenActive && active && hasObserved) {
+            scale.snapTo(0.6f)
+            scale.animateTo(
+                targetValue = 1f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMedium,
+                ),
+            )
+        }
+        hasObserved = true
+    }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
@@ -322,14 +358,21 @@ private fun InteractionButton(
             // #19/#33：触控热区 ≥44dp，满足无障碍最低标准，降低误触
             .defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
             // #21：水波纹按压反馈
-            .socialClickable(onClick = onClick)
+            .socialClickable(onClick = {
+                if (hapticOnPress) {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                }
+                onClick()
+            })
             .padding(horizontal = 8.dp),
     ) {
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
             tint = tint,
-            modifier = Modifier.size(18.dp),
+            modifier = Modifier
+                .size(18.dp)
+                .graphicsLayer { scaleX = scale.value; scaleY = scale.value },
         )
         if (count != null && count > 0) {
             Spacer(Modifier.width(4.dp))
