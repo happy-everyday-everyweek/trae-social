@@ -87,15 +87,16 @@ fun WelcomeScreen(
             modifier = Modifier.fillMaxWidth(),
         ) {
             // #35：要点升级为图标 + 文案，比纯色圆点更具语义表达
-            BulletPoint(text = "由 LLM 驱动的高拟真社交生态", icon = Icons.Filled.AutoAwesome)
-            BulletPoint(text = "200+ 虚拟账号与你实时互动", icon = Icons.Filled.Group)
+            // #17：文案拟人化，避免过早暴露 LLM/虚拟账号/AI 生成等工程措辞
+            BulletPoint(text = "高拟真社交生态，随时有人与你互动", icon = Icons.Filled.AutoAwesome)
+            BulletPoint(text = "200+ 伙伴与你实时互动", icon = Icons.Filled.Group)
             BulletPoint(text = "完全本地运行，数据私密可控", icon = Icons.Filled.Lock)
         }
 
         Spacer(Modifier.height(8.dp))
 
         DisclaimerCard(
-            text = "本应用中的虚拟账号内容由 AI 生成，仅供演示与体验，不代表真实人物观点",
+            text = "本应用中的社区成员内容由 AI 生成，仅供演示与体验，不代表真实人物观点",
         )
 
         Spacer(Modifier.weight(1f))

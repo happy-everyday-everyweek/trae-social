@@ -86,7 +86,7 @@ fun DoneScreen(
         Spacer(Modifier.size(8.dp))
 
         Text(
-            text = "已保存 LLM 配置并触发冷启动内容填充，即将进入主界面",
+            text = "已保存配置并触发冷启动内容填充，即将进入主界面",
             style = typography.subheadline,
             color = colors.secondaryLabel,
             textAlign = TextAlign.Center,
