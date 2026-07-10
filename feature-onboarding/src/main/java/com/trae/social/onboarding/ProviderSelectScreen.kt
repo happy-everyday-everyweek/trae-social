@@ -64,12 +64,12 @@ fun ProviderSelectScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(
-            text = "选择 AI 提供商",
+            text = "选择内容引擎",
             style = typography.title1,
             color = colors.label,
         )
         Text(
-            text = "选择一个内容引擎驱动社区成员的内容生成",
+            text = "为生态中的伙伴选择一个内容生成服务",
             style = typography.subheadline,
             color = colors.secondaryLabel,
         )
