@@ -21,7 +21,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -46,6 +45,7 @@ import com.trae.social.core.data.entity.SchedulerLogEntity
 import com.trae.social.designsystem.components.SocialCard
 import com.trae.social.designsystem.components.SocialDivider
 import com.trae.social.designsystem.theme.socialColors
+import com.trae.social.designsystem.theme.LocalSocialTypography
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -71,6 +71,7 @@ fun DevOptionsScreen(
     val actionCounts by viewModel.actionCounts.collectAsStateWithLifecycle()
     val triggerResult by viewModel.triggerResult.collectAsStateWithLifecycle()
     val colors = socialColors()
+    val typography = LocalSocialTypography.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -100,7 +101,7 @@ fun DevOptionsScreen(
                 item {
                     Text(
                         "当前活跃度档位：${activityLevel.name}（${activityLevel.rpmLimit} RPM，${activityLevel.dailyPostsPerAccount} 条/天）",
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = typography.callout,
                         color = colors.secondaryLabel,
                         modifier = Modifier.padding(16.dp),
                     )
@@ -111,7 +112,7 @@ fun DevOptionsScreen(
                 item {
                     Text(
                         "手动触发调度",
-                        style = MaterialTheme.typography.titleSmall,
+                        style = typography.subheadline,
                         color = colors.secondaryLabel,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
@@ -141,7 +142,7 @@ fun DevOptionsScreen(
                 item {
                     Text(
                         "LLM 调用统计",
-                        style = MaterialTheme.typography.titleSmall,
+                        style = typography.subheadline,
                         color = colors.secondaryLabel,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
@@ -166,13 +167,13 @@ fun DevOptionsScreen(
                                 Spacer(Modifier.height(4.dp))
                                 Text(
                                     "按类型分布",
-                                    style = MaterialTheme.typography.labelMedium,
+                                    style = typography.caption1,
                                     color = colors.tertiaryLabel,
                                 )
                                 actionCounts.forEach { ac ->
                                     Text(
                                         "  ${ac.action}: ${ac.count}",
-                                        style = MaterialTheme.typography.bodySmall,
+                                        style = typography.subheadline,
                                         color = colors.secondaryLabel,
                                     )
                                 }
@@ -191,7 +192,7 @@ fun DevOptionsScreen(
                 item {
                     Text(
                         "调度日志（最近 ${logs.size} 条）",
-                        style = MaterialTheme.typography.titleSmall,
+                        style = typography.subheadline,
                         color = colors.secondaryLabel,
                         modifier = Modifier.padding(16.dp),
                     )
@@ -225,13 +226,13 @@ fun DevOptionsScreen(
                             }
                             Text(
                                 text = "调度尚未运行",
-                                style = MaterialTheme.typography.titleSmall,
+                                style = typography.subheadline,
                                 color = colors.secondaryLabel,
                                 fontWeight = FontWeight.Medium,
                             )
                             Text(
                                 text = "稍后再来看",
-                                style = MaterialTheme.typography.bodySmall,
+                                style = typography.subheadline,
                                 color = colors.tertiaryLabel,
                                 textAlign = TextAlign.Center,
                             )
@@ -256,15 +257,16 @@ fun DevOptionsScreen(
 @Composable
 private fun StatRow(label: String, count: Int? = null, suffix: String? = null) {
     val colors = socialColors()
+    val typography = LocalSocialTypography.current
     Row(
         Modifier.fillMaxWidth().padding(vertical = 2.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(label, color = colors.secondaryLabel, style = MaterialTheme.typography.bodyMedium)
+        Text(label, color = colors.secondaryLabel, style = typography.callout)
         Text(
             count?.toString() ?: suffix ?: "",
             color = colors.label,
-            style = MaterialTheme.typography.bodyMedium,
+            style = typography.callout,
             fontWeight = FontWeight.Medium,
         )
     }
@@ -273,6 +275,7 @@ private fun StatRow(label: String, count: Int? = null, suffix: String? = null) {
 @Composable
 private fun LogRow(log: SchedulerLogEntity) {
     val colors = socialColors()
+    val typography = LocalSocialTypography.current
     val timeFmt = remember { SimpleDateFormat("MM-dd HH:mm:ss", Locale.getDefault()) }
     Column(Modifier.fillMaxWidth().padding(16.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -280,26 +283,26 @@ private fun LogRow(log: SchedulerLogEntity) {
                 "${log.action} · ${log.result}",
                 fontWeight = FontWeight.Medium,
                 color = colors.label,
-                style = MaterialTheme.typography.bodyMedium,
+                style = typography.callout,
             )
             Text(
                 "${log.durationMs}ms",
                 color = colors.tertiaryLabel,
-                style = MaterialTheme.typography.labelSmall,
+                style = typography.caption2,
             )
         }
         Spacer(Modifier.height(2.dp))
         Text(
             "${timeFmt.format(Date(log.timestamp))} · ${log.accountId}",
             color = colors.tertiaryLabel,
-            style = MaterialTheme.typography.labelSmall,
+            style = typography.caption2,
         )
         log.errorMessage?.takeIf { it.isNotBlank() }?.let { err ->
             Spacer(Modifier.height(4.dp))
             Text(
                 err,
                 color = colors.systemRed,
-                style = MaterialTheme.typography.bodySmall,
+                style = typography.subheadline,
             )
         }
     }

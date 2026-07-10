@@ -20,7 +20,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -47,6 +46,7 @@ import com.trae.social.core.data.config.AiActivityLevel
 import com.trae.social.designsystem.components.SocialCard
 import com.trae.social.designsystem.components.SocialDivider
 import com.trae.social.designsystem.theme.socialColors
+import com.trae.social.designsystem.theme.LocalSocialTypography
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -72,6 +72,7 @@ fun SettingsScreen(
 ) {
     val activityLevel by viewModel.activityLevel.collectAsStateWithLifecycle()
     val colors = socialColors()
+    val typography = LocalSocialTypography.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -99,7 +100,7 @@ fun SettingsScreen(
             // AI 活跃度档位
             Text(
                 "AI 活跃度",
-                style = MaterialTheme.typography.titleSmall,
+                style = typography.subheadline,
                 color = colors.secondaryLabel,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
@@ -123,7 +124,7 @@ fun SettingsScreen(
             // 功能入口
             Text(
                 "高级",
-                style = MaterialTheme.typography.titleSmall,
+                style = typography.subheadline,
                 color = colors.secondaryLabel,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
@@ -175,12 +176,12 @@ fun SettingsScreen(
                     Column {
                         Text("Trae Social")
                         Spacer(Modifier.height(4.dp))
-                        Text("版本：$versionName", style = MaterialTheme.typography.bodySmall, color = colors.tertiaryLabel)
+                        Text("版本：$versionName", style = typography.subheadline, color = colors.tertiaryLabel)
                         if (!devOptionsUnlocked && remainingTaps > 0) {
                             Spacer(Modifier.height(8.dp))
                             Text(
                                 "再点击关于 $remainingTaps 次可解锁开发者选项",
-                                style = MaterialTheme.typography.labelSmall,
+                                style = typography.caption2,
                                 color = colors.tertiaryLabel,
                             )
                         }
@@ -255,6 +256,7 @@ private fun ActivityLevelRow(
     onClick: () -> Unit,
 ) {
     val colors = socialColors()
+    val typography = LocalSocialTypography.current
     Row(
         modifier = Modifier.fillMaxWidth().clickable { onClick() }.padding(16.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -264,7 +266,7 @@ private fun ActivityLevelRow(
             Text(level.displayName(), fontWeight = FontWeight.Medium, color = colors.label)
             Text(
                 "约 ${level.dailyPostsPerAccount} 条/天，${level.rpmLimit} RPM",
-                style = MaterialTheme.typography.bodySmall,
+                style = typography.subheadline,
                 color = colors.tertiaryLabel,
             )
         }

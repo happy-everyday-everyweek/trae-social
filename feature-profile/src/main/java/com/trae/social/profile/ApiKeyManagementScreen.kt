@@ -18,7 +18,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -38,6 +37,7 @@ import com.trae.social.core.data.config.LlmProvider
 import com.trae.social.designsystem.components.SocialCard
 import com.trae.social.designsystem.components.SocialDivider
 import com.trae.social.designsystem.theme.socialColors
+import com.trae.social.designsystem.theme.LocalSocialTypography
 
 /**
  * API Key 管理页（IMPL-2）。
@@ -114,6 +114,7 @@ private fun ProviderConfigCard(
     onSetDefault: () -> Unit,
 ) {
     val colors = socialColors()
+    val typography = LocalSocialTypography.current
     SocialCard(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
             Row(
@@ -123,15 +124,15 @@ private fun ProviderConfigCard(
             ) {
                 Text(config.provider.displayName, fontWeight = FontWeight.Bold, color = colors.label)
                 if (isDefault) {
-                    Text("默认", color = colors.systemBlue, style = MaterialTheme.typography.labelSmall)
+                    Text("默认", color = colors.systemBlue, style = typography.caption2)
                 }
             }
             Spacer(Modifier.height(8.dp))
 
             // API Key
-            Text("API Key", style = MaterialTheme.typography.labelMedium, color = colors.secondaryLabel)
+            Text("API Key", style = typography.caption1, color = colors.secondaryLabel)
             config.apiKeyPreview?.takeIf { it.isNotBlank() }?.let {
-                Text("当前: $it", style = MaterialTheme.typography.bodySmall, color = colors.tertiaryLabel)
+                Text("当前: $it", style = typography.subheadline, color = colors.tertiaryLabel)
             }
             OutlinedTextField(
                 value = apiKeyDraft,
@@ -150,7 +151,7 @@ private fun ProviderConfigCard(
             SocialDivider(Modifier.padding(vertical = 12.dp), thickness = 0.5.dp)
 
             // Base URL
-            Text("Base URL", style = MaterialTheme.typography.labelMedium, color = colors.secondaryLabel)
+            Text("Base URL", style = typography.caption1, color = colors.secondaryLabel)
             OutlinedTextField(
                 value = baseUrlDraft,
                 onValueChange = onBaseUrlChange,
@@ -167,7 +168,7 @@ private fun ProviderConfigCard(
             SocialDivider(Modifier.padding(vertical = 12.dp), thickness = 0.5.dp)
 
             // Model
-            Text("模型名", style = MaterialTheme.typography.labelMedium, color = colors.secondaryLabel)
+            Text("模型名", style = typography.caption1, color = colors.secondaryLabel)
             OutlinedTextField(
                 value = modelDraft,
                 onValueChange = onModelChange,

@@ -22,7 +22,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -43,6 +42,7 @@ import coil.request.ImageRequest
 import com.trae.social.core.data.entity.AccountEntity
 import com.trae.social.designsystem.components.SocialDivider
 import com.trae.social.designsystem.theme.socialColors
+import com.trae.social.designsystem.theme.LocalSocialTypography
 
 /**
  * 关注/粉丝列表页（IMPL-2）。
@@ -115,6 +115,7 @@ private fun FollowAccountRow(
     onToggleFollow: () -> Unit,
 ) {
     val colors = socialColors()
+    val typography = LocalSocialTypography.current
     val context = LocalContext.current
     Row(
         modifier = Modifier
@@ -148,12 +149,12 @@ private fun FollowAccountRow(
                     account.displayName.ifBlank { account.username },
                     fontWeight = FontWeight.Medium,
                     color = colors.label,
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = typography.body,
                 )
                 Text(
                     "@${account.username}",
                     color = colors.tertiaryLabel,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = typography.subheadline,
                 )
             }
         }
@@ -163,7 +164,7 @@ private fun FollowAccountRow(
         ) {
             Text(
                 text = if (isFollowing) "已关注" else "关注",
-                style = MaterialTheme.typography.labelLarge,
+                style = typography.subheadline,
                 color = if (isFollowing) colors.tertiaryLabel else colors.systemBlue,
             )
         }

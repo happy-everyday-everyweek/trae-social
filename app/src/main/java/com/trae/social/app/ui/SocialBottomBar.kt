@@ -20,7 +20,6 @@ import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -32,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import com.trae.social.designsystem.components.GlassBlurContainer
 import com.trae.social.designsystem.components.socialClickable
 import com.trae.social.designsystem.theme.LocalSocialColors
+import com.trae.social.designsystem.theme.LocalSocialTypography
 
 /**
  * 底部 Tab 栏配置项：路由、图标、文案。
@@ -116,6 +116,7 @@ private fun TabItem(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalSocialColors.current
+    val typography = LocalSocialTypography.current
     val contentColor = if (selected) colors.systemBlue else colors.tertiaryLabel
 
     Column(
@@ -132,7 +133,7 @@ private fun TabItem(
         Spacer(Modifier.height(2.dp))
         Text(
             text = spec.label,
-            style = MaterialTheme.typography.labelSmall,
+            style = typography.caption2,
             color = contentColor,
         )
         // 选中态小圆点（未选中时仍占位 4dp，避免选中/未选中切换时高度跳动）
