@@ -10,9 +10,14 @@ import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +41,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -47,8 +53,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -343,17 +352,37 @@ private fun BottomCameraBar(
 
 /**
  * 拍照按钮：72dp 圆形，白色边框 + systemBlue 内圈。
+ *
+ * #3/#36：按下时弹簧缩放反馈（0.85→1.0）+ 快门触感，给予明确的拍摄触发动效。
  */
 @Composable
 private fun ShutterButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     val colors = LocalSocialColors.current
+    val hapticFeedback = LocalHapticFeedback.current
+    // #3：自建 InteractionSource 追踪按压状态，驱动缩放动效
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.85f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "shutterScale",
+    )
     Box(
         modifier = modifier
             .size(72.dp)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(CircleShape)
             .border(width = 4.dp, color = Color.White, shape = CircleShape)
             .background(Color.Transparent)
-            .clickable(onClick = onClick),
+            .clickable(
+                interactionSource = interactionSource,
+                indication = ripple(),
+                onClick = {
+                    // #3：快门触感反馈
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onClick()
+                },
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Box(

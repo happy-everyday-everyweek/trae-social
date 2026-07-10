@@ -42,6 +42,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.trae.social.core.data.entity.AccountEntity
 import coil.ImageLoader
 import coil.compose.SubcomposeAsyncImage
 import coil.decode.SvgDecoder
@@ -67,6 +68,8 @@ fun TimelineScreen(
 ) {
     val viewModel: TimelineViewModel = hiltViewModel()
     val state by viewModel.timelineFlow.collectAsStateWithLifecycle()
+    // #13：当前用户资料，用于时间线头部真实头像/昵称
+    val selfProfile by viewModel.selfProfile.collectAsStateWithLifecycle()
 
     // 大图浏览器目标：当前点击的分组 + 起始下标
     var viewerTarget by remember { mutableStateOf<ViewerTarget?>(null) }
@@ -84,6 +87,7 @@ fun TimelineScreen(
             is TimelineUiState.Error -> TimelineError(message = current.message)
             is TimelineUiState.Success -> TimelineContent(
                 groups = current.groups,
+                selfProfile = selfProfile,
                 onImageClick = { group, index ->
                     viewerTarget = ViewerTarget(
                         items = group.items,
@@ -121,6 +125,7 @@ private data class ViewerTarget(
 @Composable
 private fun TimelineContent(
     groups: List<TimelineGroup>,
+    selfProfile: AccountEntity?,
     onImageClick: (TimelineGroup, Int) -> Unit,
     onScrollingChange: (Boolean) -> Unit,
 ) {
@@ -136,7 +141,7 @@ private fun TimelineContent(
             .fillMaxSize()
             .background(colors.systemBackground),
     ) {
-        item(key = "header") { TimelineHeader() }
+        item(key = "header") { TimelineHeader(account = selfProfile) }
         items(items = groups, key = { group -> group.date.toString() }) { group ->
             GroupBlock(group = group, onImageClick = onImageClick)
             SocialDivider()
@@ -146,18 +151,23 @@ private fun TimelineContent(
 
 /**
  * 顶部：用户头像（48dp）+ 昵称 + "我的相册"标题。
+ *
+ * #13：复用个人主页的 user-self 账号资料（avatarSeed / displayName），
+ * 替代原先硬编码的蓝色"我"占位，保证两处身份呈现一致。
  */
 @Composable
-private fun TimelineHeader() {
+private fun TimelineHeader(account: AccountEntity?) {
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
+    // 显示名回退"我"（与 ProfileScreen 一致：空名时显示"我"）
+    val displayName = account?.displayName?.ifBlank { null } ?: "我"
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        MonogramAvatar(modifier = Modifier.size(48.dp))
+        TimelineAvatar(avatarSeed = account?.avatarSeed, modifier = Modifier.size(48.dp))
         Spacer(modifier = Modifier.size(12.dp))
         Column {
             Text(
@@ -167,7 +177,7 @@ private fun TimelineHeader() {
                 color = colors.label,
             )
             Text(
-                text = "我",
+                text = displayName,
                 style = typography.subheadline,
                 color = colors.secondaryLabel,
             )
@@ -176,9 +186,39 @@ private fun TimelineHeader() {
 }
 
 /**
- * 默认头像：systemBlue 圆形 + "我"字。
+ * 时间线头部头像：优先加载 user-self 的 SVG 头像，加载中/失败/无 seed 时回退占位。
  *
- * 当前数据层无"当前登录用户"概念，使用首字母占位头像。
+ * 复用本模块 [rememberSvgImageLoader]（与图片网格一致），头像 URI 由 [avatarUriFromSeed] 派生。
+ */
+@Composable
+private fun TimelineAvatar(avatarSeed: String?, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val imageLoader = rememberSvgImageLoader()
+    if (avatarSeed.isNullOrBlank()) {
+        MonogramAvatar(modifier = modifier)
+        return
+    }
+    val request = remember(avatarSeed, context) {
+        ImageRequest.Builder(context)
+            .data(avatarUriFromSeed(avatarSeed))
+            .crossfade(true)
+            .build()
+    }
+    SubcomposeAsyncImage(
+        model = request,
+        imageLoader = imageLoader,
+        contentDescription = "头像",
+        contentScale = ContentScale.Crop,
+        modifier = modifier.clip(CircleShape),
+        loading = { MonogramAvatar(Modifier.fillMaxSize()) },
+        error = { MonogramAvatar(Modifier.fillMaxSize()) },
+    )
+}
+
+/**
+ * 默认头像占位：systemBlue 圆形 + "我"字。
+ *
+ * 用于 user-self 账号尚未加载或头像加载失败时回退。
  */
 @Composable
 private fun MonogramAvatar(modifier: Modifier = Modifier) {
@@ -608,6 +648,22 @@ internal fun mediaPathToCoilUrl(path: String): String {
         firstPath.startsWith("file://") ||
         firstPath.startsWith("content://")
     return if (hasScheme) firstPath else "file:///android_asset/$firstPath"
+}
+
+/**
+ * 由 avatarSeed 派生确定性头像 asset URI（与 ProfileUtils.avatarUriFromSeed / FeedUtils.avatarUriFromSeed 等价）。
+ *
+ * #13：feature 模块间不相互依赖工具函数，按项目既有约定在本模块内复制一份。
+ */
+internal fun avatarUriFromSeed(avatarSeed: String): String {
+    val categories = listOf(
+        "landscape", "city", "food", "nature",
+        "pet", "sport", "tech", "art"
+    )
+    val seedHash = avatarSeed.hashCode()
+    val category = categories[((seedHash % categories.size) + categories.size) % categories.size]
+    val index = ((seedHash % 25) + 25) % 25 + 1
+    return "file:///android_asset/gallery/$category/$index.svg"
 }
 
 private const val GRID_COLUMNS = 3

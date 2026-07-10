@@ -2,14 +2,19 @@ package com.trae.social.timeline
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.trae.social.core.data.entity.AccountEntity
 import com.trae.social.core.data.entity.TweetEntity
+import com.trae.social.core.data.repository.AccountRepository
 import com.trae.social.core.data.repository.TweetRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -28,6 +33,7 @@ import javax.inject.Inject
 @HiltViewModel
 class TimelineViewModel @Inject constructor(
     private val tweetRepository: TweetRepository,
+    private val accountRepository: AccountRepository,
 ) : ViewModel() {
 
     val timelineFlow: StateFlow<TimelineUiState> = tweetRepository
@@ -45,6 +51,19 @@ class TimelineViewModel @Inject constructor(
             started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
             initialValue = TimelineUiState.Loading,
         )
+
+    // #13：当前用户资料（avatarSeed / displayName），与个人主页共用 user-self 账号，
+    // 替代时间线头部硬编码的“我”占位，保证两处身份呈现一致。
+    private val _selfProfile = MutableStateFlow<AccountEntity?>(null)
+    val selfProfile: StateFlow<AccountEntity?> = _selfProfile.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            _selfProfile.value = runCatching {
+                accountRepository.getById(SELF_ID)
+            }.getOrNull()
+        }
+    }
 
     /**
      * 将推文按日期分组。组内保持 createdAt DESC 顺序；组间按日期 DESC 排序。
@@ -97,6 +116,8 @@ class TimelineViewModel @Inject constructor(
     private companion object {
         const val STOP_TIMEOUT_MILLIS = 5_000L
         const val TIME_PATTERN = "HH:mm"
+        // #13：自身账号固定 ID（与 PersonaSeeder.USER_SELF_ID / ProfileViewModel.SELF_ID 一致）
+        const val SELF_ID = "user-self"
     }
 }
 
