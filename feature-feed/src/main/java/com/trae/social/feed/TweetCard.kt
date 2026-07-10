@@ -53,6 +53,7 @@ import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.trae.social.designsystem.components.SocialDivider
+import com.trae.social.designsystem.components.socialClickable
 import com.trae.social.designsystem.theme.LocalSocialColors
 
 /**
@@ -317,7 +318,8 @@ private fun InteractionButton(
         modifier = Modifier
             // #19/#33：触控热区 ≥44dp，满足无障碍最低标准，降低误触
             .defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
-            .clickable(onClick = onClick)
+            // #21：水波纹按压反馈
+            .socialClickable(onClick = onClick)
             .padding(horizontal = 8.dp),
     ) {
         Icon(

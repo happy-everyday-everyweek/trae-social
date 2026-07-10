@@ -1,7 +1,6 @@
 package com.trae.social.app.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.trae.social.designsystem.components.GlassBlurContainer
+import com.trae.social.designsystem.components.socialClickable
 import com.trae.social.designsystem.theme.LocalSocialColors
 
 /**
@@ -119,7 +119,7 @@ private fun TabItem(
     val contentColor = if (selected) colors.systemBlue else colors.tertiaryLabel
 
     Column(
-        modifier = modifier.clickable(onClick = onClick),
+        modifier = modifier.socialClickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -167,7 +167,7 @@ private fun PublishButton(
             .size(56.dp)
             .clip(CircleShape)
             .background(colors.systemBlue)
-            .clickable(onClick = onClick),
+            .socialClickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(

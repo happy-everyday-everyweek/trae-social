@@ -10,10 +10,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -31,7 +34,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -192,11 +199,42 @@ fun DevOptionsScreen(
 
                 if (logs.isEmpty()) {
                     item {
-                        Box(
-                            Modifier.fillMaxWidth().padding(32.dp),
-                            Alignment.Center,
+                        // #31：调度日志空状态——图标 + 友好文案，避免冷冰冰的单行文字
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(32.dp)
+                                .semantics(mergeDescendants = true) {
+                                    contentDescription = "调度尚未运行，稍后再来看"
+                                },
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            Text("暂无调度日志", color = colors.tertiaryLabel)
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(CircleShape)
+                                    .background(colors.systemBlue.copy(alpha = 0.12f)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.History,
+                                    contentDescription = null,
+                                    tint = colors.systemBlue,
+                                )
+                            }
+                            Text(
+                                text = "调度尚未运行",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = colors.secondaryLabel,
+                                fontWeight = FontWeight.Medium,
+                            )
+                            Text(
+                                text = "稍后再来看",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = colors.tertiaryLabel,
+                                textAlign = TextAlign.Center,
+                            )
                         }
                     }
                 } else {

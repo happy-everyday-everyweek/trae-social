@@ -16,9 +16,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -388,7 +390,7 @@ private fun EmptyPlaceholder() {
 }
 
 /**
- * 错误状态。
+ * 错误状态（#31：图标 + 友好文案，与成功态设计统一）。
  */
 @Composable
 private fun ErrorPlaceholder(
@@ -396,6 +398,8 @@ private fun ErrorPlaceholder(
     onRetry: () -> Unit,
 ) {
     val colors = LocalSocialColors.current
+    // #31：将技术性 error.message 转译为友好提示
+    val friendlyMessage = friendlyErrorMessage(message)
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
@@ -403,11 +407,37 @@ private fun ErrorPlaceholder(
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.padding(32.dp),
+            modifier = Modifier
+                .padding(32.dp)
+                .semantics(mergeDescendants = true) {
+                    contentDescription = friendlyMessage
+                },
         ) {
+            // 彩色圆 + 错误图标，与 ConnectionTestScreen 成功态设计对应
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(CircleShape)
+                    .background(colors.systemRed.copy(alpha = 0.12f))
+                    .semantics { contentDescription = "" },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.WifiOff,
+                    contentDescription = null,
+                    tint = colors.systemRed,
+                    modifier = Modifier.size(32.dp),
+                )
+            }
             Text(
-                text = message,
-                style = MaterialTheme.typography.bodyLarge,
+                text = "加载失败",
+                style = MaterialTheme.typography.titleMedium,
+                color = colors.label,
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                text = friendlyMessage,
+                style = MaterialTheme.typography.bodyMedium,
                 color = colors.secondaryLabel,
                 textAlign = TextAlign.Center,
             )
@@ -420,6 +450,25 @@ private fun ErrorPlaceholder(
                 Text("重试", modifier = Modifier.padding(start = 4.dp))
             }
         }
+    }
+}
+
+/**
+ * 将技术性异常文案转译为用户友好的提示（#31）。
+ */
+private fun friendlyErrorMessage(raw: String): String {
+    val lower = raw.lowercase()
+    return when {
+        lower.contains("unable to resolve host") ||
+            lower.contains("unknownhostexception") ||
+            lower.contains("timeout") ||
+            lower.contains("timed out") -> "网络连接失败，请检查网络后重试"
+        lower.contains("unauthorized") || lower.contains("401") -> "身份验证失败，请检查 API Key 配置"
+        lower.contains("forbidden") || lower.contains("403") -> "无访问权限，请检查 API 配置"
+        lower.contains("not found") || lower.contains("404") -> "请求的资源不存在"
+        lower.contains("server") || lower.contains("500") || lower.contains("502") ||
+            lower.contains("503") || lower.contains("504") -> "服务器暂时不可用，请稍后重试"
+        else -> if (raw.isBlank()) "加载失败，请重试" else raw
     }
 }
 
