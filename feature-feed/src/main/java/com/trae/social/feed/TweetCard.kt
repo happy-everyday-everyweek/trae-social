@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -101,7 +102,8 @@ fun TweetCard(
         modifier = modifier
             .fillMaxWidth()
             .background(colors.systemBackground)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            // #19：卡片垂直留白 12→16，提升呼吸感
+            .padding(horizontal = 16.dp, vertical = 16.dp),
     ) {
         // 顶部行：头像 + 名称 + 时间 + 更多
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -111,7 +113,8 @@ fun TweetCard(
                 isAiGenerated = tweet.isAiGenerated,
                 modifier = Modifier.size(36.dp),
             )
-            Spacer(Modifier.width(10.dp))
+            // #19：头像后间距统一为 4 倍数 12dp
+            Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -146,7 +149,8 @@ fun TweetCard(
             Box {
                 IconButton(
                     onClick = { moreMenuExpanded = true },
-                    modifier = Modifier.size(32.dp),
+                    // #33：触控热区 32→44，满足 ≥44dp 无障碍标准
+                    modifier = Modifier.size(44.dp),
                 ) {
                     Icon(
                         imageVector = Icons.Default.MoreHoriz,
@@ -193,7 +197,8 @@ fun TweetCard(
             }
         }
 
-        Spacer(Modifier.height(8.dp))
+        // #19：顶部行↔正文间距 8→12
+        Spacer(Modifier.height(12.dp))
 
         // 文本（超 280 字折叠）
         TweetText(text = tweet.text, labelColor = colors.label)
@@ -201,7 +206,8 @@ fun TweetCard(
         // 图片
         val imageUri = FeedUtils.toImageUri(tweet.mediaPath)
         if (imageUri != null) {
-            Spacer(Modifier.height(8.dp))
+            // #19：正文↔图片间距 8→12
+            Spacer(Modifier.height(12.dp))
             val request = remember(imageUri, context) {
                 ImageRequest.Builder(context)
                     .data(imageUri)
@@ -221,7 +227,8 @@ fun TweetCard(
             )
         }
 
-        Spacer(Modifier.height(8.dp))
+        // #19：图片↔互动栏间距 8→16，拉开层次
+        Spacer(Modifier.height(16.dp))
 
         // 互动栏
         Row(
@@ -306,9 +313,12 @@ private fun InteractionButton(
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
         modifier = Modifier
+            // #19/#33：触控热区 ≥44dp，满足无障碍最低标准，降低误触
+            .defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
             .clickable(onClick = onClick)
-            .padding(horizontal = 4.dp, vertical = 4.dp),
+            .padding(horizontal = 8.dp),
     ) {
         Icon(
             imageVector = icon,
