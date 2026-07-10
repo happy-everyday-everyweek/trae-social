@@ -30,7 +30,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -55,6 +54,7 @@ import coil.request.ImageRequest
 import com.trae.social.designsystem.components.SocialDivider
 import com.trae.social.designsystem.components.socialClickable
 import com.trae.social.designsystem.theme.LocalSocialColors
+import com.trae.social.designsystem.theme.LocalSocialTypography
 
 /**
  * 推文卡片。
@@ -89,6 +89,7 @@ fun TweetCard(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalSocialColors.current
+    val typography = LocalSocialTypography.current
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val tweet = data.tweet
@@ -120,7 +121,7 @@ fun TweetCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = data.authorName,
-                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                        style = typography.body.copy(fontWeight = FontWeight.Bold),
                         color = colors.label,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -128,7 +129,7 @@ fun TweetCard(
                     Spacer(Modifier.width(4.dp))
                     Text(
                         text = "@${data.authorUsername}",
-                        style = MaterialTheme.typography.labelMedium,
+                        style = typography.caption1,
                         color = colors.tertiaryLabel,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -136,12 +137,12 @@ fun TweetCard(
                     )
                     Text(
                         text = " · ",
-                        style = MaterialTheme.typography.labelMedium,
+                        style = typography.caption1,
                         color = colors.tertiaryLabel,
                     )
                     Text(
                         text = FeedUtils.formatRelativeTime(tweet.createdAt),
-                        style = MaterialTheme.typography.labelMedium,
+                        style = typography.caption1,
                         color = colors.tertiaryLabel,
                         maxLines = 1,
                     )
@@ -278,6 +279,7 @@ private fun TweetText(
     text: String,
     labelColor: Color,
 ) {
+    val typography = LocalSocialTypography.current
     val limit = 280
     var expanded by rememberSaveable(text) { mutableStateOf(false) }
     val needCollapse = text.length > limit
@@ -286,14 +288,14 @@ private fun TweetText(
     Column {
         Text(
             text = displayText,
-            style = MaterialTheme.typography.bodyLarge,
+            style = typography.body,
             color = labelColor,
         )
         if (needCollapse) {
             Spacer(Modifier.height(4.dp))
             Text(
                 text = if (expanded) "收起" else "展开全文",
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                style = typography.caption1.copy(fontWeight = FontWeight.SemiBold),
                 color = LocalSocialColors.current.systemBlue,
                 modifier = Modifier.clickable { expanded = !expanded },
             )
@@ -312,6 +314,7 @@ private fun InteractionButton(
     contentDescription: String,
     onClick: () -> Unit,
 ) {
+    val typography = LocalSocialTypography.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
@@ -332,7 +335,7 @@ private fun InteractionButton(
             Spacer(Modifier.width(4.dp))
             Text(
                 text = formatCount(count),
-                style = MaterialTheme.typography.labelMedium,
+                style = typography.caption1,
                 color = tint,
             )
         }

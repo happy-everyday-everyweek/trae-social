@@ -18,7 +18,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,6 +41,7 @@ import coil.request.ImageRequest
 import com.trae.social.designsystem.components.SocialDivider
 import com.trae.social.designsystem.components.SocialSheet
 import com.trae.social.designsystem.theme.LocalSocialColors
+import com.trae.social.designsystem.theme.LocalSocialTypography
 import java.util.UUID
 
 /**
@@ -65,6 +65,7 @@ fun CommentSheet(
     loadComments: suspend () -> List<CommentItem>,
 ) {
     val colors = LocalSocialColors.current
+    val typography = LocalSocialTypography.current
     val context = LocalContext.current
     val comments = remember { mutableStateListOf<CommentItem>() }
     var inputText by remember { mutableStateOf("") }
@@ -94,7 +95,7 @@ fun CommentSheet(
             SocialDivider()
             Text(
                 text = "评论 ${comments.size}",
-                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                style = typography.subheadline.copy(fontWeight = FontWeight.SemiBold),
                 color = colors.secondaryLabel,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
@@ -119,7 +120,7 @@ fun CommentSheet(
                         ) {
                             Text(
                                 text = if (isLoading) "加载中..." else "暂无评论，发表第一条吧",
-                                style = MaterialTheme.typography.bodyMedium,
+                                style = typography.callout,
                                 color = colors.tertiaryLabel,
                             )
                         }
@@ -190,6 +191,7 @@ private fun TweetSummary(
     context: android.content.Context,
 ) {
     val colors = LocalSocialColors.current
+    val typography = LocalSocialTypography.current
     val summary = remember(tweet.tweet.text) {
         if (tweet.tweet.text.length > 50) tweet.tweet.text.take(50) + "..." else tweet.tweet.text
     }
@@ -220,12 +222,12 @@ private fun TweetSummary(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = tweet.authorName,
-                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                style = typography.subheadline.copy(fontWeight = FontWeight.SemiBold),
                 color = colors.label,
             )
             Text(
                 text = summary,
-                style = MaterialTheme.typography.bodyMedium,
+                style = typography.callout,
                 color = colors.secondaryLabel,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -258,6 +260,7 @@ private fun CommentRow(
     context: android.content.Context,
 ) {
     val colors = LocalSocialColors.current
+    val typography = LocalSocialTypography.current
     val avatarUrl = remember(comment.authorAvatarSeed) {
         FeedUtils.avatarUriFromSeed(comment.authorAvatarSeed)
     }
@@ -278,24 +281,24 @@ private fun CommentRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = comment.authorName,
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                    style = typography.subheadline.copy(fontWeight = FontWeight.SemiBold),
                     color = colors.label,
                 )
                 Text(
                     text = " · ",
-                    style = MaterialTheme.typography.labelSmall,
+                    style = typography.caption2,
                     color = colors.tertiaryLabel,
                 )
                 Text(
                     text = FeedUtils.formatRelativeTime(comment.createdAt),
-                    style = MaterialTheme.typography.labelSmall,
+                    style = typography.caption2,
                     color = colors.tertiaryLabel,
                 )
             }
             Spacer(Modifier.height(2.dp))
             Text(
                 text = comment.content,
-                style = MaterialTheme.typography.bodyMedium,
+                style = typography.callout,
                 color = colors.label,
             )
         }
