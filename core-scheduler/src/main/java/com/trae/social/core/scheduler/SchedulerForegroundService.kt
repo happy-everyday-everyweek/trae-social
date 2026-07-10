@@ -68,7 +68,7 @@ class SchedulerForegroundService : Service() {
                 CHANNEL_NAME,
                 NotificationManager.IMPORTANCE_LOW,
             ).apply {
-                description = "社交生态调度器运行状态通知"
+                description = "社交生态运行状态通知"
                 setShowBadge(false)
             }
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -118,8 +118,9 @@ class SchedulerForegroundService : Service() {
     private companion object {
         const val NOTIFICATION_ID = 1001
         const val CHANNEL_ID = "scheduler"
-        const val CHANNEL_NAME = "调度器"
-        const val NOTIFICATION_TITLE = "社交生态运行中"
-        const val NOTIFICATION_TEXT = "AI 账号正在按计划发推与互动"
+        const val CHANNEL_NAME = "社交动态"
+        // #16：通知文案拟人化，去除"AI 账号/按计划"字眼，避免破坏沉浸感
+        const val NOTIFICATION_TITLE = "Trae Social 运行中"
+        const val NOTIFICATION_TEXT = "伙伴们正在活跃中，保持连接以接收最新动态"
     }
 }

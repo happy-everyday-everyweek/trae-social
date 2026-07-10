@@ -358,7 +358,7 @@ private fun formatCount(count: Int): String {
  * 信息流头像：圆形 + SVG 解码 + AI 蓝点标识。
  *
  * 复刻 [com.trae.social.designsystem.components.Avatar] 视觉，但注入 feed 专用
- * ImageLoader 以支持 SVG。AI 生成推文在头像右下角叠加 6dp 蓝点。
+ * ImageLoader 以支持 SVG。#14：已移除头像右下角 AI 蓝点标识。
  */
 @Composable
 private fun FeedAvatar(
@@ -367,7 +367,7 @@ private fun FeedAvatar(
     isAiGenerated: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val colors = LocalSocialColors.current
+    // #14：colors 原用于 AI 蓝点标识背景，蓝点移除后不再需要
     val context = LocalContext.current
     val url = remember(avatarSeed) { FeedUtils.avatarUriFromSeed(avatarSeed) }
     val request = remember(url, context) {
@@ -387,22 +387,8 @@ private fun FeedAvatar(
                 .size(36.dp)
                 .clip(CircleShape),
         )
-        if (isAiGenerated) {
-            Box(
-                modifier = Modifier
-                    .size(10.dp)
-                    .clip(CircleShape)
-                    .background(colors.systemBackground)
-                    .padding(2.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(colors.systemBlue),
-                )
-            }
-        }
+        // #14：去除信息流头像右下角的 6dp AI 蓝点标识。
+        // 本应用所有非用户推文均为 AI 生成，逐条标记价值有限且破坏拟真社交沉浸感。
+        // 透明度声明（RISK-12）改为引导页 DisclaimerCard 一次性告知，符合拟人化预期。
     }
 }

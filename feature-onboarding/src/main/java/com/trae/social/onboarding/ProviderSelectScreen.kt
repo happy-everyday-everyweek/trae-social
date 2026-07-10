@@ -69,7 +69,7 @@ fun ProviderSelectScreen(
             color = colors.label,
         )
         Text(
-            text = "选择一个 LLM 服务驱动虚拟账号的内容生成",
+            text = "选择一个内容引擎驱动社区成员的内容生成",
             style = typography.subheadline,
             color = colors.secondaryLabel,
         )

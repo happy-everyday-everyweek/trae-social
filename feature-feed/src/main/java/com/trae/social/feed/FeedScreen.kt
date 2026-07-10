@@ -544,7 +544,8 @@ private fun EndOfListFooter() {
 /**
  * IMPL-13：跳过引导后的补全配置 banner。
  *
- * 提示用户前往"我的"Tab 配置 API Key 以启用 AI 功能。
+ * 提示用户前往"我的"Tab 配置内容引擎以启用动态生成功能。
+ * #17：文案拟人化，"AI 服务"改为"内容引擎"。
  * 点击 banner 跳转设置页。
  */
 @Composable
@@ -562,7 +563,7 @@ private fun OnboardingSkippedBanner(onNavigateToSettings: () -> Unit) {
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(
-            text = "AI 服务未配置，部分功能不可用",
+            text = "内容引擎未配置，部分动态暂不可用",
             // #30：bodySmall → subheadline
             style = typography.subheadline,
             color = colors.systemBlue,
