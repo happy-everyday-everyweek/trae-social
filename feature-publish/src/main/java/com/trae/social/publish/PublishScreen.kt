@@ -3,6 +3,7 @@ package com.trae.social.publish
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -14,18 +15,23 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,6 +44,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -45,6 +53,7 @@ import coil.compose.AsyncImage
 import com.trae.social.designsystem.components.ActionButton
 import com.trae.social.designsystem.components.CapsuleTab
 import com.trae.social.designsystem.theme.LocalSocialColors
+import com.trae.social.designsystem.theme.LocalSocialTypography
 import kotlinx.coroutines.launch
 
 /**
@@ -68,6 +77,7 @@ fun PublishScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val colors = LocalSocialColors.current
     val scope = rememberCoroutineScope()
+    val hapticFeedback = LocalHapticFeedback.current
 
     var selectedTab by remember { mutableStateOf(0) } // 0 = 相机, 1 = 编辑器
     var selectedCaptureIndex by remember { mutableStateOf(-1) }
@@ -80,21 +90,25 @@ fun PublishScreen(
             when (event) {
                 PublishEvent.Published -> {
                     showPublishAnimation = true
-                    // 动画时长 400ms，结束后回调
+                    // 动画时长 700ms（三阶段），结束后回调
                     scope.launch {
                         kotlinx.coroutines.delay(PUBLISH_ANIM_DURATION_MS.toLong())
                         showPublishAnimation = false
                         onPublished()
                     }
                 }
-                // IMPL-15：发布失败时显示错误提示，保留输入
+                // IMPL-15：发布失败时显示错误提示 + 重试按钮，保留输入
                 PublishEvent.PublishFailed -> {
                     // isPublishing 已在 ViewModel 中重置，用户可重试
                     scope.launch {
-                        snackbarHostState.showSnackbar(
+                        val result = snackbarHostState.showSnackbar(
                             message = "发布失败，请重试",
+                            actionLabel = "重试",
                             withDismissAction = true,
                         )
+                        if (result == SnackbarResult.ActionPerformed) {
+                            viewModel.publish()
+                        }
                     }
                 }
             }
@@ -203,7 +217,10 @@ fun PublishScreen(
                     )
                     ActionButton(
                         text = "发布",
-                        onClick = { viewModel.publish() },
+                        onClick = {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            viewModel.publish()
+                        },
                         enabled = !uiState.isPublishing,
                     )
                 }
@@ -228,10 +245,13 @@ fun PublishScreen(
 /**
  * 缩小飞入信息流动画覆盖层。
  *
- * 两阶段（总时长 [PUBLISH_ANIM_DURATION_MS]）：
- * - 0-300ms：scale 1→0.3 + 上移至屏幕中上部；
- * - 300-400ms：fade out + scale 至 0.1。
- * 使用 [graphicsLayer] 应用变换；RISK-8 降级：仅 fade + scale。
+ * 三阶段（总时长 [PUBLISH_ANIM_DURATION_MS] = 700ms）：
+ * - 阶段1（0-300ms）：scale 1->0.6 + 上移至屏幕中上部；
+ * - 阶段2（300-600ms）：继续缩小 + 淡出 + "发布成功"提示淡入；
+ * - 阶段3（600-700ms）：成功提示淡出，随后回调 onPublished。
+ *
+ * 使用 [graphicsLayer] 应用变换；缩放使用 [EaseOutBackEasing] 弹性缓动替代线性插值。
+ * RISK-8 降级：当 imagePath 为空时仅显示成功提示（fade + scale），不显示预览图。
  */
 @Composable
 private fun PublishFlyInOverlay(
@@ -256,30 +276,74 @@ private fun PublishFlyInOverlay(
         }
     }
 
+    // 不再要求 imagePath != null：降级模式下也显示成功提示
     AnimatedVisibility(
-        visible = visible && imagePath != null,
+        visible = visible,
         enter = fadeIn(tween(0)),
         exit = fadeOut(tween(0)),
         modifier = modifier,
     ) {
         val p = progress.value
-        // 第一阶段：scale 1 -> 0.3；第二阶段：0.3 -> 0.1
-        val scaleVal = if (p < PHASE_1_RATIO) {
-            lerp(1f, 0.3f, p / PHASE_1_RATIO)
-        } else {
-            lerp(0.3f, 0.1f, (p - PHASE_1_RATIO) / (1f - PHASE_1_RATIO))
+        val typography = LocalSocialTypography.current
+
+        // 缩放：阶段1用 EaseOutBack 弹性缓动 1->0.6，阶段2线性 0.6->0.15
+        val scaleVal = when {
+            p < PHASE_1_RATIO -> {
+                val frac = EaseOutBackEasing.transform(p / PHASE_1_RATIO)
+                lerp(1f, 0.6f, frac)
+            }
+            p < PHASE_2_RATIO -> {
+                val frac = (p - PHASE_1_RATIO) / (PHASE_2_RATIO - PHASE_1_RATIO)
+                lerp(0.6f, 0.15f, frac)
+            }
+            else -> 0.15f
         }
-        // 第二阶段才淡出
-        val alphaVal = if (p < PHASE_1_RATIO) 1f else lerp(1f, 0f, (p - PHASE_1_RATIO) / (1f - PHASE_1_RATIO))
-        // 上移至屏幕中上部
-        val translationYVal = lerp(400f, -200f, p)
+        // 图片透明度：阶段1保持 1，阶段2淡出至 0
+        val alphaVal = when {
+            p < PHASE_1_RATIO -> 1f
+            p < PHASE_2_RATIO -> {
+                val frac = (p - PHASE_1_RATIO) / (PHASE_2_RATIO - PHASE_1_RATIO)
+                lerp(1f, 0f, frac)
+            }
+            else -> 0f
+        }
+        // 上移至屏幕中上部（使用 FastOutSlowInEasing 缓动）
+        val translationYVal = lerp(400f, -200f, FastOutSlowInEasing.transform(p))
+
+        // 成功提示：阶段2淡入，阶段3淡出
+        val successAlpha = when {
+            p < PHASE_1_RATIO -> 0f
+            p < PHASE_2_RATIO -> {
+                val frac = (p - PHASE_1_RATIO) / (PHASE_2_RATIO - PHASE_1_RATIO)
+                lerp(0f, 1f, frac)
+            }
+            else -> {
+                val frac = (p - PHASE_2_RATIO) / (1f - PHASE_2_RATIO)
+                lerp(1f, 0f, frac)
+            }
+        }
+        // 成功提示缩放：阶段2用 EaseOutBack 弹性放大 0.3->1，阶段3略缩小
+        val successScale = when {
+            p < PHASE_1_RATIO -> 0.3f
+            p < PHASE_2_RATIO -> {
+                val frac = EaseOutBackEasing.transform(
+                    (p - PHASE_1_RATIO) / (PHASE_2_RATIO - PHASE_1_RATIO)
+                )
+                lerp(0.3f, 1f, frac)
+            }
+            else -> {
+                val frac = (p - PHASE_2_RATIO) / (1f - PHASE_2_RATIO)
+                lerp(1f, 0.8f, frac)
+            }
+        }
 
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = alphaVal * 0.4f)),
+                .background(Color.Black.copy(alpha = maxOf(alphaVal, successAlpha) * 0.4f)),
             contentAlignment = Alignment.Center,
         ) {
+            // 预览图（仅当有路径时显示）
             val path = imagePath
             if (path != null) {
                 AsyncImage(
@@ -296,6 +360,30 @@ private fun PublishFlyInOverlay(
                         },
                 )
             }
+            // 成功提示：checkmark + 文本（降级模式下也显示，保证最小成功反馈）
+            if (successAlpha > 0f) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.graphicsLayer {
+                        alpha = successAlpha
+                        scaleX = successScale
+                        scaleY = successScale
+                    },
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Check,
+                        contentDescription = "发布成功",
+                        tint = Color.White,
+                        modifier = Modifier.size(48.dp),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "发布成功",
+                        color = Color.White,
+                        style = typography.body,
+                    )
+                }
+            }
         }
     }
 }
@@ -306,5 +394,16 @@ private fun PublishFlyInOverlay(
 private fun lerp(start: Float, stop: Float, fraction: Float): Float =
     start + (stop - start) * fraction.coerceIn(0f, 1f)
 
-private const val PUBLISH_ANIM_DURATION_MS = 400
-private const val PHASE_1_RATIO = 0.75f // 300/400
+/**
+ * EaseOutBack 缓动：末尾带轻微过冲，让缩放更有弹性。
+ */
+private val EaseOutBackEasing = Easing { fraction ->
+    val c1 = 1.70158f
+    val c3 = c1 + 1f
+    val t = fraction - 1f
+    1f + c3 * t * t * t + c1 * t * t
+}
+
+private const val PUBLISH_ANIM_DURATION_MS = 700
+private const val PHASE_1_RATIO = 3f / 7f // 300/700
+private const val PHASE_2_RATIO = 6f / 7f // 600/700
