@@ -2,6 +2,8 @@ package com.trae.social.onboarding
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -44,7 +46,11 @@ fun OnboardingNavHost(
         startDestination = OnboardingRoute.WELCOME,
         modifier = modifier
             .fillMaxSize()
-            .background(colors.systemBackground),
+            .background(colors.systemBackground)
+            // IMPL-49 / #41：引导流程统一处理系统栏 inset，避免标题被状态栏/刘海遮挡，
+            // 底部内容被手势条遮挡；各子屏幕不再单独硬编码 top/bottom padding。
+            .statusBarsPadding()
+            .navigationBarsPadding(),
     ) {
         composable(OnboardingRoute.WELCOME) {
             WelcomeScreen(

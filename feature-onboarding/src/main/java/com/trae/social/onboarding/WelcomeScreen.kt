@@ -60,7 +60,8 @@ fun WelcomeScreen(
             .background(colors.systemBackground)
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp)
-            .padding(top = 48.dp, bottom = 24.dp),
+            // IMPL-49 / #41：顶部/底部系统栏 inset 由 OnboardingNavHost 统一处理
+            .padding(top = 16.dp, bottom = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
