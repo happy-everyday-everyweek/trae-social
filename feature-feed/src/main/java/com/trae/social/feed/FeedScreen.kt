@@ -81,7 +81,7 @@ fun FeedScreen(
 
     // 互动弹层状态
     var commentTarget by remember { mutableStateOf<TweetWithAuthor?>(null) }
-    var fullScreenImageUri by remember { mutableStateOf<String?>(null) }
+    var fullScreenTarget by remember { mutableStateOf<FullScreenImageTarget?>(null) }
     var retweetTarget by remember { mutableStateOf<TweetWithAuthor?>(null) }
 
     val refreshState = pagingItems.loadState.refresh
@@ -124,7 +124,7 @@ fun FeedScreen(
                 likedIds = likedIds,
                 bookmarkedIds = bookmarkedIds,
                 imageLoader = viewModel.imageLoader,
-                onImageClick = { fullScreenImageUri = it },
+                onImageClick = { uris, index -> fullScreenTarget = FullScreenImageTarget(uris, index) },
                 onLikeClick = { item ->
                     viewModel.likeTweet(item.tweet.id, item.tweet.authorId)
                 },
@@ -151,11 +151,12 @@ fun FeedScreen(
     }
 
     // 大图查看器
-    fullScreenImageUri?.let { uri ->
+    fullScreenTarget?.let { target ->
         FullScreenImage(
-            imageUri = uri,
+            imageUris = target.imageUris,
+            initialIndex = target.initialIndex,
             imageLoader = viewModel.imageLoader,
-            onDismiss = { fullScreenImageUri = null },
+            onDismiss = { fullScreenTarget = null },
         )
     }
 
@@ -172,6 +173,14 @@ fun FeedScreen(
 }
 
 /**
+ * 大图查看器打开目标：该推文全部图片 URI + 被点击图片下标。
+ */
+private data class FullScreenImageTarget(
+    val imageUris: List<String>,
+    val initialIndex: Int,
+)
+
+/**
  * 信息流列表：LazyColumn + key + 上拉加载 footer。
  */
 @Composable
@@ -180,7 +189,7 @@ private fun FeedList(
     likedIds: Set<String>,
     bookmarkedIds: Set<String>,
     imageLoader: ImageLoader,
-    onImageClick: (String) -> Unit,
+    onImageClick: (List<String>, Int) -> Unit,
     onLikeClick: (TweetWithAuthor) -> Unit,
     onCommentClick: (TweetWithAuthor) -> Unit,
     onRetweetClick: (TweetWithAuthor) -> Unit,
