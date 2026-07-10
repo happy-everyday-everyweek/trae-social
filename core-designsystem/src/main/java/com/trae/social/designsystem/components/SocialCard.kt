@@ -14,6 +14,7 @@ import com.trae.social.designsystem.theme.LocalSocialColors
  * 通用卡片：圆角 12dp + 微阴影。
  *
  * 对齐 iOS 分组卡片视觉（systemBackground 底色 + 轻投影）。
+ * #32：圆角默认 12dp 对应 [com.trae.social.designsystem.theme.SocialShapes.medium]。
  *
  * @param cornerRadius 圆角半径，默认 12dp
  * @param elevation 阴影高度，默认 1dp（微阴影）

@@ -19,7 +19,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -50,6 +49,7 @@ import coil.request.ImageRequest
 import com.trae.social.designsystem.components.LoadingShimmer
 import com.trae.social.designsystem.components.SocialDivider
 import com.trae.social.designsystem.theme.LocalSocialColors
+import com.trae.social.designsystem.theme.LocalSocialTypography
 
 /**
  * 时间线（我的相册）页面：朋友圈式布局。
@@ -150,6 +150,7 @@ private fun TimelineContent(
 @Composable
 private fun TimelineHeader() {
     val colors = LocalSocialColors.current
+    val typography = LocalSocialTypography.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -161,13 +162,13 @@ private fun TimelineHeader() {
         Column {
             Text(
                 text = "我的相册",
-                style = MaterialTheme.typography.titleLarge,
+                style = typography.headline,
                 fontWeight = FontWeight.Bold,
                 color = colors.label,
             )
             Text(
                 text = "我",
-                style = MaterialTheme.typography.bodySmall,
+                style = typography.subheadline,
                 color = colors.secondaryLabel,
             )
         }
@@ -182,6 +183,7 @@ private fun TimelineHeader() {
 @Composable
 private fun MonogramAvatar(modifier: Modifier = Modifier) {
     val colors = LocalSocialColors.current
+    val typography = LocalSocialTypography.current
     Box(
         modifier = modifier
             .clip(CircleShape)
@@ -191,7 +193,7 @@ private fun MonogramAvatar(modifier: Modifier = Modifier) {
         Text(
             text = "我",
             color = Color.White,
-            style = MaterialTheme.typography.titleMedium,
+            style = typography.body,
             fontWeight = FontWeight.Bold,
         )
     }
@@ -206,6 +208,7 @@ private fun GroupBlock(
     onImageClick: (TimelineGroup, Int) -> Unit,
 ) {
     val colors = LocalSocialColors.current
+    val typography = LocalSocialTypography.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -213,7 +216,7 @@ private fun GroupBlock(
     ) {
         Text(
             text = group.dateLabel,
-            style = MaterialTheme.typography.titleSmall,
+            style = typography.subheadline,
             fontWeight = FontWeight.SemiBold,
             color = colors.label,
         )
@@ -277,7 +280,8 @@ private fun SingleImageLayout(item: TimelineItem, onClick: () -> Unit) {
  */
 @Composable
 private fun TwoImageLayout(items: List<TimelineItem>, onClick: (Int) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+    // #32：网格间距 2dp→4dp，与全项目间距节奏一致
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         items.forEachIndexed { index, item ->
             Column(modifier = Modifier.weight(1f)) {
                 TimelineImageCell(
@@ -313,8 +317,9 @@ private fun ThreeImageLayout(items: List<TimelineItem>, onClick: (Int) -> Unit) 
             onClick = { onClick(0) },
         )
         ImageCaption(item = big)
-        Spacer(modifier = Modifier.size(2.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        Spacer(modifier = Modifier.size(4.dp))
+        // #32：网格间距 2dp→4dp
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             smalls.forEachIndexed { index, item ->
                 TimelineImageCell(
                     item = item,
@@ -339,9 +344,11 @@ private fun GridImageLayout(items: List<TimelineItem>, onClick: (Int) -> Unit) {
     val totalCount = items.size
     val displayCount = minOf(totalCount, GRID_MAX_DISPLAY)
     val rows = (0 until displayCount).chunked(GRID_COLUMNS)
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    val typography = LocalSocialTypography.current
+    // #32：网格间距 2dp→4dp，与全项目间距节奏一致
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         rows.forEach { rowIndices ->
-            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 rowIndices.forEach { index ->
                     val isOverflowCell = index == GRID_MAX_DISPLAY - 1 && totalCount > GRID_MAX_DISPLAY
                     val overlay = if (isOverflowCell) "+${totalCount - GRID_MAX_DISPLAY}" else null
@@ -351,7 +358,8 @@ private fun GridImageLayout(items: List<TimelineItem>, onClick: (Int) -> Unit) {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(1f)
-                                .clip(RoundedCornerShape(4.dp)),
+                                // #32：网格单元圆角 4dp→8dp，对齐 SocialShapes.small
+                                .clip(RoundedCornerShape(8.dp)),
                             contentScale = ContentScale.Crop,
                             onClick = { onClick(index) },
                         )
@@ -365,7 +373,7 @@ private fun GridImageLayout(items: List<TimelineItem>, onClick: (Int) -> Unit) {
                                 Text(
                                     text = overlay,
                                     color = Color.White,
-                                    style = MaterialTheme.typography.titleLarge,
+                                    style = typography.headline,
                                     fontWeight = FontWeight.Bold,
                                 )
                             }
@@ -416,16 +424,17 @@ private fun TimelineImageCell(
 @Composable
 private fun ImageCaption(item: TimelineItem) {
     val colors = LocalSocialColors.current
+    val typography = LocalSocialTypography.current
     Column(modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)) {
         Text(
             text = item.timeLabel,
-            style = MaterialTheme.typography.labelSmall,
+            style = typography.caption2,
             color = colors.tertiaryLabel,
         )
         if (item.text.isNotBlank()) {
             Text(
                 text = item.text,
-                style = MaterialTheme.typography.bodySmall,
+                style = typography.subheadline,
                 color = colors.secondaryLabel,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -471,6 +480,7 @@ private fun TimelineLoading() {
 @Composable
 private fun TimelineEmpty(onPublishClick: () -> Unit) {
     val colors = LocalSocialColors.current
+    val typography = LocalSocialTypography.current
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -483,13 +493,13 @@ private fun TimelineEmpty(onPublishClick: () -> Unit) {
         Spacer(modifier = Modifier.size(24.dp))
         Text(
             text = "还没有带图推文",
-            style = MaterialTheme.typography.titleMedium,
+            style = typography.body,
             color = colors.label,
         )
         Spacer(modifier = Modifier.size(8.dp))
         Text(
             text = "发布第一条带图推文，开始记录你的相册",
-            style = MaterialTheme.typography.bodySmall,
+            style = typography.subheadline,
             color = colors.secondaryLabel,
         )
         Spacer(modifier = Modifier.size(24.dp))
@@ -547,6 +557,7 @@ private fun EmptyIllustration(modifier: Modifier = Modifier) {
 @Composable
 private fun TimelineError(message: String) {
     val colors = LocalSocialColors.current
+    val typography = LocalSocialTypography.current
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -557,13 +568,13 @@ private fun TimelineError(message: String) {
     ) {
         Text(
             text = "加载失败",
-            style = MaterialTheme.typography.titleMedium,
+            style = typography.body,
             color = colors.label,
         )
         Spacer(modifier = Modifier.size(8.dp))
         Text(
             text = message,
-            style = MaterialTheme.typography.bodySmall,
+            style = typography.subheadline,
             color = colors.secondaryLabel,
         )
     }

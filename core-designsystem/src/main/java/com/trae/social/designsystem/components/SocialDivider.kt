@@ -8,16 +8,17 @@ import androidx.compose.ui.unit.dp
 import com.trae.social.designsystem.theme.LocalSocialColors
 
 /**
- * 分隔线：1px separator 色。
+ * 分隔线：0.5px separator 色。
  *
  * 对齐 iOS separator 视觉，颜色取自主题 separator token。
+ * #32：全局统一厚度为 0.5dp（对齐 iOS separator），不再各处自定义。
  *
- * @param thickness 厚度，默认 1dp
+ * @param thickness 厚度，默认 0.5dp
  */
 @Composable
 fun SocialDivider(
     modifier: Modifier = Modifier,
-    thickness: Dp = 1.dp,
+    thickness: Dp = 0.5.dp,
 ) {
     val colors = LocalSocialColors.current
     HorizontalDivider(
