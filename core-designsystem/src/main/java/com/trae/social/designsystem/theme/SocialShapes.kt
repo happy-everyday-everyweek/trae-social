@@ -1,10 +1,10 @@
 package com.trae.social.designsystem.theme
 
+import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Shapes
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
 
 /**
@@ -18,10 +18,10 @@ import androidx.compose.ui.unit.dp
  */
 @Immutable
 data class SocialShapes(
-    val small: Shape,
-    val medium: Shape,
-    val large: Shape,
-    val extraLarge: Shape,
+    val small: CornerBasedShape,
+    val medium: CornerBasedShape,
+    val large: CornerBasedShape,
+    val extraLarge: CornerBasedShape,
 )
 
 /**
