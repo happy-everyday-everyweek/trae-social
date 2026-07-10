@@ -23,7 +23,6 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -350,6 +349,8 @@ private fun RetweetConfirmDialog(
 @Composable
 private fun EmptyPlaceholder() {
     val colors = LocalSocialColors.current
+    // #30：统一使用 LocalSocialTypography token
+    val typography = LocalSocialTypography.current
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
@@ -375,13 +376,15 @@ private fun EmptyPlaceholder() {
             ) {
                 Text(
                     text = ":-)",
-                    style = MaterialTheme.typography.headlineMedium,
+                    // #30：headlineMedium → title2
+                    style = typography.title2,
                     color = colors.tertiaryLabel,
                 )
             }
             Text(
                 text = "暂无推文，去发布第一条吧",
-                style = MaterialTheme.typography.bodyLarge,
+                // #30：bodyLarge → body
+                style = typography.body,
                 color = colors.secondaryLabel,
                 textAlign = TextAlign.Center,
             )
@@ -398,6 +401,8 @@ private fun ErrorPlaceholder(
     onRetry: () -> Unit,
 ) {
     val colors = LocalSocialColors.current
+    // #30：统一使用 LocalSocialTypography token
+    val typography = LocalSocialTypography.current
     // #31：将技术性 error.message 转译为友好提示
     val friendlyMessage = friendlyErrorMessage(message)
     Box(
@@ -431,13 +436,15 @@ private fun ErrorPlaceholder(
             }
             Text(
                 text = "加载失败",
-                style = MaterialTheme.typography.titleMedium,
+                // #30：titleMedium → body
+                style = typography.body,
                 color = colors.label,
                 textAlign = TextAlign.Center,
             )
             Text(
                 text = friendlyMessage,
-                style = MaterialTheme.typography.bodyMedium,
+                // #30：bodyMedium → callout
+                style = typography.callout,
                 color = colors.secondaryLabel,
                 textAlign = TextAlign.Center,
             )
@@ -492,6 +499,8 @@ private fun LoadingFooter() {
 @Composable
 private fun ErrorFooter(onRetry: () -> Unit) {
     val colors = LocalSocialColors.current
+    // #30：统一使用 LocalSocialTypography token
+    val typography = LocalSocialTypography.current
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -501,7 +510,8 @@ private fun ErrorFooter(onRetry: () -> Unit) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = "加载失败",
-                style = MaterialTheme.typography.labelMedium,
+                // #30：labelMedium → caption1
+                style = typography.caption1,
                 color = colors.tertiaryLabel,
             )
             TextButton(onClick = onRetry) { Text("重试") }
@@ -512,6 +522,8 @@ private fun ErrorFooter(onRetry: () -> Unit) {
 @Composable
 private fun EndOfListFooter() {
     val colors = LocalSocialColors.current
+    // #30：统一使用 LocalSocialTypography token
+    val typography = LocalSocialTypography.current
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -520,7 +532,8 @@ private fun EndOfListFooter() {
     ) {
         Text(
             text = "已加载全部",
-            style = MaterialTheme.typography.labelMedium,
+            // #30：labelMedium → caption1
+            style = typography.caption1,
             color = colors.tertiaryLabel,
         )
     }
@@ -535,6 +548,8 @@ private fun EndOfListFooter() {
 @Composable
 private fun OnboardingSkippedBanner(onNavigateToSettings: () -> Unit) {
     val colors = LocalSocialColors.current
+    // #30：统一使用 LocalSocialTypography token
+    val typography = LocalSocialTypography.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -546,12 +561,14 @@ private fun OnboardingSkippedBanner(onNavigateToSettings: () -> Unit) {
     ) {
         Text(
             text = "AI 服务未配置，部分功能不可用",
-            style = MaterialTheme.typography.bodySmall,
+            // #30：bodySmall → subheadline
+            style = typography.subheadline,
             color = colors.systemBlue,
         )
         Text(
             text = "前往设置 >",
-            style = MaterialTheme.typography.labelLarge,
+            // #30：labelLarge → subheadline
+            style = typography.subheadline,
             color = colors.systemBlue,
         )
     }
