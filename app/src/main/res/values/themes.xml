@@ -3,9 +3,12 @@
 
     <!-- 应用基础主题，Compose 内容在代码中通过 SocialTheme 接管配色。
          XML 主题仅提供窗口背景与状态栏/导航栏透明，用于 edge-to-edge。
-         IMPL-49 / #44：改用 DayNight 体系，深色模式下冷启动窗口背景跟随系统夜间模式，
-         避免冷启动白屏闪烁；状态栏图标外观由 SocialTheme 运行时按 darkTheme 覆盖。 -->
-    <style name="Theme.Social" parent="android:Theme.Material.DayNight.NoActionBar">
+         IMPL-49 / #44：明色基础主题，深色模式由 values-night/themes.xml 覆盖（同 style 名），
+         使冷启动窗口背景跟随系统夜间模式，避免白屏闪烁。
+         注意：framework 无 Theme.Material.DayNight.NoActionBar（DayNight 属 AppCompat/Material 库），
+         故用 values-night 限定符覆盖而非 DayNight 父主题。
+         状态栏图标外观由 SocialTheme 运行时按 darkTheme 覆盖。 -->
+    <style name="Theme.Social" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/background</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
