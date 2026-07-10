@@ -19,7 +19,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -37,8 +36,12 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
@@ -47,7 +50,9 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import coil.ImageLoader
 import com.trae.social.designsystem.components.LoadingShimmer
+import com.trae.social.designsystem.components.SocialCard
 import com.trae.social.designsystem.theme.LocalSocialColors
+import com.trae.social.designsystem.theme.LocalSocialTypography
 
 /**
  * 信息流屏幕。
@@ -153,21 +158,14 @@ fun FeedScreen(
         )
     }
 
-    // 转发确认弹窗
+    // 转发确认弹窗（#37：自定义 on-brand 确认层，替代系统 AlertDialog）
     retweetTarget?.let { item ->
-        AlertDialog(
-            onDismissRequest = { retweetTarget = null },
-            title = { Text("确认转发？") },
-            text = { Text("将转发此推文到你的主页") },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.retweetTweet(item.tweet)
-                    retweetTarget = null
-                }) { Text("转发") }
+        RetweetConfirmDialog(
+            onConfirm = {
+                viewModel.retweetTweet(item.tweet)
+                retweetTarget = null
             },
-            dismissButton = {
-                TextButton(onClick = { retweetTarget = null }) { Text("取消") }
-            },
+            onDismiss = { retweetTarget = null },
         )
     }
 }
@@ -288,6 +286,63 @@ private fun ShimmerCard() {
 }
 
 /**
+ * 转发确认弹层（#37）。
+ *
+ * 替代系统 AlertDialog，使用 SocialCard + 项目主题色/字体，与应用设计语言一致：
+ * 标题 title3、正文 body、确认按钮 systemBlue、背景 secondaryBackground，圈角 16dp。
+ */
+@Composable
+private fun RetweetConfirmDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = LocalSocialColors.current
+    val typography = LocalSocialTypography.current
+    Dialog(onDismissRequest = onDismiss) {
+        SocialCard(
+            modifier = Modifier.fillMaxWidth(),
+            cornerRadius = 16.dp,
+            elevation = 0.dp,
+        ) {
+            Column(modifier = Modifier.padding(24.dp)) {
+                Text(
+                    text = "确认转发？",
+                    style = typography.title3,
+                    color = colors.label,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "将转发此推文到你的主页",
+                    style = typography.body,
+                    color = colors.secondaryLabel,
+                )
+                Spacer(Modifier.height(24.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text(
+                            text = "取消",
+                            style = typography.body,
+                            color = colors.secondaryLabel,
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(onClick = onConfirm) {
+                        Text(
+                            text = "转发",
+                            style = typography.body.copy(fontWeight = FontWeight.SemiBold),
+                            color = colors.systemBlue,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
  * 空状态。
  */
 @Composable
@@ -300,14 +355,20 @@ private fun EmptyPlaceholder() {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.padding(32.dp),
+            modifier = Modifier
+                .padding(32.dp)
+                // #33：空状态整体合并为一句话义，TalkBack 一次朗读，避免 ":-)" 被读成字符
+                .semantics(mergeDescendants = true) {
+                    contentDescription = "暂无推文，去发布第一条吧"
+                },
         ) {
-            // 简易空状态插画：灰色圆角方块占位
+            // 简易空状态插画：灰色圆角方块占位（装饰性，不单独朗读）
             Box(
                 modifier = Modifier
                     .size(80.dp)
                     .clip(RoundedCornerShape(20.dp))
-                    .background(colors.tertiaryBackground),
+                    .background(colors.tertiaryBackground)
+                    .semantics { contentDescription = "" },
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
