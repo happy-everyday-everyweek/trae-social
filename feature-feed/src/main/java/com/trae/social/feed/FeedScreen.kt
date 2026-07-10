@@ -213,6 +213,8 @@ private fun FeedList(
                     onCommentClick = { onCommentClick(item) },
                     onRetweetClick = { onRetweetClick(item) },
                     onBookmarkClick = { onBookmarkClick(item) },
+                    // #23：列表项进场/位移动画，下拉刷新与新增项有平滑过渡
+                    modifier = Modifier.animateItem(),
                 )
             }
         }

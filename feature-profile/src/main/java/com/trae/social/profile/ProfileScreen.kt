@@ -213,8 +213,11 @@ private fun TweetsTab(
     }
     LazyColumn(Modifier.fillMaxSize()) {
         items(tweets, key = { it.id }) { tweet ->
-            ProfileTweetRow(tweet = tweet, imageLoader = imageLoader)
-            SocialDivider(thickness = 0.5.dp)
+            // #23：列表项进场/位移动画
+            Column(Modifier.animateItem()) {
+                ProfileTweetRow(tweet = tweet, imageLoader = imageLoader)
+                SocialDivider(thickness = 0.5.dp)
+            }
         }
     }
 }
