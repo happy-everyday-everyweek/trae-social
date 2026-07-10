@@ -47,6 +47,10 @@ class ProfileViewModel @Inject constructor(
     private val _selectedTab = MutableStateFlow(ProfileTab.TWEETS)
     val selectedTab: StateFlow<ProfileTab> = _selectedTab.asStateFlow()
 
+    /** 已点赞推文 ID 集合（乐观更新，与 feature-feed FeedViewModel 一致） */
+    private val _likedTweetIds = MutableStateFlow<Set<String>>(emptySet())
+    val likedTweetIds: StateFlow<Set<String>> = _likedTweetIds.asStateFlow()
+
     init {
         loadProfile()
         loadActivityLevel()
@@ -99,6 +103,55 @@ class ProfileViewModel @Inject constructor(
             runCatching { configRepository.setAiActivityLevel(level) }
                 .onSuccess { _activityLevel.value = level }
                 .onFailure { Timber.w(it, "切换活跃度档位失败") }
+        }
+    }
+
+    /**
+     * 切换点赞状态（#8）：乐观更新本地集合，后台持久化 likeCount。
+     *
+     * 与 feature-feed 一致：DB likeCount 为计数唯一数据源，乐观更新通过
+     * [TweetRepository.updateLikeCount] 写入，Room 重发后 [tweetsFlow] 携带新计数。
+     */
+    fun toggleLike(tweetId: String) {
+        val wasLiked = tweetId in _likedTweetIds.value
+        val newSet = _likedTweetIds.value.toMutableSet()
+        if (wasLiked) newSet.remove(tweetId) else newSet.add(tweetId)
+        _likedTweetIds.value = newSet
+        viewModelScope.launch {
+            val delta = if (wasLiked) -1 else 1
+            runCatching { tweetRepository.updateLikeCount(tweetId, delta) }
+                .onFailure {
+                    Timber.w(it, "更新点赞计数失败，回滚本地状态")
+                    val rollback = _likedTweetIds.value.toMutableSet()
+                    if (wasLiked) rollback.add(tweetId) else rollback.remove(tweetId)
+                    _likedTweetIds.value = rollback
+                }
+        }
+    }
+
+    /**
+     * 评论（#8）：评论计数 +1 持久化。
+     *
+     * 注：个人主页暂未接入评论弹层与 CommentRepository（避免引入跨 feature 依赖），
+     * 此处仅持久化计数，提供与信息流一致的互动反馈。
+     */
+    fun commentTweet(tweetId: String) {
+        viewModelScope.launch {
+            runCatching { tweetRepository.updateCommentCount(tweetId, 1) }
+                .onFailure { Timber.w(it, "更新评论计数失败") }
+        }
+    }
+
+    /**
+     * 转发（#8）：转发计数 +1 持久化。
+     *
+     * 注：暂不创建转发推文副本与排程互动（避免引入 InteractionRepository 依赖），
+     * 仅持久化计数，保持互动按钮可用。
+     */
+    fun retweetTweet(tweetId: String) {
+        viewModelScope.launch {
+            runCatching { tweetRepository.updateRetweetCount(tweetId, 1) }
+                .onFailure { Timber.w(it, "更新转发计数失败") }
         }
     }
 
