@@ -62,7 +62,8 @@ fun ConnectionTestScreen(
             .fillMaxSize()
             .background(colors.systemBackground)
             .padding(horizontal = 24.dp)
-            .padding(top = 24.dp, bottom = 24.dp),
+            // IMPL-49 / #41：顶部/底部系统栏 inset 由 OnboardingNavHost 统一处理
+            .padding(top = 8.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(

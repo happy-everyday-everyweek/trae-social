@@ -199,6 +199,8 @@ private fun MainScaffold() {
                 }
             },
         ) { innerPadding ->
+            // IMPL-49 / #45：NavHost 容器不施加 innerPadding，由各子屏幕按需应用，
+            // 避免 publish 全屏路由被底部 padding 裁切；同时保证各屏幕一致处理 inset。
             NavHost(
                 navController = navController,
                 startDestination = AppRoutes.FEED,
@@ -230,90 +232,90 @@ private fun MainScaffold() {
                         onScrollingChange = { isScrolling = it },
                     )
                 }
-            composable(
-                route = AppRoutes.PROFILE,
-                enterTransition = { fadeIn() },
-                exitTransition = { fadeOut() },
-                popEnterTransition = { fadeIn() },
-                popExitTransition = { fadeOut() },
-            ) {
-                ProfileScreen(
-                    onNavigateToSettings = { navController.navigate(AppRoutes.SETTINGS) },
-                    onNavigateToFollowList = { type ->
-                        navController.navigate(AppRoutes.followList(type.name))
-                    },
-                    modifier = Modifier.fillMaxSize().padding(innerPadding),
-                )
+                composable(
+                    route = AppRoutes.PROFILE,
+                    enterTransition = { fadeIn() },
+                    exitTransition = { fadeOut() },
+                    popEnterTransition = { fadeIn() },
+                    popExitTransition = { fadeOut() },
+                ) {
+                    ProfileScreen(
+                        onNavigateToSettings = { navController.navigate(AppRoutes.SETTINGS) },
+                        onNavigateToFollowList = { type ->
+                            navController.navigate(AppRoutes.followList(type.name))
+                        },
+                        modifier = Modifier.fillMaxSize().padding(innerPadding),
+                    )
+                }
+                composable(
+                    route = AppRoutes.SETTINGS,
+                    enterTransition = { fadeIn() },
+                    exitTransition = { fadeOut() },
+                    popEnterTransition = { fadeIn() },
+                    popExitTransition = { fadeOut() },
+                ) {
+                    SettingsScreen(
+                        onBack = { navController.popBackStack() },
+                        onNavigateToApiKey = { navController.navigate(AppRoutes.API_KEY) },
+                        onNavigateToDevOptions = { navController.navigate(AppRoutes.DEV_OPTIONS) },
+                        modifier = Modifier.fillMaxSize().padding(innerPadding),
+                    )
+                }
+                composable(
+                    route = AppRoutes.API_KEY,
+                    enterTransition = { fadeIn() },
+                    exitTransition = { fadeOut() },
+                    popEnterTransition = { fadeIn() },
+                    popExitTransition = { fadeOut() },
+                ) {
+                    ApiKeyManagementScreen(
+                        onBack = { navController.popBackStack() },
+                        modifier = Modifier.fillMaxSize().padding(innerPadding),
+                    )
+                }
+                composable(
+                    route = AppRoutes.DEV_OPTIONS,
+                    enterTransition = { fadeIn() },
+                    exitTransition = { fadeOut() },
+                    popEnterTransition = { fadeIn() },
+                    popExitTransition = { fadeOut() },
+                ) {
+                    DevOptionsScreen(
+                        onBack = { navController.popBackStack() },
+                        modifier = Modifier.fillMaxSize().padding(innerPadding),
+                    )
+                }
+                composable(
+                    route = AppRoutes.FOLLOW_LIST,
+                    arguments = listOf(navArgument(AppRoutes.FOLLOW_LIST_TYPE_ARG) { type = NavType.StringType }),
+                    enterTransition = { fadeIn() },
+                    exitTransition = { fadeOut() },
+                    popEnterTransition = { fadeIn() },
+                    popExitTransition = { fadeOut() },
+                ) { backStackEntry ->
+                    val typeName = backStackEntry.arguments?.getString(AppRoutes.FOLLOW_LIST_TYPE_ARG) ?: "FOLLOWING"
+                    val type = runCatching { FollowListType.valueOf(typeName) }
+                        .getOrElse { FollowListType.FOLLOWING }
+                    FollowListScreen(
+                        type = type,
+                        onBack = { navController.popBackStack() },
+                        modifier = Modifier.fillMaxSize().padding(innerPadding),
+                    )
+                }
+                composable(
+                    route = AppRoutes.PUBLISH,
+                    enterTransition = { slideInVertically(initialOffsetY = { it }) },
+                    exitTransition = { fadeOut() },
+                    popExitTransition = { slideOutVertically(targetOffsetY = { it }) },
+                ) {
+                    // publish 全屏覆盖（含底栏区域），不应用 innerPadding；其内部已自行处理状态栏 inset
+                    PublishScreen(
+                        modifier = Modifier.fillMaxSize(),
+                        onPublished = { navController.popBackStack() },
+                        onClose = { navController.popBackStack() },
+                    )
+                }
             }
-            composable(
-                route = AppRoutes.SETTINGS,
-                enterTransition = { fadeIn() },
-                exitTransition = { fadeOut() },
-                popEnterTransition = { fadeIn() },
-                popExitTransition = { fadeOut() },
-            ) {
-                SettingsScreen(
-                    onBack = { navController.popBackStack() },
-                    onNavigateToApiKey = { navController.navigate(AppRoutes.API_KEY) },
-                    onNavigateToDevOptions = { navController.navigate(AppRoutes.DEV_OPTIONS) },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-            composable(
-                route = AppRoutes.API_KEY,
-                enterTransition = { fadeIn() },
-                exitTransition = { fadeOut() },
-                popEnterTransition = { fadeIn() },
-                popExitTransition = { fadeOut() },
-            ) {
-                ApiKeyManagementScreen(
-                    onBack = { navController.popBackStack() },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-            composable(
-                route = AppRoutes.DEV_OPTIONS,
-                enterTransition = { fadeIn() },
-                exitTransition = { fadeOut() },
-                popEnterTransition = { fadeIn() },
-                popExitTransition = { fadeOut() },
-            ) {
-                DevOptionsScreen(
-                    onBack = { navController.popBackStack() },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-            composable(
-                route = AppRoutes.FOLLOW_LIST,
-                arguments = listOf(navArgument(AppRoutes.FOLLOW_LIST_TYPE_ARG) { type = NavType.StringType }),
-                enterTransition = { fadeIn() },
-                exitTransition = { fadeOut() },
-                popEnterTransition = { fadeIn() },
-                popExitTransition = { fadeOut() },
-            ) { backStackEntry ->
-                val typeName = backStackEntry.arguments?.getString(AppRoutes.FOLLOW_LIST_TYPE_ARG) ?: "FOLLOWING"
-                val type = runCatching { FollowListType.valueOf(typeName) }
-                    .getOrElse { FollowListType.FOLLOWING }
-                FollowListScreen(
-                    type = type,
-                    onBack = { navController.popBackStack() },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-            composable(
-                route = AppRoutes.PUBLISH,
-                enterTransition = { slideInVertically(initialOffsetY = { it }) },
-                exitTransition = { fadeOut() },
-                popExitTransition = { slideOutVertically(targetOffsetY = { it }) },
-            ) {
-                // publish 全屏，不应用底部 padding 以覆盖整屏
-                PublishScreen(
-                    modifier = Modifier.fillMaxSize(),
-                    onPublished = { navController.popBackStack() },
-                    onClose = { navController.popBackStack() },
-                )
-            }
-        }
         } // Scaffold
     } // provideIsScrolling
 }

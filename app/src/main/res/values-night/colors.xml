@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- IMPL-49 / #44：夜间模式窗口背景，与 DarkSocialColors.systemBackground 一致。
+         冷启动阶段（Compose 挂载前）使用此色，避免深色模式白屏闪烁。 -->
+    <color name="background">#000000</color>
+    <color name="ic_launcher_background">#3B6FE6</color>
+
+</resources>
