@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <!-- IMPL-49 / #44：夜间模式主题变体。
-         基础主题硬编码 windowLightStatusBar=true，此处覆盖为 false，
-         使冷启动阶段状态栏图标为浅色（适配深色窗口背景）。
+    <!-- IMPL-49 / #44：夜间模式主题变体（同名 style 由 -night 限定符覆盖 values 默认值）。
+         windowLightStatusBar 覆盖为 false，使冷启动阶段状态栏图标为浅色（适配深色窗口背景）；
+         windowBackground 走 values-night/colors.xml 的深色 background。
          Compose 挂载后由 SocialTheme 运行时按 darkTheme 再次确认外观。 -->
-    <style name="Theme.Social" parent="android:Theme.Material.DayNight.NoActionBar">
+    <style name="Theme.Social" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/background</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
