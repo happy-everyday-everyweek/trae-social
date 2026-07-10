@@ -7,8 +7,11 @@
          使冷启动窗口背景跟随系统夜间模式，避免白屏闪烁。
          注意：framework 无 Theme.Material.DayNight.NoActionBar（DayNight 属 AppCompat/Material 库），
          故用 values-night 限定符覆盖而非 DayNight 父主题。
+         #45：#47 修复 AAPT 时误将 parent 从 Light.NoActionBar 改为 NoActionBar（深色基底），
+         此处恢复为 Light.NoActionBar（明色基底），与原始主题一致；
+         values-night/themes.xml 保持 NoActionBar（深色基底）。
          状态栏图标外观由 SocialTheme 运行时按 darkTheme 覆盖。 -->
-    <style name="Theme.Social" parent="android:Theme.Material.NoActionBar">
+    <style name="Theme.Social" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/background</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
