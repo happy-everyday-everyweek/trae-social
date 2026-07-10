@@ -199,12 +199,13 @@ private fun MainScaffold() {
                 }
             },
         ) { innerPadding ->
-            // IMPL-49 / #45：NavHost 容器不施加 innerPadding，由各子屏幕按需应用，
-            // 避免 publish 全屏路由被底部 padding 裁切；同时保证各屏幕一致处理 inset。
+            // #45：innerPadding 统一在 NavHost 容器层应用，避免内容区覆盖底栏区域。
+            // 各子屏幕不再单独 padding；publish 全屏路由时 showBottomBar=false，
+            // innerPadding.bottom 仅含系统导航栏 inset，publish 内部自行处理状态栏 inset。
             NavHost(
                 navController = navController,
                 startDestination = AppRoutes.FEED,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().padding(innerPadding),
             ) {
                 composable(
                     route = AppRoutes.FEED,
@@ -214,7 +215,7 @@ private fun MainScaffold() {
                     popExitTransition = { fadeOut() },
                 ) {
                     FeedScreen(
-                        modifier = Modifier.fillMaxSize().padding(innerPadding),
+                        modifier = Modifier.fillMaxSize(),
                         onScrollingChange = { isScrolling = it },
                         onNavigateToSettings = { navController.navigate(AppRoutes.SETTINGS) },
                     )
@@ -227,7 +228,7 @@ private fun MainScaffold() {
                     popExitTransition = { fadeOut() },
                 ) {
                     TimelineScreen(
-                        modifier = Modifier.fillMaxSize().padding(innerPadding),
+                        modifier = Modifier.fillMaxSize(),
                         onPublishClick = { navController.navigate(AppRoutes.PUBLISH) },
                         onScrollingChange = { isScrolling = it },
                     )
@@ -244,7 +245,7 @@ private fun MainScaffold() {
                         onNavigateToFollowList = { type ->
                             navController.navigate(AppRoutes.followList(type.name))
                         },
-                        modifier = Modifier.fillMaxSize().padding(innerPadding),
+                        modifier = Modifier.fillMaxSize(),
                     )
                 }
                 composable(
@@ -258,7 +259,7 @@ private fun MainScaffold() {
                         onBack = { navController.popBackStack() },
                         onNavigateToApiKey = { navController.navigate(AppRoutes.API_KEY) },
                         onNavigateToDevOptions = { navController.navigate(AppRoutes.DEV_OPTIONS) },
-                        modifier = Modifier.fillMaxSize().padding(innerPadding),
+                        modifier = Modifier.fillMaxSize(),
                     )
                 }
                 composable(
@@ -270,7 +271,7 @@ private fun MainScaffold() {
                 ) {
                     ApiKeyManagementScreen(
                         onBack = { navController.popBackStack() },
-                        modifier = Modifier.fillMaxSize().padding(innerPadding),
+                        modifier = Modifier.fillMaxSize(),
                     )
                 }
                 composable(
@@ -282,7 +283,7 @@ private fun MainScaffold() {
                 ) {
                     DevOptionsScreen(
                         onBack = { navController.popBackStack() },
-                        modifier = Modifier.fillMaxSize().padding(innerPadding),
+                        modifier = Modifier.fillMaxSize(),
                     )
                 }
                 composable(
@@ -299,7 +300,7 @@ private fun MainScaffold() {
                     FollowListScreen(
                         type = type,
                         onBack = { navController.popBackStack() },
-                        modifier = Modifier.fillMaxSize().padding(innerPadding),
+                        modifier = Modifier.fillMaxSize(),
                     )
                 }
                 composable(
@@ -308,7 +309,9 @@ private fun MainScaffold() {
                     exitTransition = { fadeOut() },
                     popExitTransition = { slideOutVertically(targetOffsetY = { it }) },
                 ) {
-                    // publish 全屏覆盖（含底栏区域），不应用 innerPadding；其内部已自行处理状态栏 inset
+                    // #45：publish 全屏覆盖，NavHost 已统一应用 innerPadding；
+                    // showBottomBar=false 时 innerPadding.bottom 仅含系统导航栏 inset，
+                    // publish 内部自行处理状态栏 inset。
                     PublishScreen(
                         modifier = Modifier.fillMaxSize(),
                         onPublished = { navController.popBackStack() },

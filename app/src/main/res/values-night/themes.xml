@@ -4,6 +4,7 @@
     <!-- IMPL-49 / #44：夜间模式主题变体（同名 style 由 -night 限定符覆盖 values 默认值）。
          windowLightStatusBar 覆盖为 false，使冷启动阶段状态栏图标为浅色（适配深色窗口背景）；
          windowBackground 走 values-night/colors.xml 的深色 background。
+         #45：深色基底 parent=Theme.Material.NoActionBar（深色），与 values/ 的 Light.NoActionBar（明色）对应。
          Compose 挂载后由 SocialTheme 运行时按 darkTheme 再次确认外观。 -->
     <style name="Theme.Social" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/background</item>
