@@ -1,6 +1,13 @@
 package com.trae.social.app.ui
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,11 +28,15 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.trae.social.designsystem.components.GlassBlurContainer
@@ -117,7 +128,18 @@ private fun TabItem(
 ) {
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
-    val contentColor = if (selected) colors.systemBlue else colors.tertiaryLabel
+    // #22：选中/未选中颜色平滑过渡，避免瞬间跳变
+    val contentColor by animateColorAsState(
+        targetValue = if (selected) colors.systemBlue else colors.tertiaryLabel,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "tabContentColor",
+    )
+    // #22：选中圆点缩放进场/退场，替代瞬间出现/消失
+    val dotScale by animateFloatAsState(
+        targetValue = if (selected) 1f else 0f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "tabDotScale",
+    )
 
     Column(
         modifier = modifier.socialClickable(onClick = onClick),
@@ -136,26 +158,22 @@ private fun TabItem(
             style = typography.caption2,
             color = contentColor,
         )
-        // 选中态小圆点（未选中时仍占位 4dp，避免选中/未选中切换时高度跳动）
+        // #22：选中态小圆点缩放进场（未选中时 scale=0 不可见，保持 4dp 占位避免高度跳动）
         Box(
             modifier = Modifier
                 .padding(top = 2.dp)
                 .size(4.dp)
-                .then(
-                    if (selected) {
-                        Modifier.clip(CircleShape).background(color = colors.systemBlue)
-                    } else {
-                        Modifier
-                    }
-                ),
+                .graphicsLayer { scaleX = dotScale; scaleY = dotScale }
+                .clip(CircleShape)
+                .background(color = colors.systemBlue),
         )
     }
 }
 
 /**
- * 发布按钮：与 Tab 栏等高的圆形按钮，systemBlue 背景 + 白色加号。
+ * 发布按钮：与 Tab 栏等高的圆形 FAB，systemBlue 背景 + 白色加号。
  *
- * 标准 Material FAB 尺寸 56dp，与底部栏内容区等高。
+ * #26：按压时弹簧缩放反馈（0.92→1.0），释放后回弹，给予明确的触发动效。
  */
 @Composable
 private fun PublishButton(
@@ -163,12 +181,26 @@ private fun PublishButton(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalSocialColors.current
+    // #26：自建 InteractionSource 追踪按压状态，驱动缩放动效
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.92f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "publishScale",
+    )
+
     Box(
         modifier = modifier
             .size(56.dp)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(CircleShape)
             .background(colors.systemBlue)
-            .socialClickable(onClick = onClick),
+            .clickable(
+                interactionSource = interactionSource,
+                indication = ripple(),
+                onClick = onClick,
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
