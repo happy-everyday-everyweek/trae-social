@@ -1,7 +1,6 @@
 package com.trae.social.designsystem.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -51,7 +50,7 @@ fun CapsuleTab(
                 modifier = Modifier
                     .clip(CircleShape)
                     .background(bgColor)
-                    .clickable { onTabSelected(index) }
+                    .socialClickable { onTabSelected(index) }
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {

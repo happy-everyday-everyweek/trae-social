@@ -1,7 +1,6 @@
 package com.trae.social.profile
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,6 +43,7 @@ import coil.compose.AsyncImage
 import com.trae.social.core.data.entity.TweetEntity
 import com.trae.social.designsystem.components.CapsuleTab
 import com.trae.social.designsystem.components.SocialDivider
+import com.trae.social.designsystem.components.socialClickable
 import com.trae.social.designsystem.theme.socialColors
 
 /**
@@ -188,7 +188,8 @@ private fun ProfileHeader(
 @Composable
 private fun StatItem(label: String, value: String, onClick: (() -> Unit)? = null) {
     val colors = socialColors()
-    val mod = if (onClick != null) Modifier.clickable { onClick() } else Modifier
+    // #21：可点击统计项加水波纹按压反馈
+    val mod = if (onClick != null) Modifier.socialClickable { onClick() } else Modifier
     Row(mod, verticalAlignment = Alignment.Bottom) {
         Text(value, fontWeight = FontWeight.Bold, color = colors.label, fontSize = 16.sp)
         Spacer(Modifier.width(4.dp))

@@ -19,13 +19,17 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.trae.social.designsystem.components.ActionButton
@@ -79,12 +83,13 @@ fun WelcomeScreen(
         )
 
         Column(
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            BulletPoint(text = "由 LLM 驱动的高拟真社交生态")
-            BulletPoint(text = "200+ 虚拟账号与你实时互动")
-            BulletPoint(text = "完全本地运行，数据私密可控")
+            // #35：要点升级为图标 + 文案，比纯色圆点更具语义表达
+            BulletPoint(text = "由 LLM 驱动的高拟真社交生态", icon = Icons.Filled.AutoAwesome)
+            BulletPoint(text = "200+ 虚拟账号与你实时互动", icon = Icons.Filled.Group)
+            BulletPoint(text = "完全本地运行，数据私密可控", icon = Icons.Filled.Lock)
         }
 
         Spacer(Modifier.height(8.dp))
@@ -170,10 +175,13 @@ private fun WelcomeIllustration(modifier: Modifier = Modifier) {
 }
 
 /**
- * 单条要点行：圆形项目符号 + 文案。
+ * 单条要点行：图标圆形徽标 + 文案（#35 升级，替代原 8dp 蓝点）。
+ *
+ * 图标置于 systemBlue 12% 透明的圆形底色中，tint 为 systemBlue，
+ * 既保留品牌色基调，又比纯色圆点更具语义表达力。
  */
 @Composable
-private fun BulletPoint(text: String) {
+private fun BulletPoint(text: String, icon: ImageVector) {
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
 
@@ -184,10 +192,18 @@ private fun BulletPoint(text: String) {
     ) {
         Box(
             modifier = Modifier
-                .size(8.dp)
+                .size(28.dp)
                 .clip(CircleShape)
-                .background(colors.systemBlue),
-        )
+                .background(colors.systemBlue.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = colors.systemBlue,
+                modifier = Modifier.size(16.dp),
+            )
+        }
         Text(
             text = text,
             style = typography.body,
