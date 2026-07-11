@@ -5,6 +5,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.int
+import timber.log.Timber
 
 /**
  * 评论生成 Prompt 构建器（SubTask 5.2）。
@@ -108,24 +109,44 @@ class CommentPromptBuilder {
          *
          * 提取首个 JSON 数组片段后逐条解析；单条字段缺失或类型不符时跳过该条，
          * 不影响其余条目。整体无法解析时返回空列表。
+         *
+         * @param rawText LLM 返回的原始文本。
+         * @param commenterCount 评论者数量；传入时用于校验 commenterIndex 上界，
+         *   越界条目在 builder 层即被过滤并记录 warn 日志，避免下游静默丢弃、
+         *   浪费已消耗的 LLM token。默认 [Int.MAX_VALUE] 表示不校验上界（向后兼容）。
          */
-        fun parseCommentResults(rawText: String): List<CommentResult> {
+        @JvmOverloads
+        fun parseCommentResults(
+            rawText: String,
+            commenterCount: Int = Int.MAX_VALUE,
+        ): List<CommentResult> {
             val jsonStr = PromptUtils.extractJsonArray(rawText) ?: return emptyList()
             val arr = PromptUtils.safeParseJsonArray(jsonStr, parser) ?: return emptyList()
             val results = mutableListOf<CommentResult>()
+            var outOfBounds = 0
             for (element in arr) {
                 val obj = element as? JsonObject ?: continue
-                val parsed = parseOne(obj) ?: continue
+                val parsed = parseOne(obj, commenterCount)
+                if (parsed == null) {
+                    // parseOne 返回 null 的原因之一是越界；统计用于日志。
+                    if (obj["commenterIndex"] != null) outOfBounds++
+                    continue
+                }
                 results.add(parsed)
+            }
+            if (outOfBounds > 0) {
+                Timber.w("评论解析：commenterIndex 越界被过滤 %d 条（评论者数=%d）", outOfBounds, commenterCount)
             }
             return results
         }
 
-        private fun parseOne(obj: JsonObject): CommentResult? {
+        private fun parseOne(obj: JsonObject, commenterCount: Int): CommentResult? {
             val index = (obj["commenterIndex"] as? JsonPrimitive)?.let {
                 runCatching { it.int }.getOrNull()
             } ?: return null
+            // 校验上下界：下界 <0 或上界 >= commenterCount 均视为非法，在 builder 层过滤。
             if (index < 0) return null
+            if (commenterCount != Int.MAX_VALUE && index >= commenterCount) return null
 
             val text = (obj["text"] as? JsonPrimitive)?.content ?: ""
 

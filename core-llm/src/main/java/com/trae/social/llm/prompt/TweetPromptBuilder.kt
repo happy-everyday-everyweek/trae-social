@@ -279,12 +279,22 @@ class TweetPostProcessor {
      * 若 [text].length > [max]，截取前 (max - 1) 个字符并追加 "…"，
      * 保证最终长度不超过 [max]。
      *
+     * 截断位置若落在 UTF-16 代理对（surrogate pair，如 emoji）中间，会产生
+     * 孤立高位/低位代理项，是非法 Unicode，写入 Room/SQLite 会变为替换字符
+     * 或触发编码异常。此处将截断点回退至代理对边界之前，避免产生孤立代理项。
+     *
      * @param text 原文本。
      * @param max 最大字符数，默认 280。
      */
     fun truncate(text: String, max: Int = 280): String {
         if (text.length <= max) return text
-        val cut = if (max <= 1) 0 else max - 1
+        var cut = if (max <= 1) 0 else max - 1
+        // 若 cut 恰好落在代理对的高位代理之后、低位代理之前，
+        // text[cut - 1] 为高位代理，take(cut) 会留下孤立高位代理。
+        // 向前回退直到不以高位代理结尾，确保不破坏代理对完整性。
+        while (cut > 0 && text[cut - 1].isHighSurrogate()) {
+            cut--
+        }
         return text.take(cut) + "…"
     }
 }

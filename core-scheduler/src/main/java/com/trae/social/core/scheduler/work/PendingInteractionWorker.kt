@@ -185,7 +185,7 @@ class PendingInteractionWorker @AssistedInject constructor(
             Timber.w(t, "批量生成评论失败")
             return emptyMap()
         }
-        val results = CommentPromptBuilder.parseCommentResults(raw)
+        val results = CommentPromptBuilder.parseCommentResults(raw, interactionIds.size)
         val mapping = mutableMapOf<String, String>()
         results.forEach { result ->
             val idx = result.commenterIndex

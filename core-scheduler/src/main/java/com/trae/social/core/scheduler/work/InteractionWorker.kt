@@ -293,7 +293,7 @@ class InteractionWorker @AssistedInject constructor(
             Timber.w(t, "批量生成评论失败，跳过评论内容")
             return emptyMap()
         }
-        val results = CommentPromptBuilder.parseCommentResults(raw)
+        val results = CommentPromptBuilder.parseCommentResults(raw, commenters.size)
         val mapping = mutableMapOf<String, String>()
         results.forEach { result ->
             val idx = result.commenterIndex

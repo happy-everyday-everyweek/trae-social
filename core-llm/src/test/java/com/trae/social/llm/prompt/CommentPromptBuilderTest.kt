@@ -126,4 +126,26 @@ class CommentPromptBuilderTest {
         assertEquals(1, results.size)
         assertEquals(CommentPromptBuilder.CommentType.COMMENT, results[0].type)
     }
+
+    @Test
+    fun `parseCommentResults 传入 commenterCount 时过滤越界 index`() {
+        val raw = """
+            [{"commenterIndex": 0, "text": "正常", "type": "COMMENT"},
+             {"commenterIndex": 99, "text": "越界", "type": "COMMENT"},
+             {"commenterIndex": 1, "text": "也正常", "type": "LIKE"}]
+        """.trimIndent()
+        // 评论者数=2，index 99 越界应在 builder 层被过滤。
+        val results = CommentPromptBuilder.parseCommentResults(raw, commenterCount = 2)
+        assertEquals(2, results.size)
+        assertEquals(0, results[0].commenterIndex)
+        assertEquals(1, results[1].commenterIndex)
+    }
+
+    @Test
+    fun `parseCommentResults 不传 commenterCount 时向后兼容不过滤越界`() {
+        val raw = """[{"commenterIndex": 99, "text": "x", "type": "COMMENT"}]"""
+        val results = CommentPromptBuilder.parseCommentResults(raw)
+        assertEquals(1, results.size)
+        assertEquals(99, results[0].commenterIndex)
+    }
 }

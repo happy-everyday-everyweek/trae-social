@@ -8,6 +8,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
+import timber.log.Timber
 import java.io.IOException
 
 /**
@@ -72,8 +73,20 @@ class GeminiClient(
 
     override suspend fun chatSync(messages: List<ChatMessage>, config: ChatConfig): String {
         val response = api.chat(model, buildRequest(messages, config))
-        return response.candidates.firstOrNull()
-            ?.content?.parts?.firstOrNull()?.text.orEmpty()
+        // promptFeedback.blockReason 非空表示请求被安全策略拦截，记录 warn
+        // 便于运维区分“内容合规拦截”与“LLM 服务异常”。
+        val blockReason = response.promptFeedback?.blockReason
+        if (!blockReason.isNullOrEmpty()) {
+            Timber.w("chatSync 响应被安全策略拦截 (blockReason=%s)", blockReason)
+        }
+        val candidate = response.candidates.firstOrNull()
+        if (candidate == null) {
+            if (blockReason.isNullOrEmpty()) {
+                Timber.w("chatSync 返回空 candidates，可能被安全策略拦截或服务异常")
+            }
+            return ""
+        }
+        return candidate.content?.parts?.firstOrNull()?.text.orEmpty()
     }
 
     override suspend fun ping(): Boolean {

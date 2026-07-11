@@ -79,7 +79,10 @@ class RetryInterceptor(
     private fun computeBackoff(response: Response, attempt: Int): Long {
         val retryAfter = response.header("Retry-After")?.toLongOrNull()
         if (retryAfter != null) {
-            return retryAfter.coerceAtMost(MAX_RETRY_AFTER_SECONDS) * 1000L
+            // 限制下限：畸形负数 Retry-After（如 -5）会导致 delay(负数) 抛
+            // IllegalArgumentException（非 IOException），被上层兜为误导性错误。
+            // coerceIn(0, MAX) 确保退避非负。
+            return retryAfter.coerceIn(0L, MAX_RETRY_AFTER_SECONDS) * 1000L
         }
         return baseDelayMs * (1L shl (attempt - 1))
     }
