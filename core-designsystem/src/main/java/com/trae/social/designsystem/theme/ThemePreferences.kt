@@ -1,6 +1,7 @@
 package com.trae.social.designsystem.theme
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -27,13 +28,16 @@ object ThemePreferences {
     var themeMode by mutableStateOf(ThemeMode.SYSTEM)
         private set
 
+    // 缓存 SharedPreferences 实例，避免每次切换主题时重新获取
+    private var prefs: SharedPreferences? = null
+
     /**
      * 从 SharedPreferences 加载已持久化的主题模式，应在 Activity onCreate 早期调用。
      */
     fun initialize(context: Context) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val ordinal = prefs.getInt(KEY_THEME_MODE, ThemeMode.SYSTEM.ordinal)
-        themeMode = ThemeMode.values().getOrElse(ordinal) { ThemeMode.SYSTEM }
+        prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val name = prefs!!.getString(KEY_THEME_MODE, ThemeMode.SYSTEM.name)
+        themeMode = try { ThemeMode.valueOf(name!!) } catch (e: Exception) { ThemeMode.SYSTEM }
     }
 
     /**
@@ -41,10 +45,7 @@ object ThemePreferences {
      */
     fun setThemeMode(context: Context, mode: ThemeMode) {
         themeMode = mode
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putInt(KEY_THEME_MODE, mode.ordinal)
-            .apply()
+        prefs?.edit()?.putString(KEY_THEME_MODE, mode.name)?.apply()
     }
 
     /**

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,6 +43,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -115,6 +118,7 @@ fun SettingsScreen(
             Column(
                 Modifier
                     .fillMaxSize()
+                    .navigationBarsPadding()
                     .verticalScroll(rememberScrollState()),
             ) {
                 Spacer(Modifier.height(8.dp))
@@ -217,7 +221,7 @@ fun SettingsScreen(
 
                 // #12：关于（版本号 / 开源协议 / 免责声明 / GitHub）
                 Text(
-                    "关于",
+                    "关于本应用",
                     style = typography.subheadline,
                     color = colors.secondaryLabel,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -246,8 +250,7 @@ fun SettingsScreen(
                     }
                 }
 
-                // 底部预留空间，避免内容被系统导航栏遮挡
-                Spacer(Modifier.height(24.dp))
+                // 底部导航栏留白已由 Column 的 navigationBarsPadding 处理
             }
         }
 
@@ -426,7 +429,15 @@ private fun AboutInfoRow(label: String, value: String) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, color = colors.secondaryLabel, style = typography.subheadline)
-        Text(value, color = colors.label, style = typography.subheadline)
+        Text(
+            value,
+            color = colors.label,
+            style = typography.subheadline,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.End,
+        )
     }
 }
 
