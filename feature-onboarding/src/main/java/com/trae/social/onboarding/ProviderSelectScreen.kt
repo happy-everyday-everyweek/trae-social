@@ -69,7 +69,7 @@ fun ProviderSelectScreen(
             color = colors.label,
         )
         Text(
-            text = "为生态中的伙伴选择一个内容生成服务",
+            text = "为社区中的伙伴选择一个内容引擎",
             style = typography.subheadline,
             color = colors.secondaryLabel,
         )
