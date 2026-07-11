@@ -290,7 +290,8 @@ private fun PublishFlyInOverlay(
         exit = fadeOut(tween(0)),
         modifier = modifier,
     ) {
-        val p = progress.value
+        // Review fix：spring 可能 overshoot 使 progress > 1.0，coerceIn 避免 EaseOutBack 对 p>1 外推抖动
+        val p = progress.value.coerceIn(0f, 1f)
         val typography = LocalSocialTypography.current
 
         // #25：缩放——阶段1/阶段2均用 EaseOutBack 弹性缓动，保持弹性质感一致

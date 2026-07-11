@@ -25,6 +25,7 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -240,7 +241,8 @@ fun KeyInputScreen(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .menuAnchor(),
+                    // Review fix：使用非 deprecated 的 menuAnchor 重载
+                    .menuAnchor(MenuAnchorType.PrimaryEditable, enabled = true),
             )
             if (recommendedModels.isNotEmpty()) {
                 androidx.compose.material3.ExposedDropdownMenu(
@@ -339,7 +341,8 @@ private fun detectProviderFromKey(key: String): LlmProvider? {
     return when {
         key.startsWith("sk-ant-", ignoreCase = true) -> LlmProvider.ANTHROPIC
         key.startsWith("sk-", ignoreCase = true) -> LlmProvider.OPENAI
-        key.startsWith("AIza", ignoreCase = true) -> LlmProvider.GEMINI
+        // Review fix：Google API Key 前缀大小写敏感，不忽略大小写避免 aiza/AIZA 误判
+        key.startsWith("AIza") -> LlmProvider.GEMINI
         else -> null
     }
 }

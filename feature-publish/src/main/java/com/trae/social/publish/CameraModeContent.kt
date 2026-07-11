@@ -483,6 +483,8 @@ private fun CompositionAidsOverlay(
 
 /**
  * 圆形控制按钮（顶部）。
+ *
+ * #27：添加半透明白色边框，避免深色模式下相机预览较暗时"黑叠黑"导致按钮不可见。
  */
 @Composable
 private fun ControlButton(
@@ -496,6 +498,7 @@ private fun ControlButton(
             .size(44.dp)
             .clip(CircleShape)
             .background(Color.Black.copy(alpha = 0.6f))
+            .border(width = 1.dp, color = Color.White.copy(alpha = 0.2f), shape = CircleShape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -539,6 +542,18 @@ private fun BottomCameraBar(
                     modifier = Modifier
                         .clip(RoundedCornerShape(50))
                         .background(bgColor)
+                        // #27：未选中时添加半透明边框，深色模式下提升可见性
+                        .then(
+                            if (!selected) {
+                                Modifier.border(
+                                    width = 1.dp,
+                                    color = Color.White.copy(alpha = 0.2f),
+                                    shape = RoundedCornerShape(50),
+                                )
+                            } else {
+                                Modifier
+                            }
+                        )
                         .clickable { onRatioChange(r) }
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                 ) {

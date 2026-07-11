@@ -125,7 +125,7 @@ fun WelcomeScreen(
 
             // #15：免责声明可折叠，点击标题展开/收起
             DisclaimerCard(
-                text = "本应用为社交体验演示，所有内容由 AI 引擎生成，仅供学习与体验，不代表真实人物观点",
+                text = "本应用为社交体验演示，内容由 AI 辅助生成，仅供学习与体验，不代表真实人物观点",
                 expanded = disclaimerExpanded.value,
                 onToggle = { disclaimerExpanded.value = !disclaimerExpanded.value },
             )
@@ -312,12 +312,16 @@ private fun DisclaimerCard(
             )
         }
         androidx.compose.animation.AnimatedVisibility(visible = expanded) {
-            Spacer(Modifier.size(8.dp))
-            Text(
-                text = text,
-                style = typography.footnote,
-                color = colors.secondaryLabel,
-            )
+            // Review fix：AnimatedVisibility content 不提供布局，需外包 Column
+            // 否则 Spacer + Text 会被 place 到 (0,0) 导致间距失效
+            Column {
+                Spacer(Modifier.size(8.dp))
+                Text(
+                    text = text,
+                    style = typography.footnote,
+                    color = colors.secondaryLabel,
+                )
+            }
         }
     }
 }
