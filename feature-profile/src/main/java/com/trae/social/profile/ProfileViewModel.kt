@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -47,9 +48,14 @@ class ProfileViewModel @Inject constructor(
     private val _selectedTab = MutableStateFlow(ProfileTab.TWEETS)
     val selectedTab: StateFlow<ProfileTab> = _selectedTab.asStateFlow()
 
+    /** 已点赞推文 ID 集合（乐观更新，与 feature-feed FeedViewModel 一致） */
+    private val _likedTweetIds = MutableStateFlow<Set<String>>(emptySet())
+    val likedTweetIds: StateFlow<Set<String>> = _likedTweetIds.asStateFlow()
+
     init {
         loadProfile()
         loadActivityLevel()
+        loadInitialLikedTweetIds()
     }
 
     private fun loadProfile() {
@@ -78,6 +84,26 @@ class ProfileViewModel @Inject constructor(
     }
 
     /**
+     * 恢复已点赞状态（#8 review）。
+     *
+     * DB 暂无 per-user 点赞记录，按 likeCount > 0 启发式还原：进入个人主页时，
+     * 将 likeCount > 0 的自身推文视为已点赞。后续由 [toggleLike] 维护本地集合；
+     * 理想方案需 DB 记录按用户点赞状态。
+     */
+    private fun loadInitialLikedTweetIds() {
+        viewModelScope.launch {
+            runCatching { tweetRepository.observeByAuthor(SELF_ID).first() }
+                .onSuccess { tweets ->
+                    _likedTweetIds.value = tweets
+                        .filter { it.likeCount > 0 }
+                        .map { it.id }
+                        .toSet()
+                }
+                .onFailure { Timber.w(it, "恢复已点赞状态失败") }
+        }
+    }
+
+    /**
      * 推文流（按作者 = 自身）。
      */
     val tweetsFlow: StateFlow<List<TweetEntity>> = tweetRepository.observeByAuthor(SELF_ID)
@@ -99,6 +125,67 @@ class ProfileViewModel @Inject constructor(
             runCatching { configRepository.setAiActivityLevel(level) }
                 .onSuccess { _activityLevel.value = level }
                 .onFailure { Timber.w(it, "切换活跃度档位失败") }
+        }
+    }
+
+    /**
+     * 切换点赞状态（#8）：乐观更新本地集合，后台持久化 likeCount。
+     *
+     * 与 feature-feed 一致：DB likeCount 为计数唯一数据源，乐观更新通过
+     * [TweetRepository.updateLikeCount] 写入，Room 重发后 [tweetsFlow] 携带新计数。
+     *
+     * 竞态修复：回滚前对比当前状态，仅在状态仍符合本次预期时回滚，
+     * 避免快速“点赞 -> 取消”时第一次请求的回滚误将已取消的推文重新标记为已点赞。
+     */
+    fun toggleLike(tweetId: String) {
+        val wasLiked = tweetId in _likedTweetIds.value
+        // 乐观更新本地集合
+        _likedTweetIds.value = if (wasLiked) {
+            _likedTweetIds.value - tweetId
+        } else {
+            _likedTweetIds.value + tweetId
+        }
+        viewModelScope.launch {
+            val delta = if (wasLiked) -1 else 1
+            runCatching { tweetRepository.updateLikeCount(tweetId, delta) }
+                .onFailure {
+                    Timber.w(it, "更新点赞计数失败，回滚本地状态")
+                    // 仅在当前状态仍符合本次预期时回滚，避免与后续 toggle 竞态误覆盖
+                    val currentState = _likedTweetIds.value
+                    if (wasLiked && tweetId !in currentState) {
+                        // 之前已点赞 -> 本次取消，回滚为已点赞
+                        _likedTweetIds.value = currentState + tweetId
+                    } else if (!wasLiked && tweetId in currentState) {
+                        // 之前未点赞 -> 本次点赞，回滚为未点赞
+                        _likedTweetIds.value = currentState - tweetId
+                    }
+                }
+        }
+    }
+
+    /**
+     * 评论（#8）：评论计数 +1 持久化。
+     *
+     * 注：个人主页暂未接入评论弹层与 CommentRepository（避免引入跨 feature 依赖），
+     * 此处仅持久化计数，提供与信息流一致的互动反馈。
+     */
+    fun commentTweet(tweetId: String) {
+        viewModelScope.launch {
+            runCatching { tweetRepository.updateCommentCount(tweetId, 1) }
+                .onFailure { Timber.w(it, "更新评论计数失败") }
+        }
+    }
+
+    /**
+     * 转发（#8）：转发计数 +1 持久化。
+     *
+     * 注：暂不创建转发推文副本与排程互动（避免引入 InteractionRepository 依赖），
+     * 仅持久化计数，保持互动按钮可用。
+     */
+    fun retweetTweet(tweetId: String) {
+        viewModelScope.launch {
+            runCatching { tweetRepository.updateRetweetCount(tweetId, 1) }
+                .onFailure { Timber.w(it, "更新转发计数失败") }
         }
     }
 
