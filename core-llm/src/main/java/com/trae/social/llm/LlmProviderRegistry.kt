@@ -14,6 +14,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Named
@@ -130,12 +131,45 @@ class LlmProviderRegistry @Inject constructor(
     }
 
     private fun buildRetrofit(baseUrl: String): Retrofit {
+        // 校验 baseUrl：缺 scheme 或格式非法时抛 IOException 而非 IllegalArgumentException，
+        // 使调用方能以标准错误处理路径捕获（#124）。
+        val normalized = normalizeBaseUrl(baseUrl)
         val contentType = "application/json".toMediaType()
         return Retrofit.Builder()
-            .baseUrl(baseUrl.ensureTrailingSlash())
+            .baseUrl(normalized)
             .client(okHttpClient)
             .addConverterFactory(json.asConverterFactory(contentType))
             .build()
+    }
+
+    /**
+     * 校验并规范化 baseUrl。
+     *
+     * - 缺少 scheme 时补 "https://"；
+     * - 解析失败时抛 [IOException]，避免 Retrofit.Builder.baseUrl 抛
+     *   IllegalArgumentException 逃逸到 Worker 层（#124）。
+     * - 确保以 "/" 结尾（Retrofit 要求）。
+     */
+    private fun normalizeBaseUrl(baseUrl: String): String {
+        val trimmed = baseUrl.trim()
+        if (trimmed.isEmpty()) {
+            throw IOException("baseUrl 不能为空")
+        }
+        val withScheme = if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+            "https://$trimmed"
+        } else {
+            trimmed
+        }
+        // 验证 URL 可解析
+        try {
+            val url = java.net.URL(withScheme)
+            if (url.host.isNullOrBlank()) {
+                throw IOException("baseUrl 缺少 host: $baseUrl")
+            }
+        } catch (e: java.net.MalformedURLException) {
+            throw IOException("baseUrl 格式非法: $baseUrl", e)
+        }
+        return if (withScheme.endsWith("/")) withScheme else "$withScheme/"
     }
 
     private fun String.ensureTrailingSlash(): String =

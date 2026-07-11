@@ -104,15 +104,22 @@ class PendingInteractionWorker @AssistedInject constructor(
                 }
             }
 
+            // #115：processed=0 且 failed=0 时为空操作（可能是并发重复扫描），
+            // 记录为 no_pending 而非 processed_0_failed_0，避免可观测性指标失真。
+            val finalStatus = if (processed == 0 && failed == 0) {
+                "no_pending"
+            } else {
+                "processed_${processed}_failed_${failed}"
+            }
             logSchedulerEvent(
                 accountId = "system",
                 startedAt = started,
-                status = "processed_${processed}_failed_${failed}",
+                status = finalStatus,
                 error = if (failed > 0) "$failed failed" else null,
             )
             return Result.success(
                 workDataOf(
-                    WorkerKeys.KEY_RESULT to "processed_$processed",
+                    WorkerKeys.KEY_RESULT to finalStatus,
                     "failed" to failed,
                 )
             )

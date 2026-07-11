@@ -136,7 +136,12 @@ fun ProfileScreen(
                         viewModel = viewModel,
                         onImageClick = onImageClick,
                     )
-                    ProfileTab.LIKES -> EmptyTab(text = "还没有喜欢的内容")
+                    // #138：LIKES Tab 展示已点赞推文，而非硬编码空占位符
+                    ProfileTab.LIKES -> LikesTab(
+                        viewModel = viewModel,
+                        imageLoader = viewModel.imageLoader,
+                        onImageClick = onImageClick,
+                    )
                 }
             }
         }
@@ -454,6 +459,41 @@ private fun EmptyTab(text: String) {
     val colors = socialColors()
     Box(Modifier.fillMaxSize(), Alignment.Center) {
         Text(text, color = colors.tertiaryLabel, textAlign = TextAlign.Center)
+    }
+}
+
+/**
+ * #138：已点赞推文 Tab。
+ *
+ * 展示 [ProfileViewModel.likedTweetsFlow] 中的推文，复用 [ProfileTweetRow] 渲染。
+ */
+@Composable
+private fun LikesTab(
+    viewModel: ProfileViewModel,
+    imageLoader: coil.ImageLoader,
+    onImageClick: (List<String>, Int) -> Unit,
+) {
+    val likedTweets by viewModel.likedTweetsFlow.collectAsStateWithLifecycle()
+    val likedIds by viewModel.likedTweetIds.collectAsStateWithLifecycle()
+    if (likedTweets.isEmpty()) {
+        EmptyTab(text = "还没有喜欢的内容")
+        return
+    }
+    LazyColumn(Modifier.fillMaxSize()) {
+        items(likedTweets, key = { it.id }) { tweet ->
+            Column(Modifier.animateItem()) {
+                ProfileTweetRow(
+                    tweet = tweet,
+                    imageLoader = imageLoader,
+                    isLiked = tweet.id in likedIds,
+                    onLikeClick = { viewModel.toggleLike(tweet.id) },
+                    onCommentClick = { viewModel.commentTweet(tweet.id) },
+                    onRetweetClick = { viewModel.retweetTweet(tweet.id) },
+                    onImageClick = { uri -> onImageClick(listOf(uri), 0) },
+                )
+                SocialDivider(thickness = 0.5.dp)
+            }
+        }
     }
 }
 

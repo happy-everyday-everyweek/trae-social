@@ -227,6 +227,24 @@ class TweetGenerationWorker @AssistedInject constructor(
             }
 
             // ------------------------------------------------------------------
+            // 8.5 #117：TOCTOU 检查——执行时再次校验窗内推文数
+            // 调度时检查与执行时写入之间存在时间窗口，并发或补发可能使窗内推文数超限。
+            // ------------------------------------------------------------------
+            if (windowStart > 0L) {
+                val windowEndMillis = windowStart + 3600_000L // 窗口长度 1 小时
+                val currentInWindow = runCatching {
+                    tweetRepository.countByAuthorInWindow(accountId, windowStart, windowEndMillis)
+                }.getOrDefault(0)
+                if (currentInWindow >= POSTS_PER_WINDOW) {
+                    Timber.i("账号 %s 窗内推文数已达上限 %d/%d，跳过（TOCTOU）",
+                        accountId, currentInWindow, POSTS_PER_WINDOW)
+                    resultStatus = "skipped_window_full"
+                    logSchedulerEvent(accountId, started, resultStatus, "window full at execution time")
+                    return Result.success(workDataOf(WorkerKeys.KEY_RESULT to resultStatus))
+                }
+            }
+
+            // ------------------------------------------------------------------
             // 9. 构建 TweetEntity 并写入
             // ------------------------------------------------------------------
             val now = System.currentTimeMillis()
@@ -358,7 +376,11 @@ class TweetGenerationWorker @AssistedInject constructor(
             },
         ) ?: return
 
-        val windowStartMillis = nextTrigger.toEpochMilli()
+        // #109：自链路径使用窗口起始时刻（而非随机触发时刻）作为 dedup key 的 windowStart，
+        // 与补发路径保持一致，确保跨重启幂等性。
+        val currentWindowStart = com.trae.social.core.scheduler.rule.ScheduleRuleResolver
+            .windowStartForTrigger(nextTrigger, accountZone) ?: nextTrigger
+        val windowStartMillis = currentWindowStart.toEpochMilli()
         val deduplicationKey = com.trae.social.core.scheduler.rule.DeduplicationKeys.forTweet(
             accountId = accountId,
             windowStart = windowStartMillis,

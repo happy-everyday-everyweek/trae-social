@@ -19,7 +19,9 @@ import androidx.room.PrimaryKey
     indices = [
         Index(value = ["createdAt"]),
         Index(value = ["authorId"]),
-        Index(value = ["deduplicationKey"], unique = true)
+        Index(value = ["deduplicationKey"], unique = true),
+        // #108：复合索引，优化 countByAuthorSince/countByAuthorInWindow/getByAuthor 查询
+        Index(value = ["authorId", "createdAt"])
     ],
     foreignKeys = [
         ForeignKey(

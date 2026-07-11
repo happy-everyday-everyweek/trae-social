@@ -179,11 +179,26 @@ object SchedulerInitializer {
                     postsPerWindow = POSTS_PER_WINDOW,
                 )
 
+                // #114：使用账号自身的最近日志确定"上次运行"时刻，
+                // 避免全局日志导致跨账号补发漏窗
+                val accountLastRun = determineAccountLastRunTime(logDao, account.id, now)
+
                 // 2. 调度恢复：错过的活跃窗补发（每窗最多 1 条）
-                val missed = ScheduleRuleResolver.missedWindows(rule, lastRun, now, accountZone)
+                val missed = ScheduleRuleResolver.missedWindows(rule, accountLastRun, now, accountZone)
                 for (missedWindow in missed) {
                     // IMPL-4：使用窗口实际所属日期计算 windowStartMillis，避免跨日 key 冲突
                     val windowStartMillis = windowStartMillis(missedWindow.date, missedWindow.startHour, accountZone)
+                    // #113：补发前检查窗口内已有推文数，已达 postsPerWindow 上限时跳过
+                    val windowEndMillis = windowEndMillis(
+                        missedWindow.date,
+                        missedWindow.window.endHour,
+                        accountZone,
+                    )
+                    val existingInWindow = runCatching {
+                        tweetRepository.countByAuthorInWindow(account.id, windowStartMillis, windowEndMillis)
+                    }.getOrDefault(0)
+                    if (existingInWindow >= rule.postsPerWindow) continue
+
                     val deduplicationKey = DeduplicationKeys.forTweet(
                         accountId = account.id,
                         windowStart = windowStartMillis,
@@ -244,10 +259,7 @@ object SchedulerInitializer {
     }
 
     /**
-     * 确定上次运行时刻。
-     *
-     * 查询最近一条 action='tweet_generation' 的日志时间戳；
-     * 无记录时回退为 24 小时前（仅补发最近一天的错过的窗）。
+     * 确定上次运行时刻（全局，仅用于无账号上下文时的回退）。
      */
     private suspend fun determineLastRunTime(
         logDao: SchedulerLogDao,
@@ -266,6 +278,29 @@ object SchedulerInitializer {
     }
 
     /**
+     * #114：确定指定账号的上次运行时刻。
+     *
+     * 查询该账号最近一条 tweet_generation 日志的时间戳，
+     * 避免 determineLastRunTime 使用全局日志导致跨账号补发漏窗。
+     * 无记录时回退为 24 小时前。
+     */
+    private suspend fun determineAccountLastRunTime(
+        logDao: SchedulerLogDao,
+        accountId: String,
+        now: Instant,
+    ): Instant? {
+        return runCatching {
+            val recent = logDao.getByAccount(accountId, limit = LAST_RUN_LOOKUP_LIMIT)
+            val lastTweetLog = recent.firstOrNull { it.action == "tweet_generation" }
+            if (lastTweetLog != null) {
+                Instant.ofEpochMilli(lastTweetLog.timestamp)
+            } else {
+                now.minusSeconds(24 * 60 * 60)
+            }
+        }.getOrNull()
+    }
+
+    /**
      * 加载全部虚拟账号（翻页加载）。
      */
     private suspend fun loadVirtualAccounts(
@@ -273,12 +308,14 @@ object SchedulerInitializer {
     ): List<AccountEntity> {
         val all = mutableListOf<AccountEntity>()
         var page = 1
-        while (page <= MAX_PAGES) {
+        // #106：移除 MAX_PAGES 硬编码上限，循环直到无更多数据
+        while (true) {
             val batch = accountRepository.getAccounts(page)
             if (batch.isEmpty()) break
             all.addAll(batch.filter { it.isVirtual })
             page++
         }
+        Timber.i("loadVirtualAccounts: 加载了 %d 个虚拟账号", all.size)
         return all
     }
 
@@ -414,8 +451,31 @@ object SchedulerInitializer {
             .toEpochMilli()
     }
 
+    /**
+     * #113：计算活跃窗结束时刻（毫秒）。
+     *
+     * endHour=24 时结束时刻为次日 00:00。
+     */
+    private fun windowEndMillis(
+        date: java.time.LocalDate,
+        endHour: Int,
+        zone: ZoneId,
+    ): Long {
+        return if (endHour >= 24) {
+            date.plusDays(1)
+                .atStartOfDay(zone)
+                .toInstant()
+                .toEpochMilli()
+        } else {
+            java.time.LocalTime.of(endHour, 0)
+                .atDate(date)
+                .atZone(zone)
+                .toInstant()
+                .toEpochMilli()
+        }
+    }
+
     private const val LAST_RUN_LOOKUP_LIMIT: Int = 50
-    private const val MAX_PAGES: Int = 12
 
     /** P1 修复：每个活跃窗内允许发布的推文数上限（spec 默认 2 条/窗） */
     private const val POSTS_PER_WINDOW: Int = 2

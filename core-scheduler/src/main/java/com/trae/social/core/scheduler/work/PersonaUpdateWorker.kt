@@ -52,6 +52,7 @@ class PersonaUpdateWorker @AssistedInject constructor(
         var updated = 0
         var rolledBack = 0
         var failed = 0
+        var skipped = 0
 
         try {
             // IMPL-47：按当前活跃度档位确定批次大小（LOW=10 / MEDIUM=20 / HIGH=40）
@@ -73,7 +74,9 @@ class PersonaUpdateWorker @AssistedInject constructor(
                     when (success) {
                         UpdateResult.UPDATED -> updated++
                         UpdateResult.ROLLED_BACK -> rolledBack++
-                        UpdateResult.SKIPPED -> failed++
+                        // #112：SKIPPED 是"跳过本次更新"（LLM 临时不可用或 JSON 解析失败），
+                        // 不是执行失败，下次周期会重试。独立计数，不计入 failed。
+                        UpdateResult.SKIPPED -> skipped++
                     }
                 } catch (e: RateLimitedException) {
                     // IMPL-19：429 限流向上抛出，由 doWork 统一捕获并跳过整个批次
@@ -84,7 +87,8 @@ class PersonaUpdateWorker @AssistedInject constructor(
                 }
             }
 
-            val status = "updated_${updated}_rolledBack_${rolledBack}_failed_$failed"
+            // #112：日志状态增加 skipped；errorMessage 仅在真正 failed > 0 时设置
+            val status = "updated_${updated}_rolledBack_${rolledBack}_skipped_${skipped}_failed_$failed"
             logSchedulerEvent("system", started, status, if (failed > 0) "$failed failed" else null)
             return Result.success(workDataOf(WorkerKeys.KEY_RESULT to status))
         } catch (e: RateLimitedException) {
@@ -111,15 +115,16 @@ class PersonaUpdateWorker @AssistedInject constructor(
     ): List<com.trae.social.core.data.entity.AccountEntity> {
         val all = mutableListOf<com.trae.social.core.data.entity.AccountEntity>()
         var page = 1
-        // P1 修复：翻页加载虚拟账号，最多翻 12 页（覆盖 240 个账号），
-        // 与 SchedulerInitializer.MAX_PAGES 保持一致，避免遗漏部分账号人设更新。
-        while (page <= MAX_PAGES) {
+        // #106：移除 MAX_PAGES 硬编码上限，循环直到无更多数据，
+        // 避免账号数超过 240 时静默丢弃部分账号。
+        while (true) {
             val batch = accountRepository.getAccounts(page)
             if (batch.isEmpty()) break
             all.addAll(batch.filter { it.isVirtual })
             page++
         }
         if (all.isEmpty()) return emptyList()
+        Timber.i("pickRandomAccounts: 加载了 %d 个虚拟账号", all.size)
         return all.shuffled(Random(System.currentTimeMillis())).take(count)
     }
 
@@ -213,6 +218,5 @@ class PersonaUpdateWorker @AssistedInject constructor(
     private companion object {
         const val MAX_RUN_ATTEMPTS = 3
         const val RECENT_EVENTS_LIMIT = 5
-        const val MAX_PAGES = 12
     }
 }

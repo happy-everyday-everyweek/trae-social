@@ -167,6 +167,9 @@ object ScheduleRuleResolver {
                         if (w.endHour == 24) it.plusDays(1).truncatedTo(java.time.temporal.ChronoUnit.DAYS)
                         else it
                     }
+                // #111：DST 春跳时间间隙内 ZonedDateTime.of 可能将时刻向后推移，
+                // 导致 start == end（零长度窗口），失去随机性。跳过此类窗口。
+                if (!windowEnd.isAfter(windowStart)) continue
                 // 窗口必须在 [lastRun, now] 区间内完整或部分错过：windowEnd <= now 且 windowStart >= lastRun
                 // 补发策略：只补完整错过的窗（窗口已结束、且开始时间晚于 lastRun）
                 if (!windowEnd.isAfter(zonedNow) && !windowStart.isBefore(zonedLast)) {
@@ -210,6 +213,24 @@ object ScheduleRuleResolver {
         return ZonedDateTime.of(date, java.time.LocalTime.of(window.startHour, 0), zone)
             .toInstant()
             .toEpochMilli()
+    }
+
+    /**
+     * #109：根据触发时刻反推其所属活跃窗的起始时刻。
+     *
+     * 用于自链路径生成 dedup key：触发时刻是窗内随机点，
+     * 但 dedup key 需要窗口起始时刻以保证跨重启幂等。
+     *
+     * @param trigger 触发时刻（窗内随机点）
+     * @param zone 时区
+     * @return 窗口起始时刻；无法确定时返回 null
+     */
+    fun windowStartForTrigger(trigger: Instant, zone: ZoneId): Instant? {
+        val zoned = ZonedDateTime.ofInstant(trigger, zone)
+        val hour = zoned.hour
+        // 窗口起始时刻为 hour:00
+        return ZonedDateTime.of(zoned.toLocalDate(), java.time.LocalTime.of(hour, 0), zone)
+            .toInstant()
     }
 
     private fun randomInstantBetween(start: Instant, end: Instant, random: Random): Instant {

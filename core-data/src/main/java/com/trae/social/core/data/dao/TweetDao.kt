@@ -58,15 +58,16 @@ interface TweetDao {
     @Query("SELECT * FROM tweets WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): TweetEntity?
 
-    @Query("SELECT COUNT(*) FROM tweets WHERE authorId = :authorId AND createdAt >= :startOfDay")
+    @Query("SELECT COUNT(*) FROM tweets WHERE authorId = :authorId AND createdAt >= :startOfDay AND isAiGenerated = 1")
     suspend fun countByAuthorSince(authorId: String, startOfDay: Long): Int
 
     /**
      * 统计某账号在 [windowStart, windowEnd) 时间窗内已发布的推文数。
      *
      * P1 修复：支撑 ScheduleRuleResolver 判断窗内推文数是否已达 postsPerWindow 上限。
+     * #110：仅统计 AI 生成的推文，种子推文不消耗 AI 配额。
      */
-    @Query("SELECT COUNT(*) FROM tweets WHERE authorId = :authorId AND createdAt >= :windowStart AND createdAt < :windowEnd")
+    @Query("SELECT COUNT(*) FROM tweets WHERE authorId = :authorId AND createdAt >= :windowStart AND createdAt < :windowEnd AND isAiGenerated = 1")
     suspend fun countByAuthorInWindow(authorId: String, windowStart: Long, windowEnd: Long): Int
 
     @Query("SELECT COUNT(*) FROM tweets")
@@ -80,4 +81,12 @@ interface TweetDao {
 
     @Query("UPDATE tweets SET retweetCount = retweetCount + :delta WHERE id = :tweetId")
     suspend fun updateRetweetCount(tweetId: String, delta: Int)
+
+    /**
+     * #138：按 ID 列表查询推文（用于个人主页 LIKES Tab 展示已点赞推文）。
+     *
+     * 空列表时返回空流，避免 Room 生成非法 SQL `IN ()`。
+     */
+    @Query("SELECT * FROM tweets WHERE id IN (:ids) ORDER BY createdAt DESC")
+    fun observeByIds(ids: List<String>): Flow<List<TweetEntity>>
 }

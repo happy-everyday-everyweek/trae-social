@@ -37,19 +37,21 @@ interface SchedulerLogDao {
     /**
      * RISK-15：LLM 调用统计——按 result 分组计数（成功/失败/限流等）。
      *
-     * P2 修复：
-     * 1. 使用 COALESCE(SUM, 0) 防止空表时 SUM 返回 NULL。
-     * 2. 分类条件互斥：rate_limited 优先判定，避免与 error/failed 重复计数。
-     * 3. LIKE 模式中的下划线转义：SQL LIKE 的 '_' 匹配任意单个字符，
-     *    'rate_limited%' 中的下划线会被当作通配符，导致 'rateXlimited' 等误匹配。
-     *    使用 ESCAPE '\' 将 '_' 转义为字面量，确保仅匹配 'rate_limited'。
+     * 修复 #104 + #105：
+     * 1. #104：`updated_40_rolledBack_0_failed_0` 同时匹配 `LIKE 'updated%'`（success）
+     *    和 `LIKE '%failed%'`（error）导致双重计数。修复：error 仅匹配 `LIKE 'error%'`，
+     *    不再用 `%failed%`（failed 是 result 中的子字段计数，非整体状态）。
+     * 2. #105：`processed_*`、`scheduled_*` 未被分类。修复：加入 successCount。
+     *    `skipped_*` 为信息性跳过，不计入 success 或 error。
+     * 3. 分类条件互斥：rate_limited 优先判定。
+     * 4. LIKE 模式中的下划线转义（#107 修复）。
      */
     @Query(
         """
         SELECT
             COALESCE(SUM(CASE WHEN result LIKE 'rate\_limited%' ESCAPE '\' THEN 1 ELSE 0 END), 0) as rateLimitedCount,
-            COALESCE(SUM(CASE WHEN (result LIKE 'success%' OR result LIKE 'updated%' OR result LIKE 'published%') AND result NOT LIKE 'rate\_limited%' ESCAPE '\' THEN 1 ELSE 0 END), 0) as successCount,
-            COALESCE(SUM(CASE WHEN (result LIKE '%error%' OR result LIKE '%failed%') AND result NOT LIKE 'rate\_limited%' ESCAPE '\' THEN 1 ELSE 0 END), 0) as errorCount,
+            COALESCE(SUM(CASE WHEN (result LIKE 'success%' OR result LIKE 'updated%' OR result LIKE 'published%' OR result LIKE 'processed%' OR result LIKE 'scheduled%') AND result NOT LIKE 'rate\_limited%' ESCAPE '\' THEN 1 ELSE 0 END), 0) as successCount,
+            COALESCE(SUM(CASE WHEN result LIKE 'error%' AND result NOT LIKE 'rate\_limited%' ESCAPE '\' THEN 1 ELSE 0 END), 0) as errorCount,
             COUNT(*) as totalCount
         FROM scheduler_logs
         """

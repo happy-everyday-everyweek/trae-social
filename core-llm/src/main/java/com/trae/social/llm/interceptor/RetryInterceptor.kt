@@ -7,6 +7,10 @@ import okhttp3.Interceptor
 import okhttp3.Response
 import timber.log.Timber
 import java.io.IOException
+import java.time.ZonedDateTime
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 
 /**
  * 重试拦截器：对 5xx（服务端错误）执行指数退避重试，
@@ -38,7 +42,7 @@ class RetryInterceptor(
                 val response = chain.proceed(chain.request())
                 // 429：直接抛 RateLimitedException，不重试（IMPL-19）
                 if (response.code == 429) {
-                    val retryAfter = response.header("Retry-After")?.toLongOrNull()
+                    val retryAfter = parseRetryAfter(response.header("Retry-After"))
                     response.close()
                     throw RateLimitedException(
                         "LLM 提供商返回 429 限流",
@@ -77,14 +81,38 @@ class RetryInterceptor(
     }
 
     private fun computeBackoff(response: Response, attempt: Int): Long {
-        val retryAfter = response.header("Retry-After")?.toLongOrNull()
+        val retryAfter = parseRetryAfter(response.header("Retry-After"))
         if (retryAfter != null) {
             // 限制下限：畸形负数 Retry-After（如 -5）会导致 delay(负数) 抛
             // IllegalArgumentException（非 IOException），被上层兜为误导性错误。
-            // coerceIn(0, MAX) 确保退避非负。
+            // coerceIn(0, MAX) 确保退避非负且封顶。
             return retryAfter.coerceIn(0L, MAX_RETRY_AFTER_SECONDS) * 1000L
         }
         return baseDelayMs * (1L shl (attempt - 1))
+    }
+
+    /**
+     * 解析 Retry-After header。
+     *
+     * 支持两种格式（RFC 7231 §7.1.3）：
+     * - delta-seconds（数字字符串）
+     * - HTTP-date（如 "Wed, 21 Oct 2025 07:28:00 GMT"）
+     *
+     * HTTP-date 转换为距当前时刻的剩余秒数。
+     * 429 路径也统一封顶到 [MAX_RETRY_AFTER_SECONDS]，与 5xx 行为一致（#126）。
+     */
+    private fun parseRetryAfter(header: String?): Long? {
+        if (header.isNullOrBlank()) return null
+        // 尝试 delta-seconds
+        header.toLongOrNull()?.let { return it.coerceAtMost(MAX_RETRY_AFTER_SECONDS) }
+        // 尝试 HTTP-date
+        runCatching {
+            val dateTime = ZonedDateTime.parse(header, DateTimeFormatter.RFC_1123_DATE_TIME)
+            val now = ZonedDateTime.now(ZoneOffset.UTC)
+            val seconds = ChronoUnit.SECONDS.between(now, dateTime)
+            return seconds.coerceAtLeast(0L).coerceAtMost(MAX_RETRY_AFTER_SECONDS)
+        }
+        return null
     }
 
     private companion object {

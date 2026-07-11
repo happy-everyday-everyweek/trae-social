@@ -8,6 +8,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
+import retrofit2.HttpException
 import timber.log.Timber
 import java.io.IOException
 
@@ -66,8 +67,21 @@ class GeminiClient(
                 // IMPL-8：已 emit 部分 token 后中断，抛异常通知调用方内容不完整
                 throw IOException("streaming truncated after partial emit", e)
             }
-            val full = runCatching { chatSync(messages, config) }.getOrDefault("")
-            if (full.isNotEmpty()) emit(full)
+            // #120：持久性 HTTP 错误（4xx 非 429）不降级，直接 rethrow
+            if (e is HttpException) {
+                val code = e.code()
+                if (code in 400..499 && code != 429) {
+                    Timber.w(e, "流式 chat 遭遇持久性 HTTP %d，不降级", code)
+                    throw e
+                }
+            }
+            try {
+                val full = chatSync(messages, config)
+                if (full.isNotEmpty()) emit(full)
+            } catch (fallbackError: HttpException) {
+                Timber.w(fallbackError, "降级 chatSync 也失败")
+                throw fallbackError
+            }
         }
     }
 

@@ -162,6 +162,8 @@ private fun ProviderConfigCard(
             )
             Button(
                 onClick = { onSaveBaseUrl(baseUrlDraft) },
+                // #136：空值校验，避免空字符串覆盖原有有效值
+                enabled = baseUrlDraft.isNotBlank(),
                 modifier = Modifier.padding(top = 4.dp),
             ) { Text("保存 URL") }
 
@@ -178,6 +180,8 @@ private fun ProviderConfigCard(
             )
             Button(
                 onClick = { onSaveModel(modelDraft) },
+                // #136：空值校验，避免空字符串覆盖原有有效值
+                enabled = modelDraft.isNotBlank(),
                 modifier = Modifier.padding(top = 4.dp),
             ) { Text("保存模型") }
 

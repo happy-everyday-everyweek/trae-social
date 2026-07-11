@@ -90,7 +90,9 @@ class InteractionWorker @AssistedInject constructor(
 
             // 3. 分配互动类型
             val now = System.currentTimeMillis()
-            val random = Random(now)
+            // #116：使用 nanoTime + accountId.hashCode() 作为种子，
+            // 避免毫秒级种子在并发时产生相同互动模式
+            val random = Random(System.nanoTime() xor tweet.authorId.hashCode().toLong())
             val assignments = candidates.map { account ->
                 val type = assignInteractionType(random)
                 val delayMillis = scheduleDelayFor(type, random)
@@ -175,10 +177,10 @@ class InteractionWorker @AssistedInject constructor(
         authorProfession: String,
         authorBio: String,
     ): List<com.trae.social.core.data.entity.AccountEntity> {
-        // 翻页加载全部虚拟账号，避免只取首页 20 个
+        // #106：移除 MAX_ACCOUNT_PAGES 硬编码上限，循环直到无更多数据
         val all = mutableListOf<com.trae.social.core.data.entity.AccountEntity>()
         var page = 1
-        while (page <= MAX_ACCOUNT_PAGES) {
+        while (true) {
             val batch = runCatching { accountRepository.getAccounts(page) }.getOrDefault(emptyList())
             if (batch.isEmpty()) break
             all.addAll(batch.filter { it.isVirtual && it.id != authorId })
@@ -377,7 +379,6 @@ class InteractionWorker @AssistedInject constructor(
         const val MIN_COMMENTERS = 3
         const val MAX_COMMENTERS = 8
         const val MAX_COMMENT_LENGTH = 100
-        const val MAX_ACCOUNT_PAGES = 12
         const val LIKE_THRESHOLD = 0.50
         const val COMMENT_THRESHOLD = 0.30
         const val RETWEET_THRESHOLD = 0.15
