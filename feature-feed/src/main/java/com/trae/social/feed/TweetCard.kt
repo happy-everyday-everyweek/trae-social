@@ -7,7 +7,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -77,7 +79,7 @@ import com.trae.social.designsystem.theme.LocalSocialTypography
  * @param isLiked 当前是否已点赞（由 ViewModel 维护）
  * @param isBookmarked 当前是否已收藏
  * @param imageLoader 信息流专用 ImageLoader（含 SVG 解码）
- * @param onImageClick 点击图片回调，传入图片 URI
+ * @param onImageClick 点击图片回调，传入该推文全部图片 URI 列表与被点击图片下标
  * @param onLikeClick 点赞回调
  * @param onCommentClick 评论回调
  * @param onRetweetClick 转发回调
@@ -89,7 +91,7 @@ fun TweetCard(
     isLiked: Boolean,
     isBookmarked: Boolean,
     imageLoader: ImageLoader,
-    onImageClick: (String) -> Unit,
+    onImageClick: (List<String>, Int) -> Unit,
     onLikeClick: () -> Unit,
     onCommentClick: () -> Unit,
     onRetweetClick: () -> Unit,
@@ -214,27 +216,15 @@ fun TweetCard(
         // 文本（超 280 字折叠）
         TweetText(text = tweet.text, labelColor = colors.label)
 
-        // 图片
-        val imageUri = FeedUtils.toImageUri(tweet.mediaPath)
-        if (imageUri != null) {
+        // 图片（#4：按数量差异化布局，1 大图 / 2 并排 / 3 主次 / 4 网格，多图显示页码指示器）
+        val imageUris = remember(tweet.mediaPath) { FeedUtils.toImageUriList(tweet.mediaPath) }
+        if (imageUris.isNotEmpty()) {
             // #19：正文↔图片间距 8→12
             Spacer(Modifier.height(spacing.md))
-            val request = remember(imageUri, context) {
-                ImageRequest.Builder(context)
-                    .data(imageUri)
-                    .crossfade(true)
-                    .build()
-            }
-            AsyncImage(
-                model = request,
+            TweetMediaGrid(
+                imageUris = imageUris,
                 imageLoader = imageLoader,
-                contentDescription = "推文图片",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 400.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .clickable { onImageClick(imageUri) },
+                onCellClick = { index -> onImageClick(imageUris, index) },
             )
         }
 
@@ -284,6 +274,196 @@ fun TweetCard(
         }
     }
     SocialDivider(thickness = 0.5.dp)
+}
+
+/**
+ * 推文图片网格：按图片数量差异化布局（#4 多图信息流）。
+ *
+ * - 1 张：单大图，最大高度 400dp（保持原信息流视觉）。
+ * - 2 张：并排，各 1:1 等权。
+ * - 3 张：1 大图（顶部全宽 4:3）+ 下方两小图（各 4:3 等权）。
+ * - 4+ 张：2x2 网格（各 1:1）；超过 4 张时仅展示前 4 张，第 4 格叠加 "+N" 角标。
+ *
+ * 多图（2-4 张）时在右下角叠加页码指示器（图片总数），提示可点击进入大图浏览；
+ * 超过 4 张时改由第 4 格的 "+N" 角标作为溢出指示，不再重复叠加页码。
+ * 每张图片均可点击，回调中带回被点击图片下标，供大图查看器定位初始页。
+ */
+@Composable
+private fun TweetMediaGrid(
+    imageUris: List<String>,
+    imageLoader: ImageLoader,
+    onCellClick: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val typography = LocalSocialTypography.current
+    val gap = 4.dp
+    val corner = 12.dp
+
+    Box(modifier = modifier.fillMaxWidth()) {
+        when (imageUris.size) {
+            0 -> Unit
+            1 -> {
+                TweetMediaCell(
+                    uri = imageUris[0],
+                    imageLoader = imageLoader,
+                    contentDescription = "推文图片",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 400.dp)
+                        .clip(RoundedCornerShape(corner)),
+                    onClick = { onCellClick(0) },
+                )
+            }
+            2 -> {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(gap),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    imageUris.forEachIndexed { index, uri ->
+                        TweetMediaCell(
+                            uri = uri,
+                            imageLoader = imageLoader,
+                            contentDescription = "推文图片 ${index + 1}",
+                            modifier = Modifier
+                                .weight(1f)
+                                .aspectRatio(1f)
+                                .clip(RoundedCornerShape(corner)),
+                            onClick = { onCellClick(index) },
+                        )
+                    }
+                }
+            }
+            3 -> {
+                Column(verticalArrangement = Arrangement.spacedBy(gap)) {
+                    TweetMediaCell(
+                        uri = imageUris[0],
+                        imageLoader = imageLoader,
+                        contentDescription = "推文图片 1",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(4f / 3f)
+                            .clip(RoundedCornerShape(corner)),
+                        onClick = { onCellClick(0) },
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(gap),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        TweetMediaCell(
+                            uri = imageUris[1],
+                            imageLoader = imageLoader,
+                            contentDescription = "推文图片 2",
+                            modifier = Modifier
+                                .weight(1f)
+                                .aspectRatio(4f / 3f)
+                                .clip(RoundedCornerShape(corner)),
+                            onClick = { onCellClick(1) },
+                        )
+                        TweetMediaCell(
+                            uri = imageUris[2],
+                            imageLoader = imageLoader,
+                            contentDescription = "推文图片 3",
+                            modifier = Modifier
+                                .weight(1f)
+                                .aspectRatio(4f / 3f)
+                                .clip(RoundedCornerShape(corner)),
+                            onClick = { onCellClick(2) },
+                        )
+                    }
+                }
+            }
+            else -> {
+                // 4+ 张：2x2 网格，仅展示前 4 张；超过 4 张时第 4 格叠加 "+N" 角标
+                val displayCount = minOf(imageUris.size, 4)
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(gap),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    (0 until displayCount).chunked(2).forEach { rowIndices ->
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(gap),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            rowIndices.forEach { index ->
+                                val showOverflow = index == 3 && imageUris.size > 4
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .aspectRatio(1f),
+                                ) {
+                                    TweetMediaCell(
+                                        uri = imageUris[index],
+                                        imageLoader = imageLoader,
+                                        contentDescription = "推文图片 ${index + 1}",
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clip(RoundedCornerShape(corner)),
+                                        onClick = { onCellClick(index) },
+                                    )
+                                    if (showOverflow) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(Color.Black.copy(alpha = 0.45f)),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Text(
+                                                text = "+${imageUris.size - 4}",
+                                                color = Color.White,
+                                                style = typography.body,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 多图页码指示器（2-4 张时于右下角叠加图片总数，提示可进入大图浏览）
+        if (imageUris.size in 2..4) {
+            Text(
+                text = imageUris.size.toString(),
+                color = Color.White,
+                style = typography.caption2,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(8.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            )
+        }
+    }
+}
+
+/**
+ * 推文图片单元：Coil AsyncImage 加载（含 SVG），ContentScale.Crop 填充并响应点击。
+ */
+@Composable
+private fun TweetMediaCell(
+    uri: String,
+    imageLoader: ImageLoader,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val context = LocalContext.current
+    val request = remember(uri, context) {
+        ImageRequest.Builder(context)
+            .data(uri)
+            .crossfade(true)
+            .build()
+    }
+    AsyncImage(
+        model = request,
+        imageLoader = imageLoader,
+        contentDescription = contentDescription,
+        contentScale = ContentScale.Crop,
+        modifier = modifier.clickable(onClick = onClick),
+    )
 }
 
 /**
