@@ -222,7 +222,7 @@ fun TweetCard(
             TweetMediaGrid(
                 imageUris = imageUris,
                 imageLoader = imageLoader,
-                onImageClick = { index -> onImageClick(imageUris, index) },
+                onCellClick = { index -> onImageClick(imageUris, index) },
             )
         }
 
@@ -290,7 +290,7 @@ fun TweetCard(
 private fun TweetMediaGrid(
     imageUris: List<String>,
     imageLoader: ImageLoader,
-    onImageClick: (Int) -> Unit,
+    onCellClick: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val typography = LocalSocialTypography.current
@@ -309,7 +309,7 @@ private fun TweetMediaGrid(
                         .fillMaxWidth()
                         .heightIn(max = 400.dp)
                         .clip(RoundedCornerShape(corner)),
-                    onClick = { onImageClick(0) },
+                    onClick = { onCellClick(0) },
                 )
             }
             2 -> {
@@ -326,7 +326,7 @@ private fun TweetMediaGrid(
                                 .weight(1f)
                                 .aspectRatio(1f)
                                 .clip(RoundedCornerShape(corner)),
-                            onClick = { onImageClick(index) },
+                            onClick = { onCellClick(index) },
                         )
                     }
                 }
@@ -341,7 +341,7 @@ private fun TweetMediaGrid(
                             .fillMaxWidth()
                             .aspectRatio(4f / 3f)
                             .clip(RoundedCornerShape(corner)),
-                        onClick = { onImageClick(0) },
+                        onClick = { onCellClick(0) },
                     )
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(gap),
@@ -355,7 +355,7 @@ private fun TweetMediaGrid(
                                 .weight(1f)
                                 .aspectRatio(4f / 3f)
                                 .clip(RoundedCornerShape(corner)),
-                            onClick = { onImageClick(1) },
+                            onClick = { onCellClick(1) },
                         )
                         TweetMediaCell(
                             uri = imageUris[2],
@@ -365,7 +365,7 @@ private fun TweetMediaGrid(
                                 .weight(1f)
                                 .aspectRatio(4f / 3f)
                                 .clip(RoundedCornerShape(corner)),
-                            onClick = { onImageClick(2) },
+                            onClick = { onCellClick(2) },
                         )
                     }
                 }
@@ -396,7 +396,7 @@ private fun TweetMediaGrid(
                                         modifier = Modifier
                                             .fillMaxSize()
                                             .clip(RoundedCornerShape(corner)),
-                                        onClick = { onImageClick(index) },
+                                        onClick = { onCellClick(index) },
                                     )
                                     if (showOverflow) {
                                         Box(
@@ -408,8 +408,7 @@ private fun TweetMediaGrid(
                                             Text(
                                                 text = "+${imageUris.size - 4}",
                                                 color = Color.White,
-                                                style = typography.headline,
-                                                fontWeight = FontWeight.Bold,
+                                                style = typography.body,
                                             )
                                         }
                                     }

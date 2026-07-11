@@ -22,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +42,7 @@ import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.trae.social.designsystem.theme.LocalSocialTypography
+import kotlin.math.abs
 
 /**
  * 全屏图片查看器（#4 支持多图翻页）。
@@ -160,6 +162,8 @@ private fun ZoomableImage(
     var offset by remember { mutableStateOf(Offset.Zero) }
     // 视口像素尺寸，用于计算平移边界
     var viewport by remember { mutableStateOf(IntSize.Zero) }
+    // 始终捕获最新的 onDismiss，避免 pointerInput(Unit) 不重启导致回调过期
+    val currentOnDismiss by rememberUpdatedState(onDismiss)
 
     Box(
         modifier = modifier
@@ -167,7 +171,15 @@ private fun ZoomableImage(
             .onSizeChanged { viewport = it }
             .pointerInput(Unit) {
                 detectTapGestures(
-                    onTap = { onDismiss() },
+                    onTap = {
+                        // 放大时单击先复位缩放与位移，未放大时才关闭查看器
+                        if (scale > 1f) {
+                            scale = 1f
+                            offset = Offset.Zero
+                        } else {
+                            currentOnDismiss()
+                        }
+                    },
                     onDoubleTap = {
                         // 双击切换 1x / 3x
                         if (scale > 1f) {
@@ -185,7 +197,7 @@ private fun ZoomableImage(
                 detectTransformGestures { _, pan, zoom, _ ->
                     val newScale = (scale * zoom).coerceIn(MIN_SCALE, MAX_SCALE)
                     // 缩放变化或已放大时才消费平移，避免拦截 Pager 的单指翻页
-                    if (newScale != scale || newScale > 1f) {
+                    if (newScale > 1f || abs(newScale - scale) > 0.01f) {
                         scale = newScale
                         if (newScale > 1f) {
                             offset = clampOffset(offset + pan, newScale, viewport)
