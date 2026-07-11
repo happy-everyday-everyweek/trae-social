@@ -42,6 +42,7 @@ import com.trae.social.core.data.entity.TweetEntity
 import com.trae.social.designsystem.components.CapsuleTab
 import com.trae.social.designsystem.components.SocialDivider
 import com.trae.social.designsystem.components.socialClickable
+import com.trae.social.designsystem.theme.LocalSocialSpacing
 import com.trae.social.designsystem.theme.LocalSocialTypography
 import com.trae.social.designsystem.theme.socialColors
 
@@ -64,6 +65,7 @@ fun ProfileScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val selectedTab by viewModel.selectedTab.collectAsStateWithLifecycle()
     val colors = socialColors()
+    val spacing = LocalSocialSpacing.current
 
     Column(modifier = modifier.fillMaxSize().background(colors.systemBackground)) {
         TopAppBar(
@@ -97,7 +99,7 @@ fun ProfileScreen(
                     tabs = ProfileTab.values().map { it.label },
                     selectedIndex = selectedTab.ordinal,
                     onTabSelected = { viewModel.selectTab(ProfileTab.values()[it]) },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = spacing.lg, vertical = spacing.sm),
                 )
                 when (selectedTab) {
                     ProfileTab.TWEETS -> TweetsTab(
@@ -123,9 +125,10 @@ private fun ProfileHeader(
 ) {
     val colors = socialColors()
     val typography = LocalSocialTypography.current
+    val spacing = LocalSocialSpacing.current
     val account = state.account
     // #20：资料区分段留白，头像与名称行顶部对齐，增加呼吸感与层次
-    Column(Modifier.fillMaxWidth().padding(16.dp)) {
+    Column(Modifier.fillMaxWidth().padding(spacing.lg)) {
         Row(verticalAlignment = Alignment.Top) {
             AsyncImage(
                 model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
@@ -138,7 +141,7 @@ private fun ProfileHeader(
                 modifier = Modifier.size(72.dp).clip(CircleShape)
                     .background(colors.tertiaryBackground),
             )
-            Spacer(Modifier.width(16.dp))
+            Spacer(Modifier.width(spacing.lg))
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     text = account.displayName.ifBlank { "我" },
@@ -154,7 +157,7 @@ private fun ProfileHeader(
         }
         if (account.bio.isNotBlank()) {
             // #20：名称行↔bio 间距 16dp
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(spacing.lg))
             Text(
                 text = account.bio,
                 style = typography.body,
@@ -226,13 +229,14 @@ private fun TweetsTab(
 private fun ProfileTweetRow(tweet: TweetEntity, imageLoader: coil.ImageLoader) {
     val colors = socialColors()
     val typography = LocalSocialTypography.current
-    Column(Modifier.fillMaxWidth().padding(16.dp)) {
+    val spacing = LocalSocialSpacing.current
+    Column(Modifier.fillMaxWidth().padding(spacing.lg)) {
         Text(
             text = ProfileUtils.formatRelativeTime(tweet.createdAt),
             style = typography.caption2,
             color = colors.tertiaryLabel,
         )
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(spacing.xs))
         if (tweet.text.isNotBlank()) {
             Text(
                 text = tweet.text,
@@ -241,7 +245,7 @@ private fun ProfileTweetRow(tweet: TweetEntity, imageLoader: coil.ImageLoader) {
             )
         }
         ProfileUtils.toImageUri(tweet.mediaPath)?.let { uri ->
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(spacing.sm))
             AsyncImage(
                 model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
                     .data(uri).crossfade(true).build(),
@@ -252,7 +256,7 @@ private fun ProfileTweetRow(tweet: TweetEntity, imageLoader: coil.ImageLoader) {
                     .clip(RoundedCornerShape(12.dp)),
             )
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(spacing.sm))
         Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
             InteractionCount("评论", tweet.commentCount)
             InteractionCount("转发", tweet.retweetCount)

@@ -50,6 +50,7 @@ import coil.request.ImageRequest
 import com.trae.social.designsystem.components.LoadingShimmer
 import com.trae.social.designsystem.components.SocialDivider
 import com.trae.social.designsystem.theme.LocalSocialColors
+import com.trae.social.designsystem.theme.LocalSocialSpacing
 import com.trae.social.designsystem.theme.LocalSocialTypography
 
 /**
@@ -161,14 +162,15 @@ private fun TimelineHeader(account: AccountEntity?) {
     val typography = LocalSocialTypography.current
     // 显示名回退"我"（与 ProfileScreen 一致：空名时显示"我"）
     val displayName = account?.displayName?.ifBlank { null } ?: "我"
+    val spacing = LocalSocialSpacing.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = spacing.lg, vertical = spacing.md),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         TimelineAvatar(avatarSeed = account?.avatarSeed, modifier = Modifier.size(48.dp))
-        Spacer(modifier = Modifier.size(12.dp))
+        Spacer(modifier = Modifier.size(spacing.md))
         Column {
             Text(
                 text = "我的相册",
@@ -249,10 +251,11 @@ private fun GroupBlock(
 ) {
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
+    val spacing = LocalSocialSpacing.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = spacing.lg, vertical = spacing.sm),
     ) {
         Text(
             text = group.dateLabel,
@@ -260,7 +263,7 @@ private fun GroupBlock(
             fontWeight = FontWeight.SemiBold,
             color = colors.label,
         )
-        Spacer(modifier = Modifier.size(8.dp))
+        Spacer(modifier = Modifier.size(spacing.sm))
         MediaGrid(group = group, onImageClick = onImageClick)
     }
 }
@@ -346,6 +349,7 @@ private fun TwoImageLayout(items: List<TimelineItem>, onClick: (Int) -> Unit) {
 private fun ThreeImageLayout(items: List<TimelineItem>, onClick: (Int) -> Unit) {
     val big = items[0]
     val smalls = items.drop(1)
+    val spacing = LocalSocialSpacing.current
     Column {
         TimelineImageCell(
             item = big,
@@ -357,7 +361,7 @@ private fun ThreeImageLayout(items: List<TimelineItem>, onClick: (Int) -> Unit) 
             onClick = { onClick(0) },
         )
         ImageCaption(item = big)
-        Spacer(modifier = Modifier.size(4.dp))
+        Spacer(modifier = Modifier.size(spacing.xs))
         // #32：网格间距 2dp→4dp
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             smalls.forEachIndexed { index, item ->
@@ -465,7 +469,8 @@ private fun TimelineImageCell(
 private fun ImageCaption(item: TimelineItem) {
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
-    Column(modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)) {
+    val spacing = LocalSocialSpacing.current
+    Column(modifier = Modifier.padding(top = spacing.xs, bottom = spacing.xs)) {
         Text(
             text = item.timeLabel,
             style = typography.caption2,
@@ -489,11 +494,12 @@ private fun ImageCaption(item: TimelineItem) {
 @Composable
 private fun TimelineLoading() {
     val colors = LocalSocialColors.current
+    val spacing = LocalSocialSpacing.current
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(colors.systemBackground)
-            .padding(16.dp),
+            .padding(spacing.lg),
     ) {
         repeat(3) {
             LoadingShimmer(
@@ -502,14 +508,14 @@ private fun TimelineLoading() {
                     .height(20.dp),
                 cornerRadius = 6.dp,
             )
-            Spacer(modifier = Modifier.size(12.dp))
+            Spacer(modifier = Modifier.size(spacing.md))
             LoadingShimmer(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(220.dp),
                 cornerRadius = 12.dp,
             )
-            Spacer(modifier = Modifier.size(24.dp))
+            Spacer(modifier = Modifier.size(spacing.xl))
         }
     }
 }
@@ -521,28 +527,29 @@ private fun TimelineLoading() {
 private fun TimelineEmpty(onPublishClick: () -> Unit) {
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
+    val spacing = LocalSocialSpacing.current
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(colors.systemBackground)
-            .padding(32.dp),
+            .padding(spacing.xxl),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
         EmptyIllustration(modifier = Modifier.size(160.dp))
-        Spacer(modifier = Modifier.size(24.dp))
+        Spacer(modifier = Modifier.size(spacing.xl))
         Text(
             text = "还没有带图推文",
             style = typography.body,
             color = colors.label,
         )
-        Spacer(modifier = Modifier.size(8.dp))
+        Spacer(modifier = Modifier.size(spacing.sm))
         Text(
             text = "发布第一条带图推文，开始记录你的相册",
             style = typography.subheadline,
             color = colors.secondaryLabel,
         )
-        Spacer(modifier = Modifier.size(24.dp))
+        Spacer(modifier = Modifier.size(spacing.xl))
         Button(onClick = onPublishClick) {
             Text(text = "去发布第一条带图推文")
         }
@@ -598,11 +605,12 @@ private fun EmptyIllustration(modifier: Modifier = Modifier) {
 private fun TimelineError(message: String) {
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
+    val spacing = LocalSocialSpacing.current
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(colors.systemBackground)
-            .padding(32.dp),
+            .padding(spacing.xxl),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -611,7 +619,7 @@ private fun TimelineError(message: String) {
             style = typography.body,
             color = colors.label,
         )
-        Spacer(modifier = Modifier.size(8.dp))
+        Spacer(modifier = Modifier.size(spacing.sm))
         Text(
             text = message,
             style = typography.subheadline,

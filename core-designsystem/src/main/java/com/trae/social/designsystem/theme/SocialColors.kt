@@ -1,6 +1,5 @@
 package com.trae.social.designsystem.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -70,7 +69,7 @@ val DarkSocialColors = SocialColors(
     label = Color(0xFFFFFFFF),
     secondaryLabel = Color(0x99EBEBF5),
     tertiaryLabel = Color(0x4DEBEBF5),
-    separator = Color(0x99545458),
+    separator = Color(0x66545458),
     surface = Color(0xFF1C1C1E),
 )
 
@@ -82,8 +81,10 @@ val LocalSocialColors = staticCompositionLocalOf<SocialColors> {
 }
 
 /**
- * 根据系统深色模式返回对应的配色方案。
+ * 读取当前主题提供的配色方案。
+ *
+ * 始终从 [LocalSocialColors] 获取，以保证与 [SocialTheme] 中传入的 darkTheme 覆写保持一致，
+ * 避免直接读取系统深色模式导致手动切换主题时配色不生效。
  */
 @Composable
-fun socialColors(): SocialColors =
-    if (isSystemInDarkTheme()) DarkSocialColors else LightSocialColors
+fun socialColors(): SocialColors = LocalSocialColors.current

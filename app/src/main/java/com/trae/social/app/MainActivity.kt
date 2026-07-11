@@ -13,6 +13,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -47,6 +48,7 @@ import com.trae.social.designsystem.components.GlassBlurTier
 import com.trae.social.designsystem.components.provideIsScrolling
 import com.trae.social.designsystem.components.rememberGlassBlurTier
 import com.trae.social.designsystem.theme.SocialTheme
+import com.trae.social.designsystem.theme.ThemePreferences
 import com.trae.social.feed.FeedScreen
 import com.trae.social.onboarding.OnboardingNavHost
 import com.trae.social.profile.ApiKeyManagementScreen
@@ -78,13 +80,17 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // #12：加载用户主题偏好（浅色/深色/跟随系统），供 SocialTheme 覆写 isSystemInDarkTheme
+        ThemePreferences.initialize(this)
         // 在前台上下文（Activity 启动）初始化调度器并启动前台服务。
         // 不能放在 Application.onCreate：此时无可见 Activity，Android 12+ 会因
         // 从后台启动前台服务抛 ForegroundServiceStartNotAllowedException 导致启动即崩。
         // SchedulerInitializer 内部有幂等守卫，Activity 重建时不会重复初始化。
         SchedulerInitializer.initialize(this)
         setContent {
-            SocialTheme {
+            // #12：读取主题偏好覆写系统深色模式；偏好变更时此处会重组
+            val darkTheme = ThemePreferences.isDarkTheme(isSystemInDarkTheme())
+            SocialTheme(darkTheme = darkTheme) {
                 SocialApp(configRepository = configRepository)
             }
         }

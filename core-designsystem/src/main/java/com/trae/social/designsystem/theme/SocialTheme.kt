@@ -18,7 +18,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.core.view.WindowCompat
 
 /**
- * 应用主题入口：提供 [SocialColors] / [SocialTypography] / [SocialShapes] 并桥接 Material3 [MaterialTheme]。
+ * 应用主题入口：提供 [SocialColors] / [SocialTypography] / [SocialShapes] / [SocialSpacing] 并桥接 Material3 [MaterialTheme]。
  *
  * 同时通过 [WindowCompat] 设置透明状态栏，并按主题切换状态栏图标明暗外观。
  *
@@ -26,6 +26,7 @@ import androidx.core.view.WindowCompat
  * @param colors 自定义配色，默认按深色模式取 [LightSocialColors] / [DarkSocialColors]
  * @param typography 自定义排版，默认 [DefaultSocialTypography]
  * @param shapes 自定义圆角，默认 [DefaultSocialShapes]
+ * @param spacing 自定义间距 Token，默认 [SocialSpacing]（4dp baseline grid）
  * @param content 主题包裹的内容
  */
 @Composable
@@ -34,6 +35,7 @@ fun SocialTheme(
     colors: SocialColors = if (darkTheme) DarkSocialColors else LightSocialColors,
     typography: SocialTypography = DefaultSocialTypography,
     shapes: SocialShapes = DefaultSocialShapes,
+    spacing: SocialSpacing = SocialSpacing(),
     content: @Composable () -> Unit,
 ) {
     val materialColorScheme = colors.toMaterialColorScheme(darkTheme)
@@ -64,6 +66,7 @@ fun SocialTheme(
         LocalSocialColors provides colors,
         LocalSocialTypography provides typography,
         LocalSocialShapes provides shapes,
+        LocalSocialSpacing provides spacing,
     ) {
         MaterialTheme(
             colorScheme = materialColorScheme,
