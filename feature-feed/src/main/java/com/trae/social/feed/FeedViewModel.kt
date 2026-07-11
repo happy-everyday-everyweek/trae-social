@@ -107,7 +107,7 @@ class FeedViewModel @Inject constructor(
     /**
      * 点赞：乐观更新本地集合，后台调 InteractionRepository 排程 + 更新计数。
      */
-    fun likeTweet(tweetId: String, authorId: String) {
+    fun likeTweet(tweetId: String) {
         val wasLiked = tweetId in _likedTweetIds.value
         val newSet = _likedTweetIds.value.toMutableSet()
         if (wasLiked) {
@@ -152,7 +152,7 @@ class FeedViewModel @Inject constructor(
      * - InteractionEntity 受 (tweetId,accountId,type) 唯一索引约束，每用户每推文仅一条；
      * - comments 表无此约束，支持同一用户对同一推文发表多条评论。
      */
-    fun commentTweet(tweetId: String, authorId: String, text: String) {
+    fun commentTweet(tweetId: String, text: String) {
         viewModelScope.launch {
             try {
                 val now = System.currentTimeMillis()

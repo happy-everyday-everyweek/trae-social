@@ -359,6 +359,8 @@ private fun MainScaffold() {
                     FollowListScreen(
                         type = type,
                         onBack = { navController.popBackStack() },
+                        // #11：账号详情页待接入，预留回调结构
+                        onAccountClick = { },
                         modifier = Modifier.fillMaxSize(),
                     )
                 }

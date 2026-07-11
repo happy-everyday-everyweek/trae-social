@@ -5,13 +5,16 @@
 
     <application>
 
-        <!-- 开机自启接收器：延迟启动调度前台服务 -->
+        <!-- #69/#88：开机自启接收器：注册 BOOT_COMPLETED + LOCKED_BOOT_COMPLETED，
+             directBootAware=true 使 LOCKED_BOOT_COMPLETED 在 Direct Boot 模式下也能触发 -->
         <receiver
             android:name="com.trae.social.core.scheduler.BootReceiver"
             android:enabled="true"
-            android:exported="true">
+            android:exported="true"
+            android:directBootAware="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
 

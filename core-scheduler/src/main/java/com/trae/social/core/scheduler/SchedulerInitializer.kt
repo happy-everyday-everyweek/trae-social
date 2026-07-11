@@ -34,7 +34,7 @@ import kotlinx.coroutines.launch
 /**
  * 调度器初始化入口（SubTask 8.5）。
  *
- * 由 [com.trae.social.app.SocialApp.onCreate] 调用，完成：
+ * 由 [com.trae.social.app.MainActivity.onCreate] 调用，完成：
  * 1. 启动 [SchedulerForegroundService]；
  * 2. 调度恢复：扫描所有虚拟账号的 [ScheduleRuleResolver.missedWindows]（自上次运行起），
  *    为错过的活跃窗补发推文（每窗最多补 1 条，避免轰炸）；
@@ -70,7 +70,7 @@ object SchedulerInitializer {
     }
 
     /**
-     * 初始化调度器。在主线程外的 IO 上下文中执行更佳，但 SocialApp.onCreate 中调用
+     * 初始化调度器。在主线程外的 IO 上下文中执行更佳，但 MainActivity.onCreate 中调用
      * 也可接受（Hilt 已完成依赖注入）。
      *
      * 接受 [Context] 而非 [android.app.Application]，使 Worker（持有 applicationContext）
@@ -153,8 +153,7 @@ object SchedulerInitializer {
         val level: AiActivityLevel = runCatching { configRepository.getAiActivityLevel() }
             .getOrDefault(AiActivityLevel.MEDIUM)
 
-        // 确定"上次运行"时刻：查最近一条成功的 tweet_generation 日志
-        val lastRun = determineLastRunTime(logDao, now)
+        // #72：determineLastRunTime（全局）为死代码，已由 determineAccountLastRunTime 按账号处理
 
         // 加载全部虚拟账号
         val virtualAccounts = loadVirtualAccounts(accountRepository)
@@ -259,29 +258,10 @@ object SchedulerInitializer {
     }
 
     /**
-     * 确定上次运行时刻（全局，仅用于无账号上下文时的回退）。
-     */
-    private suspend fun determineLastRunTime(
-        logDao: SchedulerLogDao,
-        now: Instant,
-    ): Instant? {
-        return runCatching {
-            val recent = logDao.getRecent(limit = LAST_RUN_LOOKUP_LIMIT)
-            val lastTweetLog = recent.firstOrNull { it.action == "tweet_generation" }
-            if (lastTweetLog != null) {
-                Instant.ofEpochMilli(lastTweetLog.timestamp)
-            } else {
-                // 无历史记录：回退为 24 小时前，避免补发过多
-                now.minusSeconds(24 * 60 * 60)
-            }
-        }.getOrNull()
-    }
-
-    /**
      * #114：确定指定账号的上次运行时刻。
      *
      * 查询该账号最近一条 tweet_generation 日志的时间戳，
-     * 避免 determineLastRunTime 使用全局日志导致跨账号补发漏窗。
+     * #72：已移除全局 determineLastRunTime，统一使用本方法按账号查询，避免跨账号补发漏窗。
      * 无记录时回退为 24 小时前。
      */
     private suspend fun determineAccountLastRunTime(
@@ -421,15 +401,17 @@ object SchedulerInitializer {
     ) {
         schedulerScope.launch {
             configRepository.activityLevelChanges.collect { level ->
-                Timber.i("AI 活跃度档位变更: %s，重新入队 PersonaUpdateWorker 并重配限流器", level.id)
-                workManager.enqueueUniquePeriodicWork(
-                    WorkerTags.PERSONA_UPDATE,
-                    ExistingPeriodicWorkPolicy.REPLACE,
-                    WorkerPolicies.personaUpdatePeriodicRequest(level),
-                )
-                // P2 修复：档位切换后立即重新配置限流器，避免限流器容量滞后
-                runCatching { rateLimiter.reconfigure(level) }
-                    .onFailure { Timber.w(it, "重新配置限流器失败") }
+                // #81：包裹处理逻辑，避免单次异常导致 collector 终止后不再观察档位变更
+                runCatching {
+                    Timber.i("AI 活跃度档位变更: %s，重新入队 PersonaUpdateWorker 并重配限流器", level.id)
+                    workManager.enqueueUniquePeriodicWork(
+                        WorkerTags.PERSONA_UPDATE,
+                        ExistingPeriodicWorkPolicy.REPLACE,
+                        WorkerPolicies.personaUpdatePeriodicRequest(level),
+                    )
+                    // P2 修复：档位切换后立即重新配置限流器，避免限流器容量滞后
+                    rateLimiter.reconfigure(level)
+                }.onFailure { Timber.w(it, "activity level change handling failed") }
             }
         }
     }

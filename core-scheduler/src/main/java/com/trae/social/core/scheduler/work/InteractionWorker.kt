@@ -127,10 +127,15 @@ class InteractionWorker @AssistedInject constructor(
             }
             interactionRepository.scheduleInteractions(interactions)
 
-            // IMPL-21：短延迟（< 5min）的 LIKE/FOLLOW 用 OneTimeWorkRequest + setInitialDelay
-            // 直接调度，避免受 PendingInteractionWorker 15 分钟周期限制，使 LIKE 更像真人"秒赞"
+            // #78：短延迟的 LIKE/FOLLOW/COMMENT/RETWEET 用 OneTimeWorkRequest + setInitialDelay
+            // 直接调度，避免受 PendingInteractionWorker 15 分钟周期限制，使互动更像真人即时反应
             val shortDelayInteractions = interactions.filter {
-                it.type == InteractionType.LIKE || it.type == InteractionType.FOLLOW
+                it.type in setOf(
+                    InteractionType.LIKE,
+                    InteractionType.FOLLOW,
+                    InteractionType.COMMENT,
+                    InteractionType.RETWEET,
+                )
             }.filter {
                 (it.scheduledAt - now) <= SHORT_DELAY_THRESHOLD_MS
             }
@@ -194,14 +199,10 @@ class InteractionWorker @AssistedInject constructor(
             val professionMatch = if (account.profession == authorProfession) 2 else 0
             account to (overlap + professionMatch)
         }
-        // 取相似度 Top 30% 后随机选取
-        val threshold = scored.maxOfOrNull { it.second } ?: 0
-        val pool = if (threshold > 0) {
-            scored.filter { it.second >= threshold / 2 }.map { it.first }
-        } else {
-            all
-        }
-        val targetCount = min(MAX_COMMENTERS, max(MIN_COMMENTERS, pool.size))
+        // #82：取相似度 Top 30% 后随机选取（按分数降序取前 30%，而非 score >= max/2）
+        val sortedScored = scored.sortedByDescending { it.second }
+        val targetCount = min(MAX_COMMENTERS, max(MIN_COMMENTERS, (all.size * 0.3).toInt().coerceAtLeast(1)))
+        val pool = sortedScored.take(targetCount).map { it.first }
         return pool.shuffled(Random(System.currentTimeMillis())).take(targetCount)
     }
 
@@ -350,9 +351,10 @@ class InteractionWorker @AssistedInject constructor(
     )
 
     /**
-     * IMPL-21：为短延迟的 LIKE/FOLLOW 入队即时执行 Worker。
+     * IMPL-21：为短延迟的互动入队即时执行 Worker。
      *
      * PendingInteractionWorker 是 15 分钟周期，LIKE 设计延迟 30s-5min 会最坏延迟到 20min。
+     * #78：COMMENT/RETWEET 也纳入即时执行，阈值放宽到 30min 覆盖其延迟区间。
      * 此处为短延迟互动入队 OneTimeWorkRequest + setInitialDelay，由 WorkManager 精确触发。
      */
     private fun enqueueImmediateInteractionExecution(
@@ -368,7 +370,12 @@ class InteractionWorker @AssistedInject constructor(
                     .setConstraints(WorkerPolicies.networkConstraints)
                     .addTag(WorkerTags.INTERACTION)
                     .build()
-                workManager.enqueue(request)
+                // #71：使用 enqueueUniqueWork 避免同一互动重复入队
+                workManager.enqueueUniqueWork(
+                    "pending_interaction_${interaction.id}",
+                    androidx.work.ExistingWorkPolicy.KEEP,
+                    request,
+                )
             }
             Timber.i("IMPL-21: 为 %d 个短延迟互动入队即时执行", interactions.size)
         }.onFailure { Timber.w(it, "即时互动入队失败，回退到周期执行") }
@@ -382,7 +389,7 @@ class InteractionWorker @AssistedInject constructor(
         const val LIKE_THRESHOLD = 0.50
         const val COMMENT_THRESHOLD = 0.30
         const val RETWEET_THRESHOLD = 0.15
-        /** IMPL-21：短延迟阈值，低于此值的 LIKE/FOLLOW 用 OneTimeWorkRequest 直接调度 */
-        const val SHORT_DELAY_THRESHOLD_MS = 5L * 60L * 1000L
+        /** #78：短延迟阈值，覆盖 COMMENT(<=15min)/RETWEET(<=30min)，低于此值的互动用 OneTimeWorkRequest 直接调度 */
+        const val SHORT_DELAY_THRESHOLD_MS = 30L * 60L * 1000L
     }
 }

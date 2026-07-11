@@ -189,6 +189,9 @@ fun PublishScreen(
                                 PublishViewModel.MAX_CAPTURES - 1
                             )
                         },
+                        // #9：编辑器模式传入配文，与发布流程共享同一 caption 状态
+                        caption = uiState.caption,
+                        onCaptionChange = viewModel::updateCaption,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }

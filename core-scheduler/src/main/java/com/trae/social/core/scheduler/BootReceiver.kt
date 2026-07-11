@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.trae.social.core.scheduler.work.SchedulerInitializerWorker
@@ -34,8 +35,11 @@ class BootReceiver : BroadcastReceiver() {
         Timber.i("收到开机广播 action=%s，延迟 %d 秒触发调度初始化", action, STARTUP_DELAY_SECONDS)
 
         // IMPL-18：用 WorkManager 持久化延迟任务，进程被杀后仍能重放
+        // #70：使用 expedited 工作请求，使 Worker 在 Android 12+ 后台上下文下
+        // 也能获得前台服务启动豁免，避免 ForegroundServiceStartNotAllowedException
         val request = OneTimeWorkRequestBuilder<SchedulerInitializerWorker>()
             .setInitialDelay(STARTUP_DELAY_SECONDS, TimeUnit.SECONDS)
+            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .addTag(WorkerTags.BOOT_INIT)
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(

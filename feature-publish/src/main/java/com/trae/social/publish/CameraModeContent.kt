@@ -27,6 +27,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -51,6 +52,7 @@ import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
@@ -97,6 +99,7 @@ import kotlin.math.abs
 import kotlin.math.atan2
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -141,6 +144,10 @@ fun CameraModeContent(
     // 对焦动画 Job：连续点击时取消上一次动画，避免竞态
     var focusJob by remember { mutableStateOf<Job?>(null) }
     val hasCameraPermission = cameraPermission.status.isGranted
+    // #36：拍照闪光动画（白色遮罩淡出）
+    val captureFlashAlpha = remember { Animatable(0f) }
+    // #36：拍照处理中状态（显示加载指示器）
+    var isCapturing by remember { mutableStateOf(false) }
 
     // 加速度计传感器用于水平仪（假设竖屏拍摄）
     val sensorManager = remember {
@@ -211,15 +218,50 @@ fun CameraModeContent(
     }
 
     val onShutter: () -> Unit = {
-        capturePhoto(context, imageCapture, executor) { path ->
-            if (path != null) {
-                // IMPL-35：1:1 比例时中心裁剪为正方形
-                val finalPath = if (ratio == CaptureRatio.SQUARE) {
-                    cropToSquare(path) ?: path
-                } else {
-                    path
+        // #36：防止重复触发，拍照处理中时忽略再次点击
+        if (!isCapturing) {
+            isCapturing = true
+            // #36：拍照闪光动画——白色遮罩快速淡出
+            scope.launch {
+                captureFlashAlpha.snapTo(CAPTURE_FLASH_ALPHA)
+                captureFlashAlpha.animateTo(0f, tween(CAPTURE_FLASH_DURATION_MS))
+            }
+            capturePhoto(context, imageCapture, executor) { path ->
+                if (path != null) {
+                    // IMPL-35：1:1 比例时中心裁剪为正方形
+                    val finalPath = if (ratio == CaptureRatio.SQUARE) {
+                        cropToSquare(path) ?: path
+                    } else {
+                        path
+                    }
+                    onCapture(finalPath)
                 }
-                onCapture(finalPath)
+                isCapturing = false
+            }
+        }
+    }
+    // #36：长按连拍——快速连续拍照多张
+    val onBurstShutter: () -> Unit = {
+        if (!isCapturing) {
+            scope.launch {
+                repeat(BURST_COUNT) {
+                    // #36：每次连拍触发闪光动画
+                    launch {
+                        captureFlashAlpha.snapTo(CAPTURE_FLASH_ALPHA)
+                        captureFlashAlpha.animateTo(0f, tween(CAPTURE_FLASH_DURATION_MS))
+                    }
+                    capturePhoto(context, imageCapture, executor) { path ->
+                        if (path != null) {
+                            val finalPath = if (ratio == CaptureRatio.SQUARE) {
+                                cropToSquare(path) ?: path
+                            } else {
+                                path
+                            }
+                            onCapture(finalPath)
+                        }
+                    }
+                    delay(BURST_INTERVAL_MS)
+                }
             }
         }
     }
@@ -335,10 +377,29 @@ fun CameraModeContent(
             ratio = ratio,
             onRatioChange = onRatioChange,
             onShutter = onShutter,
+            // #36：传入连拍回调
+            onBurstShutter = onBurstShutter,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth(),
         )
+
+        // #36：拍照闪光白色遮罩（快速淡出，模拟快门闪光，提供拍照视觉反馈）
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.White.copy(alpha = captureFlashAlpha.value)),
+        )
+
+        // #36：拍照处理中加载指示器，提示用户正在处理
+        if (isCapturing) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator(color = Color.White)
+            }
+        }
     }
 }
 
@@ -513,12 +574,15 @@ private fun ControlButton(
 
 /**
  * 底部相机控制栏：比例切换 + 拍照按钮。
+ *
+ * #36：拍照按钮支持长按连拍。
  */
 @Composable
 private fun BottomCameraBar(
     ratio: CaptureRatio,
     onRatioChange: (CaptureRatio) -> Unit,
     onShutter: () -> Unit,
+    onBurstShutter: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalSocialColors.current
@@ -567,7 +631,11 @@ private fun BottomCameraBar(
         }
 
         // 中间：拍照按钮
-        ShutterButton(onClick = onShutter)
+        ShutterButton(
+            onClick = onShutter,
+            // #36：长按触发连拍
+            onLongClick = onBurstShutter,
+        )
 
         // 右侧占位以保持拍照按钮水平居中
         Spacer(Modifier.width(48.dp))
@@ -578,9 +646,14 @@ private fun BottomCameraBar(
  * 拍照按钮：72dp 圆形，白色边框 + systemBlue 内圈。
  *
  * #3/#36：按下时弹簧缩放反馈（0.85→1.0）+ 快门触感，给予明确的拍摄触发动效。
+ * #36：支持长按连拍（onLongClick），单击拍照（onClick）。
  */
 @Composable
-private fun ShutterButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun ShutterButton(
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val colors = LocalSocialColors.current
     val hapticFeedback = LocalHapticFeedback.current
     // #3：自建 InteractionSource 追踪按压状态，驱动缩放动效
@@ -598,15 +671,32 @@ private fun ShutterButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
             .clip(CircleShape)
             .border(width = 4.dp, color = Color.White, shape = CircleShape)
             .background(Color.Transparent)
-            .clickable(
-                interactionSource = interactionSource,
-                indication = ripple(),
-                onClick = {
-                    // #3：快门触感反馈
-                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onClick()
-                },
-            ),
+            // #36：使用 detectTapGestures 替代 clickable，支持单击拍照 + 长按连拍
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = {
+                        // #3：手动发射按压状态，驱动缩放动画
+                        val press = PressInteraction.Press()
+                        interactionSource.emit(press)
+                        val released = tryAwaitRelease()
+                        if (released) {
+                            interactionSource.emit(PressInteraction.Release(press))
+                        } else {
+                            interactionSource.emit(PressInteraction.Cancel(press))
+                        }
+                    },
+                    onTap = {
+                        // #3：快门触感反馈
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onClick()
+                    },
+                    onLongPress = {
+                        // #36：长按触发连拍 + 触感反馈
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onLongClick()
+                    },
+                )
+            },
         contentAlignment = Alignment.Center,
     ) {
         Box(
@@ -765,3 +855,15 @@ private fun FlashMode.toCameraXFlash(): Int = when (this) {
  * 水平仪判定阈值（度）：|roll| 小于此值视为水平，指示线变绿。
  */
 private const val LEVEL_THRESHOLD_DEG = 2f
+
+// #36：拍照闪光动画参数
+/** 闪光遮罩初始透明度 */
+private const val CAPTURE_FLASH_ALPHA = 0.8f
+/** 闪光淡出时长（毫秒） */
+private const val CAPTURE_FLASH_DURATION_MS = 200
+
+// #36：连拍参数
+/** 长按连拍张数 */
+private const val BURST_COUNT = 5
+/** 连拍间隔（毫秒） */
+private const val BURST_INTERVAL_MS = 150L

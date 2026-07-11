@@ -51,7 +51,8 @@ class PendingInteractionWorker @AssistedInject constructor(
         var failed = 0
 
         try {
-            val pending = interactionRepository.getPendingInteractions(now)
+            // #79：限制单批拉取数量，避免积压时 Worker 执行超时
+            val pending = interactionRepository.getPendingInteractions(now, limit = PENDING_BATCH_LIMIT)
             if (pending.isEmpty()) {
                 return Result.success(workDataOf(WorkerKeys.KEY_RESULT to "no_pending"))
             }
@@ -242,5 +243,7 @@ class PendingInteractionWorker @AssistedInject constructor(
     private companion object {
         const val MAX_RUN_ATTEMPTS = 3
         const val MAX_COMMENT_LENGTH = 100
+        /** #79：单批拉取待执行互动的上限，避免积压时 Worker 执行超时 */
+        const val PENDING_BATCH_LIMIT = 50
     }
 }

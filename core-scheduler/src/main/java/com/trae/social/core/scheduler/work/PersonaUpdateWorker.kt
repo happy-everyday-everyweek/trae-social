@@ -18,13 +18,12 @@ import com.trae.social.llm.prompt.PersonaUpdatePromptBuilder
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import timber.log.Timber
-import kotlin.random.Random
 
 /**
  * 人设动态字段更新 Worker（SubTask 8.4）。
  *
  * 周期按 AI 活跃度档位缩放执行（LOW=14 天 / MEDIUM=7 天 / HIGH=3 天）：
- * 1. 随机选 batchSize 个虚拟账号（按档位 10/20/40）；
+ * 1. 选取 batchSize 个最久未更新的虚拟账号（按档位 10/20/40，#75）；
  * 2. 加载其当前动态字段与最近活动事件；
  * 3. 调 [PersonaUpdatePromptBuilder.build] + LlmClient.chatSync；
  * 4. [PersonaUpdatePromptBuilder.parsePersonaUpdate] 解析；
@@ -60,7 +59,7 @@ class PersonaUpdateWorker @AssistedInject constructor(
                 .getOrDefault(com.trae.social.core.data.config.AiActivityLevel.MEDIUM)
             val batchSize = level.personaUpdateBatchSize
 
-            // 1. 随机选 batchSize 个虚拟账号
+            // 1. 选取 batchSize 个最久未更新的虚拟账号（#75）
             val candidates = pickRandomAccounts(batchSize)
             if (candidates.isEmpty()) {
                 logSchedulerEvent("system", started, "no_accounts", null)
@@ -108,7 +107,11 @@ class PersonaUpdateWorker @AssistedInject constructor(
     }
 
     /**
-     * 从虚拟账号中随机选取 [count] 个。
+     * 从虚拟账号中选取 [count] 个。
+     *
+     * #75：改用最久未更新优先策略，按动态字段 updatedAt 升序选取，
+     * 确保长期未更新的账号也能被覆盖，避免纯随机导致的覆盖率不足。
+     * 未更新过的账号 updatedAt 为 0（最久前），排最前优先更新。
      */
     private suspend fun pickRandomAccounts(
         count: Int,
@@ -125,7 +128,13 @@ class PersonaUpdateWorker @AssistedInject constructor(
         }
         if (all.isEmpty()) return emptyList()
         Timber.i("pickRandomAccounts: 加载了 %d 个虚拟账号", all.size)
-        return all.shuffled(Random(System.currentTimeMillis())).take(count)
+        // #75：优先选取最久未更新的账号（按动态字段 updatedAt 升序），
+        // 未更新过的账号 getDynamicFields 返回 null，视为 0L 排最前
+        return all.sortedBy { account ->
+            runCatching {
+                accountRepository.getDynamicFields(account.id)?.updatedAt ?: 0L
+            }.getOrDefault(0L)
+        }.take(count)
     }
 
     /**
@@ -181,12 +190,12 @@ class PersonaUpdateWorker @AssistedInject constructor(
 
         // 写入更新
         val now = System.currentTimeMillis()
-        val relationshipList = dynamic?.relationshipNetwork?.takeIf { it.isNotEmpty() } ?: emptyList()
+        // #74：relationshipNetwork 改由 LLM 生成（parsed.relationshipNetwork），不再写回旧值
         accountRepository.updateDynamicFields(
             accountId = account.id,
             lifeStory = parsed.lifeStory,
             workInfo = parsed.workInfo,
-            relationshipNetwork = relationshipList,
+            relationshipNetwork = parsed.relationshipNetwork,
             mood = parsed.mood,
             updatedAt = now,
         )

@@ -149,7 +149,8 @@ fun FeedScreen(
                     imageLoader = viewModel.imageLoader,
                     onImageClick = { uris, index -> fullScreenTarget = FullScreenImageTarget(uris, index) },
                     onLikeClick = { item ->
-                        viewModel.likeTweet(item.tweet.id, item.tweet.authorId)
+                        // #101：移除 authorId 参数，内部统一使用 USER_SELF_ID
+                        viewModel.likeTweet(item.tweet.id)
                     },
                     onCommentClick = { commentTarget = it },
                     onRetweetClick = { retweetTarget = it },
@@ -169,7 +170,8 @@ fun FeedScreen(
             imageLoader = viewModel.imageLoader,
             onDismiss = { commentTarget = null },
             onSendComment = { text ->
-                viewModel.commentTweet(item.tweet.id, item.tweet.authorId, text)
+                // #101：移除 authorId 参数，内部统一使用 USER_SELF_ID
+                viewModel.commentTweet(item.tweet.id, text)
             },
             loadComments = { viewModel.loadComments(item.tweet.id) },
         )

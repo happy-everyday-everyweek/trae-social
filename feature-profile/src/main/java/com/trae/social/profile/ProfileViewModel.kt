@@ -22,7 +22,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -101,25 +100,26 @@ class ProfileViewModel @Inject constructor(
     }
 
     /**
-     * 恢复已点赞状态（#8 review）。
+     * 恢复已点赞状态。
      *
-     * DB 暂无 per-user 点赞记录，按 likeCount > 0 启发式还原：进入个人主页时，
-     * 将 likeCount > 0 的自身推文视为已点赞。后续由 [toggleLike] 维护本地集合；
-     * 理想方案需 DB 记录按用户点赞状态。
+     * #103：此前按 likeCount > 0 启发式还原，但 likeCount 包含虚拟账号的点赞，
+     * 导致未点赞推文被误标为已点赞。现在查询 interactions 表中当前用户的
+     * LIKE 类型已执行互动记录，准确还原点赞状态。
      *
      * #140：竞态修复——若用户在 DB 查询返回前已手动切换点赞（userToggledLike=true），
      * 跳过整体覆盖，避免丢弃用户操作。
      */
     private fun loadInitialLikedTweetIds() {
         viewModelScope.launch {
-            runCatching { tweetRepository.observeByAuthor(SELF_ID).first() }
-                .onSuccess { tweets ->
+            runCatching {
+                // #103：查询 interactions 表中当前用户已执行的 LIKE 互动，
+                // 替代此前 likeCount > 0 的启发式判断
+                interactionRepository.getLikedTweetIdsByAccount(SELF_ID)
+            }
+                .onSuccess { likedIds ->
                     // #140：仅当用户尚未手动切换点赞时才用 DB 结果覆盖
                     if (!userToggledLike) {
-                        _likedTweetIds.value = tweets
-                            .filter { it.likeCount > 0 }
-                            .map { it.id }
-                            .toSet()
+                        _likedTweetIds.value = likedIds.toSet()
                     }
                 }
                 .onFailure { Timber.w(it, "恢复已点赞状态失败") }

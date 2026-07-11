@@ -102,12 +102,14 @@ object ScheduleRuleResolver {
             if (!windowFull) {
                 val trigger = randomMomentInWindow(currentWindow, today, zone, random)
                 if (!trigger.isBefore(now)) return trigger
-                // 当前窗内随机时刻已过：取当前窗剩余时段的随机点（不早于 now + 1min）
-                val remainingEarliest = zonedNow.plusMinutes(1).toInstant()
+                // 当前窗内随机时刻已过：取当前窗剩余时段的随机点（不早于 now + 1s）
+                val remainingEarliest = zonedNow.plusSeconds(1).toInstant()
                 val windowEnd = atWindowEndInstant(currentWindow, today, zone)
                 if (remainingEarliest.isBefore(windowEnd)) {
                     return randomInstantBetween(remainingEarliest, windowEnd, random)
                 }
+                // #86：即使剩余 < 1min，也尽量用完当前窗配额
+                return windowEnd.minusSeconds(1)
             }
             // 当前窗已满或已接近结束，落入下方"今日后续窗"分支
         }

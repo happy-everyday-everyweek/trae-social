@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import com.trae.social.core.data.entity.CommentEntity
 import com.trae.social.core.data.entity.InteractionEntity
 import com.trae.social.core.data.entity.InteractionType
 import kotlinx.coroutines.flow.Flow
@@ -28,8 +29,9 @@ abstract class InteractionDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     abstract suspend fun insertAll(interactions: List<InteractionEntity>): List<Long>
 
-    @Query("SELECT * FROM interactions WHERE scheduledAt <= :time AND executedAt IS NULL ORDER BY scheduledAt ASC")
-    abstract suspend fun getPendingBefore(time: Long): List<InteractionEntity>
+    // #79：增加 LIMIT 参数，避免单次扫描拉取过多待执行互动导致 Worker 超时
+    @Query("SELECT * FROM interactions WHERE scheduledAt <= :now AND executedAt IS NULL ORDER BY scheduledAt ASC LIMIT :limit")
+    abstract suspend fun getPendingBefore(now: Long, limit: Int = 50): List<InteractionEntity>
 
     @Query("SELECT * FROM interactions WHERE scheduledAt <= :time AND executedAt IS NULL ORDER BY scheduledAt ASC")
     abstract fun observePendingBefore(time: Long): Flow<List<InteractionEntity>>
@@ -40,6 +42,10 @@ abstract class InteractionDao {
     @Query("SELECT COUNT(*) FROM interactions WHERE tweetId = :tweetId AND type = :type AND executedAt IS NOT NULL")
     abstract suspend fun countExecutedByType(tweetId: String, type: InteractionType): Int
 
+    // #103：查询某账号已执行的 LIKE 互动关联的推文 ID，替代 likeCount > 0 启发式
+    @Query("SELECT tweetId FROM interactions WHERE accountId = :accountId AND type = 'LIKE' AND executedAt IS NOT NULL")
+    abstract suspend fun getLikedTweetIdsByAccount(accountId: String): List<String>
+
     @Query("UPDATE tweets SET likeCount = likeCount + :delta WHERE id = :tweetId")
     abstract suspend fun updateTweetLikeCount(tweetId: String, delta: Int)
 
@@ -48,6 +54,10 @@ abstract class InteractionDao {
 
     @Query("UPDATE tweets SET retweetCount = retweetCount + :delta WHERE id = :tweetId")
     abstract suspend fun updateTweetRetweetCount(tweetId: String, delta: Int)
+
+    // #99：AI 评论执行时同步写入 comments 表，使评论弹层能展示 AI 评论
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun insertComment(comment: CommentEntity)
 
     /**
      * 原子地标记一批互动已执行并累加对应推文计数（IMPL-6）。
@@ -77,7 +87,22 @@ abstract class InteractionDao {
             if (rowsAffected == 0) continue
             when (interaction.type) {
                 InteractionType.LIKE -> likeDelta++
-                InteractionType.COMMENT -> commentDelta++
+                InteractionType.COMMENT -> {
+                    commentDelta++
+                    // #99：AI 评论执行时同步写入 comments 表，
+                    // 使评论弹层能展示 AI 生成的评论（此前仅存于 interactions.content）
+                    if (!interaction.content.isNullOrBlank()) {
+                        insertComment(
+                            CommentEntity(
+                                id = interaction.id,
+                                tweetId = tweetId,
+                                authorId = interaction.accountId,
+                                content = interaction.content,
+                                createdAt = executedAt,
+                            )
+                        )
+                    }
+                }
                 InteractionType.RETWEET -> retweetDelta++
                 InteractionType.FOLLOW -> { /* FOLLOW 不影响推文计数 */ }
             }

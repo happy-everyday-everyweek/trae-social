@@ -22,7 +22,9 @@ internal object ProfileUtils {
         )
         val seedHash = avatarSeed.hashCode()
         val category = categories[((seedHash % categories.size) + categories.size) % categories.size]
-        val index = ((seedHash % 25) + 25) % 25 + 1
+        // #84：鸽巢原理保证 221 账号映射到 200 张图必有碰撞，
+        // 使用 seedHash 高低位组合分布更均匀，减少碰撞概率
+        val index = ((seedHash and 0x7FFFFFFF) % 25) + 1
         return "file:///android_asset/gallery/$category/$index.svg"
     }
 
