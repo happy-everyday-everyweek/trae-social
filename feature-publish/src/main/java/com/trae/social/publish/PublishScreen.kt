@@ -3,7 +3,7 @@ package com.trae.social.publish
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Easing
+import androidx.compose.animation.core.EaseOutBack
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -89,6 +89,7 @@ fun PublishScreen(
         viewModel.events.collect { event ->
             when (event) {
                 PublishEvent.Published -> {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     showPublishAnimation = true
                     // 动画时长 700ms（三阶段），结束后回调
                     scope.launch {
@@ -99,6 +100,7 @@ fun PublishScreen(
                 }
                 // IMPL-15：发布失败时显示错误提示 + 重试按钮，保留输入
                 PublishEvent.PublishFailed -> {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     // isPublishing 已在 ViewModel 中重置，用户可重试
                     scope.launch {
                         val result = snackbarHostState.showSnackbar(
@@ -250,7 +252,7 @@ fun PublishScreen(
  * - 阶段2（300-600ms）：继续缩小 + 淡出 + "发布成功"提示淡入；
  * - 阶段3（600-700ms）：成功提示淡出，随后回调 onPublished。
  *
- * 使用 [graphicsLayer] 应用变换；缩放使用 [EaseOutBackEasing] 弹性缓动替代线性插值。
+ * 使用 [graphicsLayer] 应用变换；缩放使用 [EaseOutBack] 弹性缓动替代线性插值。
  * RISK-8 降级：当 imagePath 为空时仅显示成功提示（fade + scale），不显示预览图。
  */
 @Composable
@@ -289,8 +291,8 @@ private fun PublishFlyInOverlay(
         // 缩放：阶段1用 EaseOutBack 弹性缓动 1->0.6，阶段2线性 0.6->0.15
         val scaleVal = when {
             p < PHASE_1_RATIO -> {
-                val frac = EaseOutBackEasing.transform(p / PHASE_1_RATIO)
-                lerp(1f, 0.6f, frac)
+                val frac = EaseOutBack.transform(p / PHASE_1_RATIO)
+                lerpUnclamped(1f, 0.6f, frac)
             }
             p < PHASE_2_RATIO -> {
                 val frac = (p - PHASE_1_RATIO) / (PHASE_2_RATIO - PHASE_1_RATIO)
@@ -326,10 +328,10 @@ private fun PublishFlyInOverlay(
         val successScale = when {
             p < PHASE_1_RATIO -> 0.3f
             p < PHASE_2_RATIO -> {
-                val frac = EaseOutBackEasing.transform(
+                val frac = EaseOutBack.transform(
                     (p - PHASE_1_RATIO) / (PHASE_2_RATIO - PHASE_1_RATIO)
                 )
-                lerp(0.3f, 1f, frac)
+                lerpUnclamped(0.3f, 1f, frac)
             }
             else -> {
                 val frac = (p - PHASE_2_RATIO) / (1f - PHASE_2_RATIO)
@@ -361,48 +363,44 @@ private fun PublishFlyInOverlay(
                 )
             }
             // 成功提示：checkmark + 文本（降级模式下也显示，保证最小成功反馈）
-            if (successAlpha > 0f) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.graphicsLayer {
-                        alpha = successAlpha
-                        scaleX = successScale
-                        scaleY = successScale
-                    },
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Check,
-                        contentDescription = "发布成功",
-                        tint = Color.White,
-                        modifier = Modifier.size(48.dp),
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = "发布成功",
-                        color = Color.White,
-                        style = typography.body,
-                    )
-                }
+            // 始终组合，通过 graphicsLayer alpha 控制可见性，避免 alpha 由 0 变 >0 时布局抖动
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.graphicsLayer {
+                    alpha = successAlpha
+                    scaleX = successScale
+                    scaleY = successScale
+                },
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    contentDescription = "发布成功",
+                    tint = Color.White,
+                    modifier = Modifier.size(48.dp),
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "发布成功",
+                    color = Color.White,
+                    style = typography.body,
+                )
             }
         }
     }
 }
 
 /**
- * 线性插值。
+ * 线性插值（钳制 fraction 至 [0, 1]），适用于线性或不过冲的缓动。
  */
 private fun lerp(start: Float, stop: Float, fraction: Float): Float =
     start + (stop - start) * fraction.coerceIn(0f, 1f)
 
 /**
- * EaseOutBack 缓动：末尾带轻微过冲，让缩放更有弹性。
+ * 不钳制的线性插值：保留 EaseOutBack 等缓动的过冲值（>1），
+ * 避免 coerceIn 截断而丢失弹性效果。
  */
-private val EaseOutBackEasing = Easing { fraction ->
-    val c1 = 1.70158f
-    val c3 = c1 + 1f
-    val t = fraction - 1f
-    1f + c3 * t * t * t + c1 * t * t
-}
+private fun lerpUnclamped(start: Float, stop: Float, fraction: Float): Float =
+    start + (stop - start) * fraction
 
 private const val PUBLISH_ANIM_DURATION_MS = 700
 private const val PHASE_1_RATIO = 3f / 7f // 300/700
