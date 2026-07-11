@@ -54,6 +54,7 @@ import com.trae.social.core.data.entity.TweetEntity
 import com.trae.social.designsystem.components.CapsuleTab
 import com.trae.social.designsystem.components.SocialDivider
 import com.trae.social.designsystem.components.socialClickable
+import com.trae.social.designsystem.theme.LocalSocialSpacing
 import com.trae.social.designsystem.theme.LocalSocialTypography
 import com.trae.social.designsystem.theme.socialColors
 
@@ -89,6 +90,7 @@ fun ProfileScreen(
     val onImageClick: (List<String>, Int) -> Unit = { images, index ->
         fullScreenState = FullScreenImageState(images, index)
     }
+    val spacing = LocalSocialSpacing.current
 
     Column(modifier = modifier.fillMaxSize().background(colors.systemBackground)) {
         TopAppBar(
@@ -122,7 +124,7 @@ fun ProfileScreen(
                     tabs = ProfileTab.values().map { it.label },
                     selectedIndex = selectedTab.ordinal,
                     onTabSelected = { viewModel.selectTab(ProfileTab.values()[it]) },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = spacing.lg, vertical = spacing.sm),
                 )
                 when (selectedTab) {
                     ProfileTab.TWEETS -> TweetsTab(
@@ -162,9 +164,10 @@ private fun ProfileHeader(
 ) {
     val colors = socialColors()
     val typography = LocalSocialTypography.current
+    val spacing = LocalSocialSpacing.current
     val account = state.account
     // #20：资料区分段留白，头像与名称行顶部对齐，增加呼吸感与层次
-    Column(Modifier.fillMaxWidth().padding(16.dp)) {
+    Column(Modifier.fillMaxWidth().padding(spacing.lg)) {
         Row(verticalAlignment = Alignment.Top) {
             AsyncImage(
                 model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
@@ -177,7 +180,7 @@ private fun ProfileHeader(
                 modifier = Modifier.size(72.dp).clip(CircleShape)
                     .background(colors.tertiaryBackground),
             )
-            Spacer(Modifier.width(16.dp))
+            Spacer(Modifier.width(spacing.lg))
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     text = account.displayName.ifBlank { "我" },
@@ -193,7 +196,7 @@ private fun ProfileHeader(
         }
         if (account.bio.isNotBlank()) {
             // #20：名称行↔bio 间距 16dp
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(spacing.lg))
             Text(
                 text = account.bio,
                 style = typography.body,
@@ -289,19 +292,20 @@ private fun ProfileTweetRow(
 ) {
     val colors = socialColors()
     val typography = LocalSocialTypography.current
+    val spacing = LocalSocialSpacing.current
     Column(
         Modifier
             .fillMaxWidth()
             .background(colors.systemBackground),
     ) {
         // TODO: 后续接入推文详情页跳转
-        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+        Column(Modifier.fillMaxWidth().padding(spacing.lg)) {
             Text(
                 text = ProfileUtils.formatRelativeTime(tweet.createdAt),
                 style = typography.caption2,
                 color = colors.tertiaryLabel,
             )
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(spacing.xs))
             if (tweet.text.isNotBlank()) {
                 Text(
                     text = tweet.text,
@@ -310,7 +314,7 @@ private fun ProfileTweetRow(
                 )
             }
             ProfileUtils.toImageUri(tweet.mediaPath)?.let { uri ->
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(spacing.sm))
                 AsyncImage(
                     model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
                         .data(uri).crossfade(true).build(),
@@ -323,7 +327,7 @@ private fun ProfileTweetRow(
                         .socialClickable { onImageClick(uri) },
                 )
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(spacing.sm))
             // #8：互动栏，对齐 feature-feed TweetCard（评论/转发/点赞，SpaceBetween 布局）
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -374,6 +378,7 @@ private fun InteractionButton(
 ) {
     val typography = LocalSocialTypography.current
     val hapticFeedback = LocalHapticFeedback.current
+    val spacing = LocalSocialSpacing.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
@@ -386,7 +391,7 @@ private fun InteractionButton(
                 }
                 onClick()
             })
-            .padding(horizontal = 8.dp),
+            .padding(horizontal = spacing.sm),
     ) {
         Icon(
             imageVector = icon,
@@ -395,7 +400,7 @@ private fun InteractionButton(
             modifier = Modifier.size(18.dp),
         )
         if (count > 0) {
-            Spacer(Modifier.width(4.dp))
+            Spacer(Modifier.width(spacing.xs))
             Text(
                 text = ProfileUtils.formatCount(count),
                 style = typography.caption1,

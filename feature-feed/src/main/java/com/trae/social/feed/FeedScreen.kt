@@ -53,6 +53,7 @@ import coil.ImageLoader
 import com.trae.social.designsystem.components.LoadingShimmer
 import com.trae.social.designsystem.components.SocialCard
 import com.trae.social.designsystem.theme.LocalSocialColors
+import com.trae.social.designsystem.theme.LocalSocialSpacing
 import com.trae.social.designsystem.theme.LocalSocialTypography
 
 /**
@@ -188,6 +189,7 @@ private fun FeedList(
     onScrollingChange: (Boolean) -> Unit,
 ) {
     val appendState = pagingItems.loadState.append
+    val spacing = LocalSocialSpacing.current
     // IMPL-33：由列表滚动状态派生 isScrolling，回传给 MainScaffold 供 GlassBlurContainer
     val listState = rememberLazyListState()
     LaunchedEffect(listState) {
@@ -196,7 +198,7 @@ private fun FeedList(
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(vertical = 8.dp),
+        contentPadding = PaddingValues(vertical = spacing.sm),
     ) {
         items(
             count = pagingItems.itemCount,
@@ -241,11 +243,12 @@ private fun FeedList(
  */
 @Composable
 private fun LoadingPlaceholderList() {
+    val spacing = LocalSocialSpacing.current
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .padding(spacing.lg),
+        verticalArrangement = Arrangement.spacedBy(spacing.lg),
     ) {
         repeat(3) { ShimmerCard() }
     }
@@ -253,13 +256,14 @@ private fun LoadingPlaceholderList() {
 
 @Composable
 private fun ShimmerCard() {
+    val spacing = LocalSocialSpacing.current
     Row(modifier = Modifier.fillMaxWidth()) {
         LoadingShimmer(
             modifier = Modifier.size(36.dp),
             cornerRadius = 18.dp,
         )
-        Spacer(Modifier.width(10.dp))
-        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Spacer(Modifier.width(spacing.sm))
+        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(spacing.sm)) {
             LoadingShimmer(
                 modifier = Modifier
                     .fillMaxWidth(0.4f)
@@ -301,25 +305,26 @@ private fun RetweetConfirmDialog(
 ) {
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
+    val spacing = LocalSocialSpacing.current
     Dialog(onDismissRequest = onDismiss) {
         SocialCard(
             modifier = Modifier.fillMaxWidth(),
             cornerRadius = 16.dp,
             elevation = 0.dp,
         ) {
-            Column(modifier = Modifier.padding(24.dp)) {
+            Column(modifier = Modifier.padding(spacing.xl)) {
                 Text(
                     text = "确认转发？",
                     style = typography.title3,
                     color = colors.label,
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(spacing.sm))
                 Text(
                     text = "将转发此推文到你的主页",
                     style = typography.body,
                     color = colors.secondaryLabel,
                 )
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(spacing.xl))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
@@ -331,7 +336,7 @@ private fun RetweetConfirmDialog(
                             color = colors.secondaryLabel,
                         )
                     }
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(spacing.sm))
                     TextButton(onClick = onConfirm) {
                         Text(
                             text = "转发",
@@ -353,15 +358,16 @@ private fun EmptyPlaceholder() {
     val colors = LocalSocialColors.current
     // #30：统一使用 LocalSocialTypography token
     val typography = LocalSocialTypography.current
+    val spacing = LocalSocialSpacing.current
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(spacing.md),
             modifier = Modifier
-                .padding(32.dp)
+                .padding(spacing.xxl)
                 // #33：空状态整体合并为一句话义，TalkBack 一次朗读，避免 ":-)" 被读成字符
                 .semantics(mergeDescendants = true) {
                     contentDescription = "暂无推文，去发布第一条吧"
@@ -405,6 +411,7 @@ private fun ErrorPlaceholder(
     val colors = LocalSocialColors.current
     // #30：统一使用 LocalSocialTypography token
     val typography = LocalSocialTypography.current
+    val spacing = LocalSocialSpacing.current
     // #31：将技术性 error.message 转译为友好提示
     val friendlyMessage = friendlyErrorMessage(message)
     Box(
@@ -413,9 +420,9 @@ private fun ErrorPlaceholder(
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(spacing.md),
             modifier = Modifier
-                .padding(32.dp)
+                .padding(spacing.xxl)
                 .semantics(mergeDescendants = true) {
                     contentDescription = friendlyMessage
                 },
@@ -456,7 +463,7 @@ private fun ErrorPlaceholder(
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                 )
-                Text("重试", modifier = Modifier.padding(start = 4.dp))
+                Text("重试", modifier = Modifier.padding(start = spacing.xs))
             }
         }
     }
@@ -483,10 +490,11 @@ private fun friendlyErrorMessage(raw: String): String {
 
 @Composable
 private fun LoadingFooter() {
+    val spacing = LocalSocialSpacing.current
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp),
+            .padding(spacing.lg),
         contentAlignment = Alignment.Center,
     ) {
         LoadingShimmer(
@@ -503,10 +511,11 @@ private fun ErrorFooter(onRetry: () -> Unit) {
     val colors = LocalSocialColors.current
     // #30：统一使用 LocalSocialTypography token
     val typography = LocalSocialTypography.current
+    val spacing = LocalSocialSpacing.current
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp),
+            .padding(spacing.lg),
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -526,10 +535,11 @@ private fun EndOfListFooter() {
     val colors = LocalSocialColors.current
     // #30：统一使用 LocalSocialTypography token
     val typography = LocalSocialTypography.current
+    val spacing = LocalSocialSpacing.current
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp),
+            .padding(spacing.lg),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -553,12 +563,13 @@ private fun OnboardingSkippedBanner(onNavigateToSettings: () -> Unit) {
     val colors = LocalSocialColors.current
     // #30：统一使用 LocalSocialTypography token
     val typography = LocalSocialTypography.current
+    val spacing = LocalSocialSpacing.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onNavigateToSettings() }
             .background(colors.systemBlue.copy(alpha = 0.12f))
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = spacing.lg, vertical = spacing.sm),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
