@@ -114,7 +114,7 @@ fun TweetCard(
             .fillMaxWidth()
             .background(colors.systemBackground)
             // #19：卡片垂直留白 12→16，提升呼吸感
-            .padding(horizontal = spacing.lg, vertical = spacing.lg),
+            .padding(spacing.lg),
     ) {
         // 顶部行：头像 + 名称 + 时间 + 更多
         Row(verticalAlignment = Alignment.CenterVertically) {
