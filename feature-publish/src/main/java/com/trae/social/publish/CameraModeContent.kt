@@ -96,6 +96,7 @@ import java.util.concurrent.Executors
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -137,6 +138,8 @@ fun CameraModeContent(
     var focusOffset by remember { mutableStateOf<Offset?>(null) }
     val focusAlpha = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
+    // 对焦动画 Job：连续点击时取消上一次动画，避免竞态
+    var focusJob by remember { mutableStateOf<Job?>(null) }
     val hasCameraPermission = cameraPermission.status.isGranted
 
     // 加速度计传感器用于水平仪（假设竖屏拍摄）
@@ -179,21 +182,24 @@ fun CameraModeContent(
     }
 
     // 注册/注销加速度计监听，驱动水平仪角度
-    DisposableEffect(accelerometer) {
-        val listener = object : SensorEventListener {
-            override fun onSensorChanged(event: SensorEvent) {
-                // roll = 设备绕取景轴的倾斜角；竖屏下用 x / -y 计算
-                val x = event.values[0]
-                val y = event.values[1]
-                rollDegrees = Math.toDegrees(atan2(x.toDouble(), -y.toDouble())).toFloat()
-            }
+    // 传感器注册需相机权限：无权限或无传感器时不注册，避免无谓监听
+    DisposableEffect(hasCameraPermission, accelerometer) {
+        if (!hasCameraPermission || accelerometer == null) {
+            onDispose { }
+        } else {
+            val listener = object : SensorEventListener {
+                override fun onSensorChanged(event: SensorEvent) {
+                    // roll = 设备绕取景轴的倾斜角；竖屏下用 x / y 计算
+                    val x = event.values[0]
+                    val y = event.values[1]
+                    rollDegrees = Math.toDegrees(atan2(x.toDouble(), y.toDouble())).toFloat()
+                }
 
-            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+                override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+            }
+            sensorManager.registerListener(listener, accelerometer, SensorManager.SENSOR_DELAY_NORMAL)
+            onDispose { sensorManager.unregisterListener(listener) }
         }
-        if (accelerometer != null) {
-            sensorManager.registerListener(listener, accelerometer, SensorManager.SENSOR_DELAY_UI)
-        }
-        onDispose { sensorManager.unregisterListener(listener) }
     }
 
     // P1-3：离开组合时解绑相机 + 释放执行器，避免 Tab 切换后相机传感器持续占用
@@ -237,8 +243,9 @@ fun CameraModeContent(
                             val point = previewView.meteringPointFactory.createPoint(offset.x, offset.y)
                             val action = FocusMeteringAction.Builder(point).build()
                             cam.cameraControl.startFocusAndMetering(action)
-                            // 对焦框淡入淡出动画
-                            scope.launch {
+                            // 对焦框淡入淡出动画：取消上一次动画避免竞态
+                            focusJob?.cancel()
+                            focusJob = scope.launch {
                                 focusOffset = offset
                                 focusAlpha.snapTo(0f)
                                 focusAlpha.animateTo(1f, tween(80))
@@ -250,15 +257,6 @@ fun CameraModeContent(
             ) {
                 AndroidView(
                     factory = { previewView },
-                    modifier = Modifier.fillMaxSize(),
-                )
-                // 构图辅助覆盖层：网格线 + 水平仪 + 对焦框
-                CompositionAidsOverlay(
-                    showGrid = showGrid,
-                    rollDegrees = rollDegrees,
-                    focusOffset = focusOffset,
-                    focusAlpha = focusAlpha.value,
-                    ratio = ratio,
                     modifier = Modifier.fillMaxSize(),
                 )
                 // IMPL-35：1:1 比例叠加非透明黑色遮罩，正方形区域外不可见
@@ -287,6 +285,17 @@ fun CameraModeContent(
                         )
                     }
                 }
+                // 构图辅助覆盖层：网格线 + 水平仪 + 对焦框
+                // 置于黑色遮罩之后，避免 1:1 比例时对焦框/网格被遮罩遮挡
+                CompositionAidsOverlay(
+                    showGrid = showGrid,
+                    rollDegrees = rollDegrees,
+                    hasSensorData = accelerometer != null,
+                    focusOffset = focusOffset,
+                    focusAlpha = focusAlpha.value,
+                    ratio = ratio,
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         } else {
             PermissionRequestCard(
@@ -391,6 +400,7 @@ private fun GridToggleButton(
 private fun CompositionAidsOverlay(
     showGrid: Boolean,
     rollDegrees: Float,
+    hasSensorData: Boolean,
     focusOffset: Offset?,
     focusAlpha: Float,
     ratio: CaptureRatio,
@@ -441,17 +451,20 @@ private fun CompositionAidsOverlay(
         }
 
         // 水平仪：中心水平线，反向旋转以指示真实水平方向，水平时变绿
-        val isLevel = abs(rollDegrees) < LEVEL_THRESHOLD_DEG
-        val levelColor = if (isLevel) Color.Green.copy(alpha = 0.9f) else Color.White.copy(alpha = 0.7f)
-        val center = region.center
-        val halfLen = 40.dp.toPx()
-        rotate(degrees = -rollDegrees, pivot = center) {
-            drawLine(
-                color = levelColor,
-                start = Offset(center.x - halfLen, center.y),
-                end = Offset(center.x + halfLen, center.y),
-                strokeWidth = 2.dp.toPx(),
-            )
+        // 无传感器数据（如模拟器）时不绘制，避免恒为 0 度导致的假"已水平"提示
+        if (hasSensorData) {
+            val isLevel = abs(rollDegrees) < LEVEL_THRESHOLD_DEG
+            val levelColor = if (isLevel) Color.Green.copy(alpha = 0.9f) else Color.White.copy(alpha = 0.7f)
+            val center = region.center
+            val halfLen = 40.dp.toPx()
+            rotate(degrees = -rollDegrees, pivot = center) {
+                drawLine(
+                    color = levelColor,
+                    start = Offset(center.x - halfLen, center.y),
+                    end = Offset(center.x + halfLen, center.y),
+                    strokeWidth = 2.dp.toPx(),
+                )
+            }
         }
 
         // 点击对焦框：在点击位置绘制淡入淡出方框
