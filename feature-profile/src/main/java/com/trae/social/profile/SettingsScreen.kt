@@ -1,6 +1,8 @@
 package com.trae.social.profile
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -232,7 +234,19 @@ fun SettingsScreen(
                         SocialDivider(thickness = 0.5.dp)
                         AboutInfoRow(label = "开源协议", value = "PolyForm Noncommercial")
                         SocialDivider(thickness = 0.5.dp)
-                        AboutInfoRow(label = "GitHub", value = "github.com/happy-everyday-everyweek/trae-social")
+                        // #12：GitHub 行可点击，跳转至仓库页面
+                        AboutInfoRow(
+                            label = "GitHub",
+                            value = "github.com/happy-everyday-everyweek/trae-social",
+                            onClick = {
+                                runCatching {
+                                    context.startActivity(
+                                        Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/happy-everyday-everyweek/trae-social"))
+                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    )
+                                }
+                            },
+                        )
                         SocialDivider(thickness = 0.5.dp)
                         Column(Modifier.padding(16.dp)) {
                             Text(
@@ -241,8 +255,9 @@ fun SettingsScreen(
                                 color = colors.secondaryLabel,
                             )
                             Spacer(Modifier.height(4.dp))
+                            // #12：补充加密存储说明，与 KeyInputScreen 副标题一致
                             Text(
-                                "本应用为开源学习项目，不收集任何用户隐私数据，所有内容均在本地生成与存储。",
+                                "本应用为开源学习项目，不收集任何用户隐私数据。所有 API Key 均通过 Android Keystore 加密存储于本地，内容均在设备端生成与存储。",
                                 style = typography.subheadline,
                                 color = colors.tertiaryLabel,
                             )
@@ -417,21 +432,32 @@ private fun ThemeModeRow(
 }
 
 /**
- * #12：关于卡片中的键值信息行（不可点击）。
+ * #12：关于卡片中的键值信息行。
+ *
+ * @param onClick 可选点击回调；非空时整行可点击（如 GitHub 链接跳转）
  */
 @Composable
-private fun AboutInfoRow(label: String, value: String) {
+private fun AboutInfoRow(
+    label: String,
+    value: String,
+    onClick: (() -> Unit)? = null,
+) {
     val colors = socialColors()
     val typography = LocalSocialTypography.current
+    val mod = if (onClick != null) {
+        Modifier.fillMaxWidth().clickable { onClick() }.padding(16.dp)
+    } else {
+        Modifier.fillMaxWidth().padding(16.dp)
+    }
     Row(
-        modifier = Modifier.fillMaxWidth().padding(16.dp),
+        modifier = mod,
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, color = colors.secondaryLabel, style = typography.subheadline)
         Text(
             value,
-            color = colors.label,
+            color = if (onClick != null) colors.systemBlue else colors.label,
             style = typography.subheadline,
             modifier = Modifier.weight(1f),
             maxLines = 1,

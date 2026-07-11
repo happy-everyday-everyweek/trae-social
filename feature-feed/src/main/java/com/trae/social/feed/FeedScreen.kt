@@ -1,5 +1,7 @@
 package com.trae.social.feed
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +21,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -110,30 +113,43 @@ fun FeedScreen(
             },
             modifier = Modifier.fillMaxSize(),
         ) {
-        when {
-            isInitialLoading -> LoadingPlaceholderList()
-            isError -> ErrorPlaceholder(
-                message = (refreshState as LoadState.Error).error.message ?: "加载失败",
-                onRetry = {
-                    viewModel.refresh()
-                    pagingItems.retry()
-                },
-            )
-            isEmpty -> EmptyPlaceholder()
-            else -> FeedList(
-                pagingItems = pagingItems,
-                likedIds = likedIds,
-                bookmarkedIds = bookmarkedIds,
-                imageLoader = viewModel.imageLoader,
-                onImageClick = { uris, index -> fullScreenTarget = FullScreenImageTarget(uris, index) },
-                onLikeClick = { item ->
-                    viewModel.likeTweet(item.tweet.id, item.tweet.authorId)
-                },
-                onCommentClick = { commentTarget = it },
-                onRetweetClick = { retweetTarget = it },
-                onBookmarkClick = { viewModel.bookmarkTweet(it.tweet.id) },
-                onScrollingChange = onScrollingChange,
-            )
+        // #23：首次加载 shimmer→内容、错误态/空态切换使用 Crossfade 平滑过渡，避免瞬间跳变
+        val contentKey = when {
+            isInitialLoading -> "loading"
+            isError -> "error"
+            isEmpty -> "empty"
+            else -> "list"
+        }
+        Crossfade(
+            targetState = contentKey,
+            animationSpec = tween(300),
+            label = "feed-state",
+        ) { key ->
+            when (key) {
+                "loading" -> LoadingPlaceholderList()
+                "error" -> ErrorPlaceholder(
+                    message = (refreshState as LoadState.Error).error.message ?: "加载失败",
+                    onRetry = {
+                        viewModel.refresh()
+                        pagingItems.retry()
+                    },
+                )
+                "empty" -> EmptyPlaceholder()
+                else -> FeedList(
+                    pagingItems = pagingItems,
+                    likedIds = likedIds,
+                    bookmarkedIds = bookmarkedIds,
+                    imageLoader = viewModel.imageLoader,
+                    onImageClick = { uris, index -> fullScreenTarget = FullScreenImageTarget(uris, index) },
+                    onLikeClick = { item ->
+                        viewModel.likeTweet(item.tweet.id, item.tweet.authorId)
+                    },
+                    onCommentClick = { commentTarget = it },
+                    onRetweetClick = { retweetTarget = it },
+                    onBookmarkClick = { viewModel.bookmarkTweet(it.tweet.id) },
+                    onScrollingChange = onScrollingChange,
+                )
+            }
         }
         } // PullToRefreshBox
     } // Column
@@ -360,7 +376,7 @@ private fun RetweetConfirmDialog(
 }
 
 /**
- * 空状态。
+ * 空状态（#31：图标 + 友好文案，与错误态/成功态设计统一）。
  */
 @Composable
 private fun EmptyPlaceholder() {
@@ -377,31 +393,39 @@ private fun EmptyPlaceholder() {
             verticalArrangement = Arrangement.spacedBy(spacing.md),
             modifier = Modifier
                 .padding(spacing.xxl)
-                // #33：空状态整体合并为一句话义，TalkBack 一次朗读，避免 ":-)" 被读成字符
+                // #33：空状态整体合并为一句话义，TalkBack 一次朗读
                 .semantics(mergeDescendants = true) {
                     contentDescription = "暂无推文，去发布第一条吧"
                 },
         ) {
-            // 简易空状态插画：灰色圆角方块占位（装饰性，不单独朗读）
+            // #31：彩色圆 + 图标替代原灰方块 + ":-)"，与 ErrorPlaceholder/DevOptionsScreen 设计统一
             Box(
                 modifier = Modifier
-                    .size(80.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(colors.tertiaryBackground)
+                    .size(64.dp)
+                    .clip(CircleShape)
+                    .background(colors.systemBlue.copy(alpha = 0.12f))
                     .semantics { contentDescription = "" },
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = ":-)",
-                    // #30：headlineMedium → title2
-                    style = typography.title2,
-                    color = colors.tertiaryLabel,
+                Icon(
+                    imageVector = Icons.Filled.Edit,
+                    contentDescription = null,
+                    tint = colors.systemBlue,
+                    modifier = Modifier.size(32.dp),
                 )
             }
             Text(
-                text = "暂无推文，去发布第一条吧",
+                text = "暂无推文",
                 // #30：bodyLarge → body
                 style = typography.body,
+                color = colors.label,
+                textAlign = TextAlign.Center,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = "去发布第一条吧",
+                // #30：bodyMedium → callout
+                style = typography.callout,
                 color = colors.secondaryLabel,
                 textAlign = TextAlign.Center,
             )

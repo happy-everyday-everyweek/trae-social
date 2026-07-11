@@ -66,10 +66,13 @@ val DarkSocialColors = SocialColors(
     systemBackground = Color(0xFF000000),
     secondaryBackground = Color(0xFF1C1C1E),
     tertiaryBackground = Color(0xFF2C2C2E),
-    label = Color(0xFFFFFFFF),
+    // #29：正文由纯白微调为 #F2F2F7（接近白但略柔），与纯黑背景对比约 18:1，仍达 WCAG AAA，
+    // 减轻长时间阅读的眼疲劳；避免纯黑+纯白的极限对比。
+    label = Color(0xFFF2F2F7),
     secondaryLabel = Color(0x99EBEBF5),
     tertiaryLabel = Color(0x4DEBEBF5),
-    separator = Color(0x66545458),
+    // #27：分隔线由 0x66(40%) 降至 0x38(22%)，深色模式下更柔和，避免在纯黑背景上偏重
+    separator = Color(0x38545458),
     surface = Color(0xFF1C1C1E),
 )
 

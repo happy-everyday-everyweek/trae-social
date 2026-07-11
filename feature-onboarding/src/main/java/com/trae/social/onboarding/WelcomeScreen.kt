@@ -1,5 +1,7 @@
 package com.trae.social.onboarding
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -24,10 +27,14 @@ import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -57,6 +64,19 @@ fun WelcomeScreen(
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
 
+    // #35：进场动画——插画与内容淡入 + 上移，避免首屏静态堆叠
+    val illustrationAlpha = remember { Animatable(0f) }
+    val illustrationOffset = remember { Animatable(40f) }
+    val contentAlpha = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        illustrationAlpha.animateTo(1f, tween(500))
+        illustrationOffset.animateTo(0f, tween(500))
+        contentAlpha.animateTo(1f, tween(400))
+    }
+
+    // #15：免责声明可折叠，首次展示后用户可收起，减少主流程中的重复提示
+    var disclaimerExpanded = remember { androidx.compose.runtime.mutableStateOf(true) }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -71,32 +91,45 @@ fun WelcomeScreen(
         WelcomeIllustration(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(220.dp),
-        )
-
-        Text(
-            text = "欢迎使用 Trae Social",
-            style = typography.largeTitle,
-            color = colors.label,
-            textAlign = TextAlign.Center,
+                .height(220.dp)
+                .graphicsLayer {
+                    alpha = illustrationAlpha.value
+                    translationY = illustrationOffset.value
+                },
         )
 
         Column(
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.graphicsLayer { alpha = contentAlpha.value },
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // #35：要点升级为图标 + 文案，比纯色圆点更具语义表达
-            // #17：文案拟人化，避免过早暴露 LLM/虚拟账号/AI 生成等工程措辞
-            BulletPoint(text = "高拟真社交生态，随时有人与你互动", icon = Icons.Filled.AutoAwesome)
-            BulletPoint(text = "200+ 伙伴与你实时互动", icon = Icons.Filled.Group)
-            BulletPoint(text = "完全本地运行，数据私密可控", icon = Icons.Filled.Lock)
+            Text(
+                text = "欢迎使用 Trae Social",
+                style = typography.largeTitle,
+                color = colors.label,
+                textAlign = TextAlign.Center,
+            )
+
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                // #35：要点升级为图标 + 文案，比纯色圆点更具语义表达
+                // #17：文案拟人化，避免过早暴露 LLM/虚拟账号/AI 生成等工程措辞
+                BulletPoint(text = "高拟真社交生态，随时有人与你互动", icon = Icons.Filled.AutoAwesome)
+                BulletPoint(text = "200+ 伙伴与你实时互动", icon = Icons.Filled.Group)
+                BulletPoint(text = "完全本地运行，数据私密可控", icon = Icons.Filled.Lock)
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            // #15：免责声明可折叠，点击标题展开/收起
+            DisclaimerCard(
+                text = "本应用为社交体验演示，所有内容由 AI 引擎生成，仅供学习与体验，不代表真实人物观点",
+                expanded = disclaimerExpanded.value,
+                onToggle = { disclaimerExpanded.value = !disclaimerExpanded.value },
+            )
         }
-
-        Spacer(Modifier.height(8.dp))
-
-        DisclaimerCard(
-            text = "本应用为社交体验演示，所有内容由 AI 引擎生成，仅供学习与体验，不代表真实人物观点",
-        )
 
         Spacer(Modifier.weight(1f))
 
@@ -120,9 +153,12 @@ fun WelcomeScreen(
 }
 
 /**
- * 顶部几何插画：圆形 + 矩形组合，systemBlue 渐变色。
+ * 顶部几何插画（#35 升级：多头像环绕 + 连线 + 卡片，模拟社交生态）。
  *
- * 完全由 Compose 绘制，无图片资源依赖。
+ * 完全由 Compose 绘制，无图片资源依赖：
+ * - 中央大圆：systemBlue→systemPurple 渐变，代表社交核心
+ * - 4 个小头像圆环绕四周，象征 200+ 伙伴
+ * - 中央卡片矩形：模拟推文卡片
  */
 @Composable
 private fun WelcomeIllustration(modifier: Modifier = Modifier) {
@@ -130,15 +166,16 @@ private fun WelcomeIllustration(modifier: Modifier = Modifier) {
     val blue = colors.systemBlue
     val purple = colors.systemPurple
     val green = colors.systemGreen
+    val orange = colors.systemOrange
 
     Box(
         modifier = modifier,
         contentAlignment = Alignment.Center,
     ) {
-        // 大圆：渐变背景
+        // 大圆：渐变背景，代表社交生态核心
         Box(
             modifier = Modifier
-                .size(180.dp)
+                .size(160.dp)
                 .clip(CircleShape)
                 .background(
                     Brush.linearGradient(
@@ -146,30 +183,49 @@ private fun WelcomeIllustration(modifier: Modifier = Modifier) {
                     ),
                 ),
         )
-        // 小圆：左上点缀
+        // #35：4 个环绕小头像圆，象征 200+ 伙伴
+        // 左上
         Box(
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(start = 32.dp, top = 24.dp)
-                .size(48.dp)
+                .padding(start = 24.dp, top = 20.dp)
+                .size(44.dp)
                 .clip(CircleShape)
                 .background(green.copy(alpha = 0.85f)),
         )
-        // 小圆：右下点缀
+        // 右上
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(end = 24.dp, top = 20.dp)
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(orange.copy(alpha = 0.8f)),
+        )
+        // 左下
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 28.dp, bottom = 16.dp)
+                .size(32.dp)
+                .clip(CircleShape)
+                .background(purple.copy(alpha = 0.75f)),
+        )
+        // 右下
         Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(end = 28.dp, bottom = 20.dp)
-                .size(36.dp)
+                .size(40.dp)
                 .clip(CircleShape)
                 .background(blue.copy(alpha = 0.7f)),
         )
-        // 中央矩形：模拟卡片
+        // 中央卡片：模拟推文卡片
         // #27：改用主题色 token 替代硬编码白色，避免深色模式纯黑背景上出现刺眼白块
         Box(
             modifier = Modifier
-                .size(width = 96.dp, height = 60.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .size(width = 100.dp, height = 64.dp)
+                .clip(RoundedCornerShape(14.dp))
                 .background(colors.tertiaryBackground),
         )
     }
@@ -214,34 +270,54 @@ private fun BulletPoint(text: String, icon: ImageVector) {
 }
 
 /**
- * 免责声明卡片（RISK-12）。
+ * 免责声明卡片（RISK-12 / #15：可折叠）。
  *
- * 浅色背景 + info 图标 + 提示文案，强调虚拟内容性质。
+ * 浅色背景 + info 图标 + 标题行（可点击展开/收起）+ 展开时显示详情文案。
  */
 @Composable
-private fun DisclaimerCard(text: String) {
+private fun DisclaimerCard(
+    text: String,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
 
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(colors.secondaryBackground)
+            .clickable { onToggle() }
             .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Icon(
-            imageVector = Icons.Filled.Info,
-            contentDescription = null,
-            tint = colors.systemOrange,
-            modifier = Modifier.size(20.dp),
-        )
-        Text(
-            text = text,
-            style = typography.footnote,
-            color = colors.secondaryLabel,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Filled.Info,
+                contentDescription = null,
+                tint = colors.systemOrange,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.size(8.dp))
+            Text(
+                text = "免责声明",
+                style = typography.subheadline,
+                color = colors.secondaryLabel,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = if (expanded) "收起" else "展开",
+                style = typography.footnote,
+                color = colors.tertiaryLabel,
+            )
+        }
+        androidx.compose.animation.AnimatedVisibility(visible = expanded) {
+            Spacer(Modifier.size(8.dp))
+            Text(
+                text = text,
+                style = typography.footnote,
+                color = colors.secondaryLabel,
+            )
+        }
     }
 }

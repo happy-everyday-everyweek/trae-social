@@ -129,8 +129,11 @@ fun CommentSheet(
                     }
                 }
                 items(comments, key = { it.id }) { comment ->
-                    CommentRow(comment = comment, imageLoader = imageLoader, context = context)
-                    Spacer(Modifier.height(spacing.sm))
+                    // #23：评论新增项进场动画，新增评论有淡入/位移过渡
+                    Column(Modifier.animateItem()) {
+                        CommentRow(comment = comment, imageLoader = imageLoader, context = context)
+                        Spacer(Modifier.height(spacing.sm))
+                    }
                 }
             }
 
