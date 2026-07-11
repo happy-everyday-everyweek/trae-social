@@ -252,7 +252,10 @@ fun PublishScreen(
  * - 阶段2（300-600ms）：继续缩小 + 淡出 + "发布成功"提示淡入；
  * - 阶段3（600-700ms）：成功提示淡出，随后回调 onPublished。
  *
- * 使用 [graphicsLayer] 应用变换；缩放使用 [EaseOutBack] 弹性缓动替代线性插值。
+ * #25：整体进度使用 [tween]（FastOutSlowInEasing，700ms）确定性驱动，
+ * 与 onPublished 的 delay(700) 和阶段边界对齐；各阶段缩放/位移使用 [EaseOutBack]
+ * 弹性缓动提供弹性质感。
+ * 使用 [graphicsLayer] 应用变换。
  * RISK-8 降级：当 imagePath 为空时仅显示成功提示（fade + scale），不显示预览图。
  */
 @Composable
@@ -266,6 +269,8 @@ private fun PublishFlyInOverlay(
     LaunchedEffect(visible) {
         if (visible) {
             progress.snapTo(0f)
+            // Review fix #2：进度驱动器改回 tween(700) 保证确定性，与 onPublished 的
+            // delay(700) 和阶段边界（3/7、6/7）对齐。弹性质感由各属性的 EaseOutBack 提供。
             progress.animateTo(
                 targetValue = 1f,
                 animationSpec = tween(
@@ -285,18 +290,22 @@ private fun PublishFlyInOverlay(
         exit = fadeOut(tween(0)),
         modifier = modifier,
     ) {
-        val p = progress.value
+        // Review fix：spring 可能 overshoot 使 progress > 1.0，coerceIn 避免 EaseOutBack 对 p>1 外推抖动
+        val p = progress.value.coerceIn(0f, 1f)
         val typography = LocalSocialTypography.current
 
-        // 缩放：阶段1用 EaseOutBack 弹性缓动 1->0.6，阶段2线性 0.6->0.15
+        // #25：缩放——阶段1/阶段2均用 EaseOutBack 弹性缓动，保持弹性质感一致
         val scaleVal = when {
             p < PHASE_1_RATIO -> {
                 val frac = EaseOutBack.transform(p / PHASE_1_RATIO)
                 lerpUnclamped(1f, 0.6f, frac)
             }
             p < PHASE_2_RATIO -> {
-                val frac = (p - PHASE_1_RATIO) / (PHASE_2_RATIO - PHASE_1_RATIO)
-                lerp(0.6f, 0.15f, frac)
+                // #25：阶段2也用 EaseOutBack，缩小过程带轻微回弹
+                val frac = EaseOutBack.transform(
+                    (p - PHASE_1_RATIO) / (PHASE_2_RATIO - PHASE_1_RATIO)
+                )
+                lerpUnclamped(0.6f, 0.15f, frac)
             }
             else -> 0.15f
         }
@@ -309,8 +318,8 @@ private fun PublishFlyInOverlay(
             }
             else -> 0f
         }
-        // 上移至屏幕中上部（使用 FastOutSlowInEasing 缓动）
-        val translationYVal = lerp(400f, -200f, FastOutSlowInEasing.transform(p))
+        // #25：上移使用 EaseOutBack 弹性缓动，上抛感更自然
+        val translationYVal = lerpUnclamped(400f, -200f, EaseOutBack.transform(p))
 
         // 成功提示：阶段2淡入，阶段3淡出
         val successAlpha = when {
@@ -324,7 +333,7 @@ private fun PublishFlyInOverlay(
                 lerp(1f, 0f, frac)
             }
         }
-        // 成功提示缩放：阶段2用 EaseOutBack 弹性放大 0.3->1，阶段3略缩小
+        // #25：成功提示缩放——阶段2/3均用 EaseOutBack 弹性缓动
         val successScale = when {
             p < PHASE_1_RATIO -> 0.3f
             p < PHASE_2_RATIO -> {
@@ -334,8 +343,11 @@ private fun PublishFlyInOverlay(
                 lerpUnclamped(0.3f, 1f, frac)
             }
             else -> {
-                val frac = (p - PHASE_2_RATIO) / (1f - PHASE_2_RATIO)
-                lerp(1f, 0.8f, frac)
+                // #25：阶段3用 EaseOutBack，收束带回弹
+                val frac = EaseOutBack.transform(
+                    (p - PHASE_2_RATIO) / (1f - PHASE_2_RATIO)
+                )
+                lerpUnclamped(1f, 0.8f, frac)
             }
         }
 

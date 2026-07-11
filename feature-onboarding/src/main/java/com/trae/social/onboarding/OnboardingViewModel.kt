@@ -83,6 +83,9 @@ class OnboardingViewModel @Inject constructor(
      * 选择 LLM 提供商。
      *
      * 切换时自动重置 Base URL 与模型为该提供商的推荐默认值（仅当用户未自定义时）。
+     *
+     * #34：若该提供商已有历史保存的 API Key / Base URL / 模型（加密存储），
+     * 则自动回填，避免用户重复输入。
      */
     fun selectProvider(provider: LlmProvider) {
         _uiState.update { current ->
@@ -90,8 +93,25 @@ class OnboardingViewModel @Inject constructor(
                 selectedProvider = provider,
                 baseUrl = DEFAULT_BASE_URLS[provider] ?: "",
                 model = DEFAULT_MODELS[provider] ?: "",
+                apiKey = "",
                 testStatus = TestStatus.Idle,
             )
+        }
+        // #34：异步加载该提供商的历史保存配置（加密存储），回填到 UI 状态
+        viewModelScope.launch {
+            val savedKey = runCatching { configRepository.getApiKey(provider) }.getOrNull()
+            val savedUrl = runCatching { configRepository.getBaseUrl(provider) }.getOrNull()
+            val savedModel = runCatching { configRepository.getModelName(provider) }.getOrNull()
+            _uiState.update { current ->
+                // 仅当当前仍为该提供商时才回填，避免用户已快速切换到其他提供商时覆盖
+                if (current.selectedProvider != provider) return@update current
+                // Review fix #4：仅在用户未输入时回填 apiKey，避免覆盖用户正在输入的内容
+                current.copy(
+                    apiKey = if (current.apiKey.isBlank()) savedKey.orEmpty() else current.apiKey,
+                    baseUrl = savedUrl ?: current.baseUrl,
+                    model = savedModel ?: current.model,
+                )
+            }
         }
     }
 

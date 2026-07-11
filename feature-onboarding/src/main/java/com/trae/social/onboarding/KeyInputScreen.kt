@@ -1,6 +1,9 @@
 package com.trae.social.onboarding
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,24 +16,34 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.trae.social.core.data.config.LlmProvider
 import com.trae.social.designsystem.components.ActionButton
 import com.trae.social.designsystem.theme.LocalSocialColors
 import com.trae.social.designsystem.theme.LocalSocialTypography
@@ -48,6 +61,7 @@ import java.net.URL
  * @param onTest 点击"测试连接"回调（导航至 ConnectionTestScreen）
  * @param onBack 点击返回回调
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun KeyInputScreen(
     viewModel: OnboardingViewModel,
@@ -58,20 +72,35 @@ fun KeyInputScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
+    val context = LocalContext.current
 
     var showKey by remember { mutableStateOf(false) }
     var keyTouched by remember { mutableStateOf(false) }
     var urlTouched by remember { mutableStateOf(false) }
+    var modelMenuExpanded by remember { mutableStateOf(false) }
 
     val keyError = keyTouched && state.apiKey.isBlank()
     val urlError = urlTouched && state.baseUrl.isNotBlank() && !isHttpUrl(state.baseUrl)
-    val customUrlMissing = state.selectedProvider == com.trae.social.core.data.config.LlmProvider.CUSTOM &&
+    val customUrlMissing = state.selectedProvider == LlmProvider.CUSTOM &&
         state.baseUrl.isBlank()
     val urlMissingError = urlTouched && customUrlMissing
+
+    // #34：检测粘贴/输入的 API Key 前缀，提示用户切换到对应提供商
+    val detectedProvider = remember(state.apiKey) {
+        detectProviderFromKey(state.apiKey)
+    }
+    val showProviderHint = detectedProvider != null &&
+        detectedProvider != state.selectedProvider &&
+        state.apiKey.length >= 4
 
     val canSubmit = state.apiKey.isNotBlank() &&
         isHttpUrl(state.baseUrl) &&
         state.model.isNotBlank()
+
+    // #34：当前提供商推荐的模型列表，供下拉选择
+    val recommendedModels = remember(state.selectedProvider) {
+        RECOMMENDED_MODELS[state.selectedProvider].orEmpty()
+    }
 
     Column(
         modifier = modifier
@@ -89,7 +118,7 @@ fun KeyInputScreen(
             color = colors.label,
         )
         Text(
-            text = "填写 API Key 与端点信息，所有数据均加密存储于本地",
+            text = "填写 API Key 与端点信息，所有数据均通过 Android Keystore 加密存储于本地",
             style = typography.subheadline,
             color = colors.secondaryLabel,
         )
@@ -125,15 +154,38 @@ fun KeyInputScreen(
             },
             isError = keyError,
             supportingText = {
-                if (keyError) {
-                    Text(
+                when {
+                    keyError -> Text(
                         text = "API Key 不能为空",
                         color = colors.systemRed,
+                    )
+                    // #34：粘贴识别——检测到已知提供商前缀时提示切换
+                    showProviderHint -> Text(
+                        text = "检测到 ${detectedProvider!!.displayName} Key，是否切换提供商？",
+                        color = colors.systemBlue,
+                    )
+                    else -> Text(
+                        text = "支持 sk-（OpenAI）、sk-ant-（Anthropic）等前缀自动识别",
+                        color = colors.tertiaryLabel,
                     )
                 }
             },
             modifier = Modifier.fillMaxWidth(),
         )
+
+        // #34：粘贴识别——检测到不同提供商时提供一键切换按钮
+        if (showProviderHint) {
+            TextButton(
+                onClick = { viewModel.selectProvider(detectedProvider!!) },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = "切换到 ${detectedProvider!!.displayName}",
+                    color = colors.systemBlue,
+                    style = typography.body,
+                )
+            }
+        }
 
         // Base URL 输入
         OutlinedTextField(
@@ -171,15 +223,71 @@ fun KeyInputScreen(
             modifier = Modifier.fillMaxWidth(),
         )
 
-        // 模型名输入
-        OutlinedTextField(
-            value = state.model,
-            onValueChange = { viewModel.updateModel(it) },
-            label = { Text("模型名") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+        // #34：模型名输入——提供商推荐模型下拉 + 自定义输入
+        ExposedDropdownMenuBox(
+            expanded = modelMenuExpanded && recommendedModels.isNotEmpty(),
+            onExpandedChange = { modelMenuExpanded = it },
             modifier = Modifier.fillMaxWidth(),
-        )
+        ) {
+            OutlinedTextField(
+                value = state.model,
+                onValueChange = { viewModel.updateModel(it) },
+                label = { Text("模型名") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                trailingIcon = {
+                    if (recommendedModels.isNotEmpty()) {
+                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelMenuExpanded)
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    // Review fix：使用非 deprecated 的 menuAnchor 重载
+                    .menuAnchor(MenuAnchorType.PrimaryEditable, enabled = true),
+            )
+            if (recommendedModels.isNotEmpty()) {
+                // ExposedDropdownMenu 在 Material3 1.3 已移除，改用 DropdownMenu；
+                // menuAnchor 修饰符标记文本框为锚点，DropdownMenu 在其下方定位
+                DropdownMenu(
+                    expanded = modelMenuExpanded,
+                    onDismissRequest = { modelMenuExpanded = false },
+                ) {
+                    recommendedModels.forEach { model ->
+                        DropdownMenuItem(
+                            text = { Text(model) },
+                            onClick = {
+                                viewModel.updateModel(model)
+                                modelMenuExpanded = false
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
+        // #34：提供商官方获取 API Key 的链接
+        val keyUrl = remember(state.selectedProvider) {
+            PROVIDER_KEY_URLS[state.selectedProvider]
+        }
+        if (keyUrl != null) {
+            TextButton(
+                onClick = {
+                    runCatching {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(keyUrl))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = "前往 ${state.selectedProvider.displayName} 获取 API Key",
+                    color = colors.systemBlue,
+                    style = typography.subheadline,
+                )
+            }
+        }
 
         Spacer(Modifier.weight(1f))
 
@@ -221,3 +329,45 @@ private fun isHttpUrl(url: String): Boolean {
 
 // IMPL-44：displayName 直接使用 core-data LlmProvider.displayName 属性，
 // 不再需要本地扩展函数维护重复映射。
+
+/**
+ * #34：根据 API Key 前缀识别所属提供商。
+ *
+ * - `sk-ant-` 开头：Anthropic
+ * - `sk-` 开头（非 ant）：OpenAI
+ * - `AIza` 开头：Google Gemini
+ *
+ * @return 识别到的提供商，未匹配返回 null
+ */
+private fun detectProviderFromKey(key: String): LlmProvider? {
+    if (key.length < 4) return null
+    return when {
+        key.startsWith("sk-ant-", ignoreCase = true) -> LlmProvider.ANTHROPIC
+        key.startsWith("sk-", ignoreCase = true) -> LlmProvider.OPENAI
+        // Review fix：Google API Key 前缀大小写敏感，不忽略大小写避免 aiza/AIZA 误判
+        key.startsWith("AIza") -> LlmProvider.GEMINI
+        else -> null
+    }
+}
+
+/**
+ * #34：各提供商推荐模型列表，供模型名输入下拉选择。
+ */
+private val RECOMMENDED_MODELS: Map<LlmProvider, List<String>> = mapOf(
+    LlmProvider.OPENAI to listOf("gpt-4o", "gpt-4o-mini", "gpt-4-turbo"),
+    LlmProvider.ANTHROPIC to listOf(
+        "claude-3-5-sonnet-20240620",
+        "claude-3-5-haiku-20241022",
+        "claude-3-opus-20240229",
+    ),
+    LlmProvider.GEMINI to listOf("gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"),
+)
+
+/**
+ * #34：各提供商官方获取 API Key 的链接。
+ */
+private val PROVIDER_KEY_URLS: Map<LlmProvider, String> = mapOf(
+    LlmProvider.OPENAI to "https://platform.openai.com/api-keys",
+    LlmProvider.ANTHROPIC to "https://console.anthropic.com/settings/keys",
+    LlmProvider.GEMINI to "https://aistudio.google.com/app/apikey",
+)
