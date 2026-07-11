@@ -1,5 +1,12 @@
 package com.trae.social.feed
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -85,60 +92,82 @@ fun FullScreenImage(
     val pagerState = rememberPagerState(initialPage = safeIndex) { imageUris.size }
     val typography = LocalSocialTypography.current
 
+    // #24：大图查看器进出场过渡。
+    // 初始 targetState=true 触发 scaleIn+fadeIn 进入；关闭时置 false，
+    // 待退场动画完成（currentState 回到 false）后再回调 onDismiss 移除弹层。
+    val visibleState = remember { MutableTransitionState(false).apply { targetState = true } }
+    LaunchedEffect(visibleState.currentState) {
+        if (!visibleState.currentState && !visibleState.targetState) {
+            onDismiss()
+        }
+    }
+    // #24：remember 包裹 dismiss lambda，避免每次重组创建新实例
+    val requestDismiss = remember { { visibleState.targetState = false } }
+
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = requestDismiss,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
             decorFitsSystemWindows = false,
         ),
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black),
+        AnimatedVisibility(
+            visibleState = visibleState,
+            enter = scaleIn(animationSpec = tween(durationMillis = 250), initialScale = 0.9f) +
+                fadeIn(animationSpec = tween(durationMillis = 250)),
+            exit = scaleOut(animationSpec = tween(durationMillis = 200), targetScale = 0.9f) +
+                fadeOut(animationSpec = tween(durationMillis = 200)),
+            label = "fullScreenImage",
         ) {
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.fillMaxSize(),
-            ) { page ->
-                ZoomableImage(
-                    imageUrl = imageUris[page],
-                    imageLoader = imageLoader,
-                    onDismiss = onDismiss,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-
-            // 关闭按钮
-            IconButton(
-                onClick = onDismiss,
+            Box(
                 modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .statusBarsPadding()
-                    .padding(16.dp)
-                    .size(40.dp),
+                    .fillMaxSize()
+                    .background(Color.Black),
             ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "关闭",
-                    tint = Color.White,
-                    modifier = Modifier.size(28.dp),
-                )
-            }
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize(),
+                ) { page ->
+                    ZoomableImage(
+                        imageUrl = imageUris[page],
+                        imageLoader = imageLoader,
+                        // #24：用 requestDismiss 触发退场动画，动画结束后再移除弹层
+                        onDismiss = requestDismiss,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
 
-            // 多图页码指示器 "当前页/总数"
-            if (imageUris.size >= 2) {
-                Text(
-                    text = "${pagerState.currentPage + 1}/${imageUris.size}",
-                    color = Color.White,
-                    style = typography.caption2,
+                // 关闭按钮
+                IconButton(
+                    onClick = requestDismiss,
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 24.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Color.Black.copy(alpha = 0.5f))
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
-                )
+                        .align(Alignment.TopStart)
+                        .statusBarsPadding()
+                        .padding(16.dp)
+                        .size(40.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "关闭",
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
+
+                // 多图页码指示器 "当前页/总数"
+                if (imageUris.size >= 2) {
+                    Text(
+                        text = "${pagerState.currentPage + 1}/${imageUris.size}",
+                        color = Color.White,
+                        style = typography.caption2,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 24.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color.Black.copy(alpha = 0.5f))
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                    )
+                }
             }
         }
     }

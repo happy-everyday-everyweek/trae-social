@@ -26,11 +26,18 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.outlined.BrokenImage
 import android.content.Intent
 import android.widget.Toast
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -59,7 +66,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.ImageLoader
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
+import com.trae.social.designsystem.components.LoadingShimmer
 import com.trae.social.designsystem.components.SocialDivider
 import com.trae.social.designsystem.components.socialClickable
 import com.trae.social.designsystem.theme.LocalSocialColors
@@ -440,7 +449,9 @@ private fun TweetMediaGrid(
 }
 
 /**
- * 推文图片单元：Coil AsyncImage 加载（含 SVG），ContentScale.Crop 填充并响应点击。
+ * 推文图片单元：Coil SubcomposeAsyncImage 加载（含 SVG），ContentScale.Crop 填充并响应点击。
+ *
+ * #24：改用 SubcomposeAsyncImage，加载中展示 shimmer 占位，错误态展示破损图标。
  */
 @Composable
 private fun TweetMediaCell(
@@ -451,18 +462,39 @@ private fun TweetMediaCell(
     onClick: () -> Unit,
 ) {
     val context = LocalContext.current
+    val colors = LocalSocialColors.current
     val request = remember(uri, context) {
         ImageRequest.Builder(context)
             .data(uri)
             .crossfade(true)
             .build()
     }
-    AsyncImage(
+    SubcomposeAsyncImage(
         model = request,
         imageLoader = imageLoader,
         contentDescription = contentDescription,
         contentScale = ContentScale.Crop,
         modifier = modifier.clickable(onClick = onClick),
+        loading = {
+            LoadingShimmer(
+                modifier = Modifier.fillMaxSize(),
+                cornerRadius = 12.dp,
+            )
+        },
+        error = {
+            // #24：错误态用静态破损图标，避免 shimmer 误导用户以为仍在加载
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.BrokenImage,
+                    contentDescription = null,
+                    tint = colors.secondaryLabel,
+                    modifier = Modifier.size(32.dp),
+                )
+            }
+        },
     )
 }
 
@@ -481,7 +513,9 @@ private fun TweetText(
     val needCollapse = text.length > limit
     val displayText = if (needCollapse && !expanded) text.take(limit) else text
 
-    Column {
+    Column(
+        modifier = Modifier.animateContentSize(animationSpec = tween(durationMillis = 250)),
+    ) {
         Text(
             text = displayText,
             style = typography.body,
@@ -489,12 +523,20 @@ private fun TweetText(
         )
         if (needCollapse) {
             Spacer(Modifier.height(spacing.xs))
-            Text(
-                text = if (expanded) "收起" else "展开全文",
-                style = typography.caption1.copy(fontWeight = FontWeight.SemiBold),
-                color = LocalSocialColors.current.systemBlue,
-                modifier = Modifier.clickable { expanded = !expanded },
-            )
+            // #24：展开/收起文案用 AnimatedContent 过渡，同一时刻仅渲染一个文案，
+            // 避免 Crossfade 过渡期内两个可点击 Text 同时存在
+            AnimatedContent(
+                targetState = expanded,
+                transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(200)) },
+                label = "expand_toggle",
+            ) { isExpanded ->
+                Text(
+                    text = if (isExpanded) "收起" else "展开全文",
+                    style = typography.caption1.copy(fontWeight = FontWeight.SemiBold),
+                    color = LocalSocialColors.current.systemBlue,
+                    modifier = Modifier.clickable { expanded = !expanded },
+                )
+            }
         }
     }
 }
