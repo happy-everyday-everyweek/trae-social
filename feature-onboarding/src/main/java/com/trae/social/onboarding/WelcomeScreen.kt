@@ -96,7 +96,7 @@ fun WelcomeScreen(
         Spacer(Modifier.height(8.dp))
 
         DisclaimerCard(
-            text = "本应用中的社区成员内容由 AI 生成，仅供演示与体验，不代表真实人物观点",
+            text = "本应用为社交体验演示，所有内容由 AI 引擎生成，仅供学习与体验，不代表真实人物观点",
         )
 
         Spacer(Modifier.weight(1f))
