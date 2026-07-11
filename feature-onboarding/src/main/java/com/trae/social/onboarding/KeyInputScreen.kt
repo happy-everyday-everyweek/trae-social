@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -245,8 +246,8 @@ fun KeyInputScreen(
                     .menuAnchor(MenuAnchorType.PrimaryEditable, enabled = true),
             )
             if (recommendedModels.isNotEmpty()) {
-                // ExposedDropdownMenuBoxScope 提供 DropdownMenu 成员，用于在文本框下方
-                // 定位下拉菜单；ExposedDropdownMenu 在 Material3 1.3 已移除，改用作用域内的 DropdownMenu
+                // ExposedDropdownMenu 在 Material3 1.3 已移除，改用 DropdownMenu；
+                // menuAnchor 修饰符标记文本框为锚点，DropdownMenu 在其下方定位
                 DropdownMenu(
                     expanded = modelMenuExpanded,
                     onDismissRequest = { modelMenuExpanded = false },
