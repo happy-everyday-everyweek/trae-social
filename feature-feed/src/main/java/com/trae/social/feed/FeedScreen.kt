@@ -120,6 +120,10 @@ fun FeedScreen(
             isEmpty -> "empty"
             else -> "list"
         }
+        // Review fix #1：Crossfade 过渡期两态共存，error 分支可能在 refreshState 已变为
+        // Loading 时仍被组合，此时 `as LoadState.Error` 会 ClassCastException 崩溃。
+        // 在 Crossfade 之前安全提取消息，避免强转。
+        val errorMessage = (refreshState as? LoadState.Error)?.error?.message ?: "加载失败"
         Crossfade(
             targetState = contentKey,
             animationSpec = tween(300),
@@ -128,7 +132,7 @@ fun FeedScreen(
             when (key) {
                 "loading" -> LoadingPlaceholderList()
                 "error" -> ErrorPlaceholder(
-                    message = (refreshState as LoadState.Error).error.message ?: "加载失败",
+                    message = errorMessage,
                     onRetry = {
                         viewModel.refresh()
                         pagingItems.retry()

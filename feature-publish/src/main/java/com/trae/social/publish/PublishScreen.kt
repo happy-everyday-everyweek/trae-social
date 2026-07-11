@@ -4,8 +4,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOutBack
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -253,8 +252,9 @@ fun PublishScreen(
  * - 阶段2（300-600ms）：继续缩小 + 淡出 + "发布成功"提示淡入；
  * - 阶段3（600-700ms）：成功提示淡出，随后回调 onPublished。
  *
- * #25：整体进度使用 [spring] 弹性动画（DampingRatioMediumBouncy）驱动，
- * 各阶段缩放/位移均使用 [EaseOutBack] 弹性缓动，赋予发布动画连贯的弹性质感。
+ * #25：整体进度使用 [tween]（FastOutSlowInEasing，700ms）确定性驱动，
+ * 与 onPublished 的 delay(700) 和阶段边界对齐；各阶段缩放/位移使用 [EaseOutBack]
+ * 弹性缓动提供弹性质感。
  * 使用 [graphicsLayer] 应用变换。
  * RISK-8 降级：当 imagePath 为空时仅显示成功提示（fade + scale），不显示预览图。
  */
@@ -269,13 +269,13 @@ private fun PublishFlyInOverlay(
     LaunchedEffect(visible) {
         if (visible) {
             progress.snapTo(0f)
-            // #25：使用 spring 弹性动画替代 tween，赋予整体进度弹性质感
-            // DampingRatioMediumBouncy + StiffnessMediumLow 约 600-700ms 收敛
+            // Review fix #2：进度驱动器改回 tween(700) 保证确定性，与 onPublished 的
+            // delay(700) 和阶段边界（3/7、6/7）对齐。弹性质感由各属性的 EaseOutBack 提供。
             progress.animateTo(
                 targetValue = 1f,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessMediumLow,
+                animationSpec = tween(
+                    durationMillis = PUBLISH_ANIM_DURATION_MS,
+                    easing = FastOutSlowInEasing,
                 ),
             )
         } else {

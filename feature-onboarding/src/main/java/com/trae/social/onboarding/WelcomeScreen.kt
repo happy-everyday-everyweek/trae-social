@@ -28,7 +28,6 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +40,8 @@ import androidx.compose.ui.unit.dp
 import com.trae.social.designsystem.components.ActionButton
 import com.trae.social.designsystem.theme.LocalSocialColors
 import com.trae.social.designsystem.theme.LocalSocialTypography
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 /**
  * 引导欢迎页（SubTask 9.1）。
@@ -64,13 +65,16 @@ fun WelcomeScreen(
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
 
-    // #35：进场动画——插画与内容淡入 + 上移，避免首屏静态堆叠
+    // #35：进场动画——插画 alpha 与上移并行（500ms），内容淡入随后（400ms）
     val illustrationAlpha = remember { Animatable(0f) }
     val illustrationOffset = remember { Animatable(40f) }
     val contentAlpha = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
-        illustrationAlpha.animateTo(1f, tween(500))
-        illustrationOffset.animateTo(0f, tween(500))
+        // Review fix #3：插画 alpha + offset 并行，完成后内容淡入
+        coroutineScope {
+            launch { illustrationAlpha.animateTo(1f, tween(500)) }
+            launch { illustrationOffset.animateTo(0f, tween(500)) }
+        }
         contentAlpha.animateTo(1f, tween(400))
     }
 

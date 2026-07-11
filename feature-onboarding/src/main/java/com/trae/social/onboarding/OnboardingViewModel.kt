@@ -105,8 +105,9 @@ class OnboardingViewModel @Inject constructor(
             _uiState.update { current ->
                 // 仅当当前仍为该提供商时才回填，避免用户已快速切换到其他提供商时覆盖
                 if (current.selectedProvider != provider) return@update current
+                // Review fix #4：仅在用户未输入时回填 apiKey，避免覆盖用户正在输入的内容
                 current.copy(
-                    apiKey = savedKey.orEmpty().ifBlank { current.apiKey },
+                    apiKey = if (current.apiKey.isBlank()) savedKey.orEmpty() else current.apiKey,
                     baseUrl = savedUrl ?: current.baseUrl,
                     model = savedModel ?: current.model,
                 )
