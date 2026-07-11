@@ -15,9 +15,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.layer.GraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -77,20 +83,27 @@ private fun GlassBlurTier.baseRadius(): Dp = when (this) {
 /**
  * 磨砂玻璃容器：模拟 iOS 26 风格的半透明毛玻璃效果。
  *
- * IMPL-33：原实现 `Modifier.blur(radius).background(tint)` 把模糊作用于整个节点
- * （含子内容），导致 Tab 图标/文案也被模糊；且 `Modifier.blur` 不会模糊"背后"内容，
- * 半透明色叠加后仍只是着色条，非真正毛玻璃。
+ * #2 修复：原实现仅在 `graphicsLayer { renderEffect = ... }` 上叠加纯色 tint，
+ * RenderEffect 只会模糊该 Box 自身绘制的实心色（模糊实心色无可见变化），
+ * 无法模糊底栏背后的 Feed 内容，与 iOS 26 毛玻璃视觉目标存在本质差距。
  *
- * 现策略（双图层）：
- * - 背景层：API 31+ 且半径 > 0 时用 `Modifier.graphicsLayer { renderEffect =
- *   RenderEffect.createBlurEffect(...) }` 真实模糊背景层渲染（含半透明 tint 的
- *   软化边缘与任何叠加纹理），并叠加半透明 tint；API < 31 或低端机降级为纯色半透明
- * - 内容层：保持锐利，不受模糊影响
- * - 滚动中（[LocalIsScrolling] = true）：模糊半径减半，缓解滚动掉帧
+ * 现策略（三图层）：
+ * - 背景层：当外层提供 [backgroundLayer]（由 `rememberGraphicsLayer()` 捕获的
+ *   背后内容）时，将其平移对齐后经 `CompositingStrategy.Offscreen` +
+ *   `RenderEffect.createBlurEffect` 真实模糊绘制，实现真正的"模糊背后内容"。
+ *   无背景图层时回退为纯色半透明（向后兼容）。
+ * - 色调层：在模糊背景上叠加半透明 tint，控制玻璃质感透明度。
+ * - 内容层：保持锐利，不受模糊影响。
+ * - 滚动中（[LocalIsScrolling] = true）：模糊半径减半，缓解滚动掉帧。
+ * - 低端机（[GlassBlurTier.LOW]）或 API < 31：降级为纯色半透明，无模糊。
  *
  * @param modifier 外部修饰符
  * @param cornerRadius 圆角半径，默认 0dp（底栏场景可传较大圆角）
  * @param tint 叠加色调，默认使用系统 surface 半透明
+ * @param backgroundLayer 可选的已捕获内容图层，用于真正的背后内容模糊；
+ *   由外层通过 `rememberGraphicsLayer()` + `Modifier.drawWithContent` 捕获并传入。
+ * @param backgroundLayerOffsetY 背景图层的 Y 轴平移偏移（px），用于将内容中
+ *   对应底栏位置的区域对齐到容器顶部；通常为 `barHeight - contentHeight`。
  * @param content 容器内容
  */
 @Composable
@@ -98,6 +111,8 @@ fun GlassBlurContainer(
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 0.dp,
     tint: Color? = null,
+    backgroundLayer: GraphicsLayer? = null,
+    backgroundLayerOffsetY: Float = 0f,
     content: @Composable () -> Unit,
 ) {
     val colors = LocalSocialColors.current
@@ -117,19 +132,46 @@ fun GlassBlurContainer(
     val clipModifier = if (shape != null) Modifier.clip(shape) else Modifier
 
     Box(modifier = modifier.then(clipModifier)) {
-        // 背景层：模糊 + 半透明色
+        // 背景层：真正的背后内容模糊（当提供背景图层且可模糊时）
+        if (canBlur && backgroundLayer != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        // Offscreen 合成确保 renderEffect 作用于整个图层内容
+                        compositingStrategy = CompositingStrategy.Offscreen
+                        val radiusPx = with(density) { effectiveRadius.toPx() }
+                        renderEffect = RenderEffect.createBlurEffect(
+                            radiusPx,
+                            radiusPx,
+                            Shader.TileMode.DECAL,
+                        ).asComposeRenderEffect()
+                    }
+                    .drawWithContent {
+                        // 将捕获的内容图层平移对齐后裁剪到容器区域，
+                        // 经外层 graphicsLayer 的 renderEffect 真实模糊，
+                        // 实现"模糊背后内容"的视觉效果
+                        clipRect {
+                            translate(top = backgroundLayerOffsetY) {
+                                drawLayer(backgroundLayer)
+                            }
+                        }
+                    },
+            )
+        }
+        // 色调叠加层：半透明 tint 控制玻璃质感透明度
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .then(
-                    if (canBlur) {
-                        // IMPL-33：RenderEffect 真实模糊背景层渲染（px 半径）
+                    if (canBlur && backgroundLayer == null) {
+                        // 无背景图层时保留原有模糊色调（向后兼容）
                         Modifier.graphicsLayer {
                             val radiusPx = with(density) { effectiveRadius.toPx() }
                             renderEffect = RenderEffect.createBlurEffect(
                                 radiusPx,
                                 radiusPx,
-                                Shader.TileMode.CLAMP,
+                                Shader.TileMode.DECAL,
                             ).asComposeRenderEffect()
                         }
                     } else {
