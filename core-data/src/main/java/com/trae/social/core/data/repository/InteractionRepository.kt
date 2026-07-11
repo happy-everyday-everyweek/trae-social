@@ -46,4 +46,8 @@ class InteractionRepository @Inject constructor(
     // #103：查询某账号已点赞的推文 ID 列表，替代 likeCount > 0 启发式
     suspend fun getLikedTweetIdsByAccount(accountId: String): List<String> =
         interactionDao.getLikedTweetIdsByAccount(accountId)
+
+    // M7 修复：删除某账号对某推文的 LIKE 互动记录（取消点赞时调用）
+    suspend fun deleteLikeInteraction(tweetId: String, accountId: String) =
+        interactionDao.deleteLikeInteraction(tweetId, accountId)
 }

@@ -185,8 +185,28 @@ class ProfileViewModel @Inject constructor(
         }
         viewModelScope.launch {
             val delta = if (wasLiked) -1 else 1
-            runCatching { tweetRepository.updateLikeCount(tweetId, delta) }
-                .onFailure {
+            runCatching {
+                // M7 修复：同步写入/删除 interactions 表的 LIKE 记录，
+                // 使 #103 的 loadInitialLikedTweetIds 能正确恢复点赞状态
+                if (wasLiked) {
+                    interactionRepository.deleteLikeInteraction(tweetId, SELF_ID)
+                } else {
+                    val now = System.currentTimeMillis()
+                    interactionRepository.scheduleInteraction(
+                        InteractionEntity(
+                            id = UUID.randomUUID().toString(),
+                            tweetId = tweetId,
+                            accountId = SELF_ID,
+                            type = InteractionType.LIKE,
+                            content = null,
+                            createdAt = now,
+                            scheduledAt = now,
+                            executedAt = now,
+                        )
+                    )
+                }
+                tweetRepository.updateLikeCount(tweetId, delta)
+            }.onFailure {
                     Timber.w(it, "更新点赞计数失败，回滚本地状态")
                     // 仅在当前状态仍符合本次预期时回滚，避免与后续 toggle 竞态误覆盖
                     val currentState = _likedTweetIds.value

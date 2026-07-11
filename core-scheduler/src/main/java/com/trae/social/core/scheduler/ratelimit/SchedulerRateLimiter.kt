@@ -48,6 +48,15 @@ class SchedulerRateLimiter(
     suspend fun acquire() = rateLimiter.acquire()
 
     /**
+     * M2 修复：带超时的阻塞获取令牌，超时未获取到则返回 false。
+     *
+     * Worker 调用此方法可避免因限流阻塞超过 WorkManager 超时上限。
+     * 返回 false 时调用方应 Result.retry() 主动放弃本次执行。
+     */
+    suspend fun acquireWithTimeout(timeoutMillis: Long): Boolean =
+        rateLimiter.acquireWithTimeout(timeoutMillis)
+
+    /**
      * 非阻塞尝试获取一个令牌，成功返回 true。
      */
     suspend fun tryAcquire(): Boolean = rateLimiter.tryAcquire()

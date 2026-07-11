@@ -46,6 +46,10 @@ abstract class InteractionDao {
     @Query("SELECT tweetId FROM interactions WHERE accountId = :accountId AND type = 'LIKE' AND executedAt IS NOT NULL")
     abstract suspend fun getLikedTweetIdsByAccount(accountId: String): List<String>
 
+    // M7 修复：删除某账号对某推文的 LIKE 互动记录（取消点赞时调用）
+    @Query("DELETE FROM interactions WHERE tweetId = :tweetId AND accountId = :accountId AND type = 'LIKE'")
+    abstract suspend fun deleteLikeInteraction(tweetId: String, accountId: String)
+
     @Query("UPDATE tweets SET likeCount = likeCount + :delta WHERE id = :tweetId")
     abstract suspend fun updateTweetLikeCount(tweetId: String, delta: Int)
 

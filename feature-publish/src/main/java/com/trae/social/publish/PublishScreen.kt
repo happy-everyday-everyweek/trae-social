@@ -150,8 +150,9 @@ fun PublishScreen(
                 }
             }
 
-            // captures 非空时显示顶部配文输入（相机模式与编辑器模式均可用）
-            if (uiState.captures.isNotEmpty()) {
+            // M6 修复：顶部配文输入仅相机模式显示，编辑器模式在 EditorModeContent 内已有 CaptionInput，
+            // 避免编辑器模式下出现两个同步的输入框
+            if (selectedTab == 0 && uiState.captures.isNotEmpty()) {
                 CaptionInput(
                     text = uiState.caption,
                     onTextChanged = viewModel::updateCaption,

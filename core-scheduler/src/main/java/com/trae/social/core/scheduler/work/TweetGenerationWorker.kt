@@ -111,8 +111,13 @@ class TweetGenerationWorker @AssistedInject constructor(
                 return Result.success(workDataOf(WorkerKeys.KEY_RESULT to resultStatus))
             }
 
-            // 限流：阻塞至令牌可用
-            rateLimiter.acquire()
+            // 限流：M2 修复——使用带超时的 acquire，避免限流阻塞超过 WorkManager 超时上限
+            if (!rateLimiter.acquireWithTimeout(ACQUIRE_TIMEOUT_MS)) {
+                Timber.i("账号 %s 限流等待超时，稍后重试", accountId)
+                resultStatus = "retry_rate_limited"
+                logSchedulerEvent(accountId, started, resultStatus, "acquire timeout")
+                return Result.retry()
+            }
 
             // ------------------------------------------------------------------
             // 2. 查最近 3 条该账号推文
@@ -230,9 +235,11 @@ class TweetGenerationWorker @AssistedInject constructor(
             // ------------------------------------------------------------------
             // 8.5 #117：TOCTOU 检查——执行时再次校验窗内推文数
             // 调度时检查与执行时写入之间存在时间窗口，并发或补发可能使窗内推文数超限。
+            // M3 修复：使用活跃窗实际结束时刻，而非硬编码 1 小时，避免多小时窗口超发
             // ------------------------------------------------------------------
             if (windowStart > 0L) {
-                val windowEndMillis = windowStart + 3600_000L // 窗口长度 1 小时
+                val windowEndMillis = com.trae.social.core.scheduler.rule.ScheduleRuleResolver
+                    .windowEndMillisForStart(windowStart, accountZone, account.activeWindows)
                 val currentInWindow = runCatching {
                     tweetRepository.countByAuthorInWindow(accountId, windowStart, windowEndMillis)
                 }.getOrDefault(0)
@@ -371,8 +378,9 @@ class TweetGenerationWorker @AssistedInject constructor(
 
         // #109：自链路径使用窗口起始时刻（而非随机触发时刻）作为 dedup key 的 windowStart，
         // 与补发路径保持一致，确保跨重启幂等性。
+        // M3 修复：传入 activeWindows 以查找实际窗口起点，避免多小时窗口 dedup key 不一致
         val currentWindowStart = com.trae.social.core.scheduler.rule.ScheduleRuleResolver
-            .windowStartForTrigger(nextTrigger, accountZone) ?: nextTrigger
+            .windowStartForTrigger(nextTrigger, accountZone, account.activeWindows) ?: nextTrigger
         val windowStartMillis = currentWindowStart.toEpochMilli()
         val deduplicationKey = com.trae.social.core.scheduler.rule.DeduplicationKeys.forTweet(
             accountId = accountId,
@@ -451,5 +459,8 @@ class TweetGenerationWorker @AssistedInject constructor(
 
         /** P1 修复：每个活跃窗内允许发布的推文数上限（与 SchedulerInitializer 保持一致） */
         const val POSTS_PER_WINDOW = 2
+
+        /** M2 修复：限流等待超时（8 分钟，低于 WorkManager 默认 10 分钟超时） */
+        const val ACQUIRE_TIMEOUT_MS = 8 * 60 * 1000L
     }
 }

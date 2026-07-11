@@ -341,25 +341,15 @@ object SchedulerInitializer {
     ) {
         val delayMillis = (triggerAt.toEpochMilli() - System.currentTimeMillis())
             .coerceAtLeast(0L)
-        val request = androidx.work.OneTimeWorkRequestBuilder<
-            com.trae.social.core.scheduler.work.TweetGenerationWorker>()
-            .setInputData(
-                androidx.work.workDataOf(
-                    com.trae.social.core.scheduler.work.WorkerKeys.KEY_ACCOUNT_ID to accountId,
-                    com.trae.social.core.scheduler.work.WorkerKeys.KEY_DEDUP_KEY to deduplicationKey,
-                    com.trae.social.core.scheduler.work.WorkerKeys.KEY_WINDOW_START to windowStart,
-                    com.trae.social.core.scheduler.work.WorkerKeys.KEY_SEQUENCE_NO to sequenceNo,
-                )
-            )
-            .setConstraints(WorkerPolicies.networkConstraints)
-            .setBackoffCriteria(
-                WorkerPolicies.backoffPolicy,
-                WorkerPolicies.BACKOFF_INITIAL_SECONDS,
-                java.util.concurrent.TimeUnit.SECONDS,
-            )
-            .setInitialDelay(delayMillis, java.util.concurrent.TimeUnit.MILLISECONDS)
-            .addTag(WorkerTags.TWEET_GENERATION)
-            .build()
+        // m10 修复：复用 WorkerPolicies.tweetGenerationRequest（#89 已支持 initialDelayMillis），
+        // 避免手动构建与 #89 声明不符
+        val request = WorkerPolicies.tweetGenerationRequest(
+            accountId = accountId,
+            deduplicationKey = deduplicationKey,
+            windowStart = windowStart,
+            sequenceNo = sequenceNo,
+            initialDelayMillis = delayMillis,
+        )
         workManager.enqueueUniqueWork(
             deduplicationKey,
             androidx.work.ExistingWorkPolicy.KEEP,

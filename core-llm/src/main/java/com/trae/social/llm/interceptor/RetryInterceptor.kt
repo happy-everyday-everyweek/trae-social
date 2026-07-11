@@ -104,7 +104,9 @@ class RetryInterceptor(
     private fun parseRetryAfter(header: String?): Long? {
         if (header.isNullOrBlank()) return null
         // 尝试 delta-seconds
-        header.toLongOrNull()?.let { return it.coerceAtMost(MAX_RETRY_AFTER_SECONDS) }
+        // m4 修复：coerceAtMost 不防负值，畸形 header（如 "-5"）会透传导致 delay(负数) 崩溃。
+        // 改用 coerceIn(0, MAX) 与 5xx backoff 路径一致。
+        header.toLongOrNull()?.let { return it.coerceIn(0L, MAX_RETRY_AFTER_SECONDS) }
         // 尝试 HTTP-date
         runCatching {
             val dateTime = ZonedDateTime.parse(header, DateTimeFormatter.RFC_1123_DATE_TIME)

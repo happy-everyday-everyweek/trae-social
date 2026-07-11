@@ -223,16 +223,57 @@ object ScheduleRuleResolver {
      * 用于自链路径生成 dedup key：触发时刻是窗内随机点，
      * 但 dedup key 需要窗口起始时刻以保证跨重启幂等。
      *
+     * M3 修复：传入 [activeWindows] 以查找触发时刻实际所属的活跃窗，
+     * 返回窗口真正的 startHour:00（而非触发时刻的 hour:00）。
+     * 对 9-12 多小时窗口、触发于 10:30 的情况，正确返回 9:00 而非 10:00，
+     * 与补发路径（用 missedWindow.startHour）的 dedup key 一致。
+     *
      * @param trigger 触发时刻（窗内随机点）
      * @param zone 时区
+     * @param activeWindows 24 槽 bool 数组，用于解析活跃窗
      * @return 窗口起始时刻；无法确定时返回 null
      */
-    fun windowStartForTrigger(trigger: Instant, zone: ZoneId): Instant? {
+    fun windowStartForTrigger(
+        trigger: Instant,
+        zone: ZoneId,
+        activeWindows: List<Boolean> = emptyList(),
+    ): Instant? {
         val zoned = ZonedDateTime.ofInstant(trigger, zone)
         val hour = zoned.hour
-        // 窗口起始时刻为 hour:00
-        return ZonedDateTime.of(zoned.toLocalDate(), java.time.LocalTime.of(hour, 0), zone)
+        // M3 修复：从 activeWindows 解析活跃窗，找到包含当前小时的窗口
+        val startHour = if (activeWindows.isNotEmpty()) {
+            val windows = parseWindows(activeWindows)
+            val containingWindow = windows.firstOrNull { it.contains(hour) }
+            containingWindow?.startHour ?: hour
+        } else {
+            hour
+        }
+        return ZonedDateTime.of(zoned.toLocalDate(), java.time.LocalTime.of(startHour, 0), zone)
             .toInstant()
+    }
+
+    /**
+     * M3 修复：根据窗口起始时刻与活跃窗配置，计算窗口实际结束时刻（毫秒）。
+     *
+     * 用于 TweetGenerationWorker 的 TOCTOU 检查：此前硬编码 windowEnd = windowStart + 1h，
+     * 对多小时窗口只统计了首小时推文，导致 postsPerWindow 可被突破。
+     *
+     * @param windowStartMillis 窗口起始时刻（毫秒）
+     * @param zone 时区
+     * @param activeWindows 24 槽 bool 数组
+     * @return 窗口结束时刻（毫秒）；无法确定时回退 windowStartMillis + 1h
+     */
+    fun windowEndMillisForStart(
+        windowStartMillis: Long,
+        zone: ZoneId,
+        activeWindows: List<Boolean>,
+    ): Long {
+        if (activeWindows.isEmpty()) return windowStartMillis + 3600_000L
+        val zoned = ZonedDateTime.ofInstant(Instant.ofEpochMilli(windowStartMillis), zone)
+        val windows = parseWindows(activeWindows)
+        val matchingWindow = windows.firstOrNull { it.contains(zoned.hour) }
+            ?: return windowStartMillis + 3600_000L
+        return atWindowEndInstant(matchingWindow, zoned.toLocalDate(), zone).toEpochMilli()
     }
 
     private fun randomInstantBetween(start: Instant, end: Instant, random: Random): Instant {

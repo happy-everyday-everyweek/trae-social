@@ -68,7 +68,12 @@ class PersonaUpdateWorker @AssistedInject constructor(
 
             for (account in candidates) {
                 try {
-                    rateLimiter.acquire()
+                    // M2 修复：使用带超时的 acquire，避免限流阻塞超过 WorkManager 超时上限
+                    if (!rateLimiter.acquireWithTimeout(ACQUIRE_TIMEOUT_MS)) {
+                        Timber.i("账号 %s 限流等待超时，跳过", account.id)
+                        skipped++
+                        continue
+                    }
                     val success = updateSinglePersona(account)
                     when (success) {
                         UpdateResult.UPDATED -> updated++
@@ -227,5 +232,7 @@ class PersonaUpdateWorker @AssistedInject constructor(
     private companion object {
         const val MAX_RUN_ATTEMPTS = 3
         const val RECENT_EVENTS_LIMIT = 5
+        /** M2 修复：限流等待超时（8 分钟，低于 WorkManager 默认 10 分钟超时） */
+        const val ACQUIRE_TIMEOUT_MS = 8 * 60 * 1000L
     }
 }

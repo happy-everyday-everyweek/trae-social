@@ -77,11 +77,11 @@ class PersonaUpdatePromptBuilderTest {
 
     @Test
     fun `jaccardSimilarity 部分重叠按 Jaccard 计算`() {
-        // 字符集合：{a,b,c} 与 {b,c,d}
-        // 交集 {b,c} size=2，并集 {a,b,c,d} size=4，相似度 0.5
+        // B4 修复：#85 改用 bigram 后，"abc"->{ab,bc}、"bcd"->{bc,cd}
+        // 交集 {bc} size=1，并集 {ab,bc,cd} size=3，相似度 1/3 ≈ 0.3333
         val a = "abc"
         val b = "bcd"
-        assertEquals(0.5, PersonaUpdatePromptBuilder.jaccardSimilarity(a, b), 0.0001)
+        assertEquals(1.0 / 3.0, PersonaUpdatePromptBuilder.jaccardSimilarity(a, b), 0.001)
     }
 
     @Test
@@ -109,10 +109,10 @@ class PersonaUpdatePromptBuilderTest {
 
     @Test
     fun `shouldRollback 自定义阈值生效`() {
-        // abc vs bcd 相似度 0.5
-        // 阈值 0.3 -> false（不回退）；阈值 0.6 -> true（回退）
-        assertFalse(PersonaUpdatePromptBuilder.shouldRollback("abc", "bcd", threshold = 0.3))
-        assertTrue(PersonaUpdatePromptBuilder.shouldRollback("abc", "bcd", threshold = 0.6))
+        // B4 修复：bigram 相似度 1/3 ≈ 0.333
+        // 阈值 0.2 -> false（不回退）；阈值 0.5 -> true（回退）
+        assertFalse(PersonaUpdatePromptBuilder.shouldRollback("abc", "bcd", threshold = 0.2))
+        assertTrue(PersonaUpdatePromptBuilder.shouldRollback("abc", "bcd", threshold = 0.5))
     }
 
     @Test

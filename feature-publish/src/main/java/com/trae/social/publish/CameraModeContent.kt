@@ -241,27 +241,35 @@ fun CameraModeContent(
         }
     }
     // #36：长按连拍——快速连续拍照多张
+    // M5 修复：连拍期间置 isCapturing=true 防止并发触发；逐张等待 takePicture 回调完成后再拍下一张
     val onBurstShutter: () -> Unit = {
         if (!isCapturing) {
+            isCapturing = true
             scope.launch {
                 repeat(BURST_COUNT) {
-                    // #36：每次连拍触发闪光动画
+                    // #36：每次连拍触发闪光动画（m8 修复：用更短的持续时间避免 > 间隔导致卡顿）
                     launch {
                         captureFlashAlpha.snapTo(CAPTURE_FLASH_ALPHA)
-                        captureFlashAlpha.animateTo(0f, tween(CAPTURE_FLASH_DURATION_MS))
+                        captureFlashAlpha.animateTo(0f, tween(BURST_FLASH_DURATION_MS))
                     }
+                    // M5 修复：等待上一张 takePicture 回调完成后再拍下一张，
+                    // 避免同一 ImageCapture 上并发 takePicture 抛 IllegalStateException
+                    val deferred = kotlinx.coroutines.CompletableDeferred<String?>()
                     capturePhoto(context, imageCapture, executor) { path ->
-                        if (path != null) {
-                            val finalPath = if (ratio == CaptureRatio.SQUARE) {
-                                cropToSquare(path) ?: path
-                            } else {
-                                path
-                            }
-                            onCapture(finalPath)
+                        deferred.complete(path)
+                    }
+                    val path = deferred.await()
+                    if (path != null) {
+                        val finalPath = if (ratio == CaptureRatio.SQUARE) {
+                            cropToSquare(path) ?: path
+                        } else {
+                            path
                         }
+                        onCapture(finalPath)
                     }
                     delay(BURST_INTERVAL_MS)
                 }
+                isCapturing = false
             }
         }
     }
@@ -867,3 +875,6 @@ private const val CAPTURE_FLASH_DURATION_MS = 200
 private const val BURST_COUNT = 5
 /** 连拍间隔（毫秒） */
 private const val BURST_INTERVAL_MS = 150L
+// m8 修复：连拍闪光动画时长（毫秒）。短于连拍间隔 150ms，
+// 避免上一次 animateTo 未结束时被下一次 snapTo 重置导致动画卡顿。
+private const val BURST_FLASH_DURATION_MS = 100

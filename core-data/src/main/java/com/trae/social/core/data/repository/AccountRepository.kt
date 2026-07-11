@@ -68,6 +68,12 @@ class AccountRepository @Inject constructor(
     suspend fun getDynamicFields(accountId: String): PersonaDynamicFieldEntity? =
         accountDao.getDynamicFields(accountId)
 
+    /**
+     * B1 修复：透传 DAO 层的 getVirtualAccountsList，供 AppColdStartFiller 等调用方使用。
+     */
+    suspend fun getVirtualAccountsList(): List<AccountEntity> =
+        accountDao.getVirtualAccountsList()
+
     companion object {
         const val PAGE_SIZE = 20
     }

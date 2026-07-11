@@ -121,9 +121,13 @@ class RateLimiter(
         }
         if (elapsed >= refillIntervalMillis) {
             // #119：每个补充周期补满到 maxTokens（与 RPM 语义一致），而非每周期只补 1 个
+            // M1 修复：cycles * maxTokens 为 Int×Int，长期不活跃（~25天）会溢出为负值，
+            // 导致 availableTokens 变为大负数后限流器永久失效。
+            // cycles>=1 时 cycles*maxTokens >= maxTokens 必然被 coerceAtMost 截到 maxTokens，
+            // 故直接赋值 maxTokens 即可，无需乘法。
             val cycles = (elapsed / refillIntervalMillis).toInt()
             if (cycles > 0) {
-                availableTokens = (availableTokens + cycles * maxTokens).coerceAtMost(maxTokens)
+                availableTokens = maxTokens
                 lastRefillTimestamp += cycles * refillIntervalMillis
             }
         }
