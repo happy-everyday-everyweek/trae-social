@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import com.trae.social.designsystem.components.GlassBlurContainer
 import com.trae.social.designsystem.components.socialClickable
 import com.trae.social.designsystem.theme.LocalSocialColors
+import com.trae.social.designsystem.theme.LocalSocialSpacing
 import com.trae.social.designsystem.theme.LocalSocialTypography
 
 /**
@@ -90,6 +91,7 @@ fun SocialBottomBar(
     // #45/#56：navigationBarsPadding 移到内部 Row，让 GlassBlurContainer 的玻璃背景层
     // fillMaxSize 延伸到屏幕底部（覆盖系统导航栏区域），仅内容避让导航栏 inset。
     // 原先加在外层会把玻璃层抬到导航栏之上，下方露出后方内容，造成底栏"悬浮/错位"。
+    val spacing = LocalSocialSpacing.current
     GlassBlurContainer(
         modifier = modifier.fillMaxWidth(),
     ) {
@@ -98,7 +100,7 @@ fun SocialBottomBar(
                 .fillMaxWidth()
                 .navigationBarsPadding()
                 .height(56.dp)
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = spacing.lg),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             MainTabs.forEach { tab ->
@@ -111,7 +113,7 @@ fun SocialBottomBar(
                         .fillMaxHeight(),
                 )
             }
-            Spacer(Modifier.width(16.dp))
+            Spacer(Modifier.width(spacing.lg))
             PublishButton(onClick = onPublishClick)
         }
     }

@@ -63,6 +63,7 @@ import coil.request.ImageRequest
 import com.trae.social.designsystem.components.SocialDivider
 import com.trae.social.designsystem.components.socialClickable
 import com.trae.social.designsystem.theme.LocalSocialColors
+import com.trae.social.designsystem.theme.LocalSocialSpacing
 import com.trae.social.designsystem.theme.LocalSocialTypography
 
 /**
@@ -99,6 +100,7 @@ fun TweetCard(
 ) {
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
+    val spacing = LocalSocialSpacing.current
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val tweet = data.tweet
@@ -114,7 +116,7 @@ fun TweetCard(
             .fillMaxWidth()
             .background(colors.systemBackground)
             // #19：卡片垂直留白 12→16，提升呼吸感
-            .padding(horizontal = 16.dp, vertical = 16.dp),
+            .padding(spacing.lg),
     ) {
         // 顶部行：头像 + 名称 + 时间 + 更多
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -125,7 +127,7 @@ fun TweetCard(
                 modifier = Modifier.size(36.dp),
             )
             // #19：头像后间距统一为 4 倍数 12dp
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(spacing.md))
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -135,7 +137,7 @@ fun TweetCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(spacing.xs))
                     Text(
                         text = "@${data.authorUsername}",
                         style = typography.caption1,
@@ -209,7 +211,7 @@ fun TweetCard(
         }
 
         // #19：顶部行↔正文间距 8→12
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(spacing.md))
 
         // 文本（超 280 字折叠）
         TweetText(text = tweet.text, labelColor = colors.label)
@@ -218,7 +220,7 @@ fun TweetCard(
         val imageUris = remember(tweet.mediaPath) { FeedUtils.toImageUriList(tweet.mediaPath) }
         if (imageUris.isNotEmpty()) {
             // #19：正文↔图片间距 8→12
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(spacing.md))
             TweetMediaGrid(
                 imageUris = imageUris,
                 imageLoader = imageLoader,
@@ -227,7 +229,7 @@ fun TweetCard(
         }
 
         // #19：图片↔互动栏间距 8→16，拉开层次
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(spacing.lg))
 
         // 互动栏
         Row(
@@ -473,6 +475,7 @@ private fun TweetText(
     labelColor: Color,
 ) {
     val typography = LocalSocialTypography.current
+    val spacing = LocalSocialSpacing.current
     val limit = 280
     var expanded by rememberSaveable(text) { mutableStateOf(false) }
     val needCollapse = text.length > limit
@@ -485,7 +488,7 @@ private fun TweetText(
             color = labelColor,
         )
         if (needCollapse) {
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(spacing.xs))
             Text(
                 text = if (expanded) "收起" else "展开全文",
                 style = typography.caption1.copy(fontWeight = FontWeight.SemiBold),
@@ -514,6 +517,7 @@ private fun InteractionButton(
     hapticOnPress: Boolean = false,
 ) {
     val typography = LocalSocialTypography.current
+    val spacing = LocalSocialSpacing.current
     val hapticFeedback = LocalHapticFeedback.current
     // #3：仅在 false→true 跳变时弹跳，hasObserved 防止首帧（已点赞项）误触动画
     val scale = remember { Animatable(1f) }
@@ -544,7 +548,7 @@ private fun InteractionButton(
                 }
                 onClick()
             })
-            .padding(horizontal = 8.dp),
+            .padding(horizontal = spacing.sm),
     ) {
         Icon(
             imageVector = icon,
@@ -555,7 +559,7 @@ private fun InteractionButton(
                 .graphicsLayer { scaleX = scale.value; scaleY = scale.value },
         )
         if (count != null && count > 0) {
-            Spacer(Modifier.width(4.dp))
+            Spacer(Modifier.width(spacing.xs))
             Text(
                 text = formatCount(count),
                 style = typography.caption1,
