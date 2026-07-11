@@ -144,7 +144,7 @@ fun GlassBlurContainer(
                         renderEffect = RenderEffect.createBlurEffect(
                             radiusPx,
                             radiusPx,
-                            Shader.TileMode.CLAMP,
+                            Shader.TileMode.DECAL,
                         ).asComposeRenderEffect()
                     }
                     .drawWithContent {
@@ -171,7 +171,7 @@ fun GlassBlurContainer(
                             renderEffect = RenderEffect.createBlurEffect(
                                 radiusPx,
                                 radiusPx,
-                                Shader.TileMode.CLAMP,
+                                Shader.TileMode.DECAL,
                             ).asComposeRenderEffect()
                         }
                     } else {

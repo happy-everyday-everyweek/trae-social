@@ -43,7 +43,9 @@ import com.trae.social.app.ui.AppRoutes
 import com.trae.social.app.ui.SocialBottomBar
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.scheduler.SchedulerInitializer
+import com.trae.social.designsystem.components.GlassBlurTier
 import com.trae.social.designsystem.components.provideIsScrolling
+import com.trae.social.designsystem.components.rememberGlassBlurTier
 import com.trae.social.designsystem.theme.SocialTheme
 import com.trae.social.feed.FeedScreen
 import com.trae.social.onboarding.OnboardingNavHost
@@ -187,6 +189,15 @@ private fun MainScaffold() {
     var contentHeightPx by remember { mutableStateOf(0f) }
     var barHeightPx by remember { mutableStateOf(0f) }
 
+    // 是否可执行真实模糊：API31+ 且非低端机降级（与 GlassBlurContainer 的判定保持一致）。
+    // 不可模糊时跳过 backgroundLayer.record，避免低端机/API<31 每帧无效录制的 GPU 开销。
+    val blurTier = rememberGlassBlurTier()
+    val canBlur = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+        blurTier != GlassBlurTier.LOW
+    // 高度未测量完成前（首帧 contentHeightPx/barHeightPx 均为 0）不传背景图层，
+    // 避免偏移 = 0 - 0 = 0 导致模糊到内容顶部而非底部条带的首帧错位。
+    val backgroundLayerReady = contentHeightPx > 0f && barHeightPx > 0f
+
     // 用 provideIsScrolling 包裹整个 Scaffold，使 bottomBar 内的 GlassBlurContainer 可读取
     provideIsScrolling(isScrolling) {
         Scaffold(
@@ -209,7 +220,8 @@ private fun MainScaffold() {
                             }
                         },
                         // #2：将捕获的内容图层及其平移偏移透传给底栏。
-                        backgroundLayer = backgroundLayer,
+                        // 高度未测量完成前传 null，回退为纯色半透明，避免首帧偏移错位。
+                        backgroundLayer = if (backgroundLayerReady) backgroundLayer else null,
                         backgroundLayerOffsetY = barHeightPx - contentHeightPx,
                         modifier = Modifier.onGloballyPositioned { coords ->
                             barHeightPx = coords.size.height.toFloat()
@@ -232,11 +244,16 @@ private fun MainScaffold() {
                     }
                     // #2：将内容绘制指令记录到 backgroundLayer（供底栏模糊重绘），
                     // 同时正常绘制内容本身，保证内容区可见性不变。
+                    // 不可模糊时跳过 record，避免低端机/API<31 每帧无效录制的开销。
                     .drawWithContent {
-                        backgroundLayer.record {
-                            this@drawWithContent.drawContent()
+                        if (canBlur) {
+                            backgroundLayer.record {
+                                this@drawWithContent.drawContent()
+                            }
+                            drawLayer(backgroundLayer)
+                        } else {
+                            drawContent()
                         }
-                        drawLayer(backgroundLayer)
                     },
             ) {
                 composable(
