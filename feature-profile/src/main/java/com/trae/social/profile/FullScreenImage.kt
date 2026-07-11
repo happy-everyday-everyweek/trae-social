@@ -20,6 +20,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -134,6 +135,8 @@ private fun ZoomableImage(
     var offset by remember { mutableStateOf(Offset.Zero) }
     // 视口像素尺寸，用于计算平移边界
     var viewport by remember { mutableStateOf(IntSize.Zero) }
+    // 始终持有最新的 onTap 回调，避免 pointerInput(Unit) 捕获过期闭包
+    val currentOnTap by rememberUpdatedState(onTap)
 
     Box(
         modifier = modifier
@@ -141,7 +144,7 @@ private fun ZoomableImage(
             .onSizeChanged { viewport = it }
             .pointerInput(Unit) {
                 detectTapGestures(
-                    onTap = { onTap() },
+                    onTap = { currentOnTap() },
                     onDoubleTap = {
                         if (scale > 1f) {
                             scale = 1f

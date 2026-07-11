@@ -292,10 +292,9 @@ private fun ProfileTweetRow(
     Column(
         Modifier
             .fillMaxWidth()
-            .background(colors.systemBackground)
-            // #8：整行可点击，提供水波纹按压视觉反馈
-            .socialClickable(onClick = {}),
+            .background(colors.systemBackground),
     ) {
+        // TODO: 后续接入推文详情页跳转
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Text(
                 text = ProfileUtils.formatRelativeTime(tweet.createdAt),
@@ -422,17 +421,15 @@ private fun MediaTab(
         columns = GridCells.Fixed(3),
         modifier = Modifier.fillMaxSize().padding(2.dp),
     ) {
-        itemsIndexed(media, key = { _, t -> t.id }) { _, tweet ->
-            val uri = ProfileUtils.toImageUri(tweet.mediaPath)
+        // #8：直接以 uris 为数据源并使用 itemsIndexed 精确定位点击下标，
+        // 避免重复 URI 时 indexOf 返回首个匹配导致下标错位
+        itemsIndexed(uris) { index, uri ->
             Box(
                 Modifier.padding(2.dp).height(120.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(socialColors().tertiaryBackground)
                     // #8：网格项可点击，打开全屏大图查看器
-                    .socialClickable {
-                        val index = uris.indexOf(uri)
-                        if (index >= 0) onImageClick(uris, index)
-                    },
+                    .socialClickable { onImageClick(uris, index) },
             ) {
                 AsyncImage(
                     model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
