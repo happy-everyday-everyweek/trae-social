@@ -24,14 +24,18 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.outlined.BrokenImage
 import android.content.Intent
 import android.widget.Toast
-import androidx.compose.animation.Crossfade
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -228,7 +232,7 @@ fun TweetCard(
                     .crossfade(250)
                     .build()
             }
-            // #24：改用 SubcomposeAsyncImage，加载中/失败展示 shimmer 占位，避免进场生硬
+            // #24：改用 SubcomposeAsyncImage，加载中展示 shimmer 占位，避免进场生硬
             SubcomposeAsyncImage(
                 model = request,
                 imageLoader = imageLoader,
@@ -237,6 +241,8 @@ fun TweetCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(max = 400.dp)
+                    // #24：占位高度(240dp)与实际图片高度不一致时，平滑过渡避免高度跳变
+                    .animateContentSize(animationSpec = tween(durationMillis = 250))
                     .clip(RoundedCornerShape(12.dp))
                     .clickable { onImageClick(imageUri) },
                 loading = {
@@ -246,10 +252,20 @@ fun TweetCard(
                     )
                 },
                 error = {
-                    LoadingShimmer(
-                        modifier = Modifier.fillMaxWidth().height(240.dp),
-                        cornerRadius = 12.dp,
-                    )
+                    // #24：错误态用静态破损图标，避免 shimmer 误导用户以为仍在加载
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(240.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.BrokenImage,
+                            contentDescription = null,
+                            tint = colors.secondaryLabel,
+                            modifier = Modifier.size(32.dp),
+                        )
+                    }
                 },
             )
         }
@@ -326,11 +342,12 @@ private fun TweetText(
         )
         if (needCollapse) {
             Spacer(Modifier.height(4.dp))
-            // #24：展开/收起文案用 Crossfade 过渡，避免文案瞬切生硬
-            Crossfade(
+            // #24：展开/收起文案用 AnimatedContent 过渡，同一时刻仅渲染一个文案，
+            // 避免 Crossfade 过渡期内两个可点击 Text 同时存在
+            AnimatedContent(
                 targetState = expanded,
-                animationSpec = tween(durationMillis = 200),
-                label = "expandToggle",
+                transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(200)) },
+                label = "expand_toggle",
             ) { isExpanded ->
                 Text(
                     text = if (isExpanded) "收起" else "展开全文",

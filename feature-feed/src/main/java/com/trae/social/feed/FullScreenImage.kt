@@ -83,7 +83,8 @@ fun FullScreenImage(
             onDismiss()
         }
     }
-    val requestDismiss = { visibleState.targetState = false }
+    // #24：remember 包裹 dismiss lambda，避免每次重组创建新实例
+    val requestDismiss = remember { { visibleState.targetState = false } }
 
     Dialog(
         onDismissRequest = requestDismiss,
