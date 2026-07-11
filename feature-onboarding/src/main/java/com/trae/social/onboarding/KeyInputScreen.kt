@@ -245,7 +245,9 @@ fun KeyInputScreen(
                     .menuAnchor(MenuAnchorType.PrimaryEditable, enabled = true),
             )
             if (recommendedModels.isNotEmpty()) {
-                androidx.compose.material3.ExposedDropdownMenu(
+                // ExposedDropdownMenuBoxScope 提供 DropdownMenu 成员，用于在文本框下方
+                // 定位下拉菜单；ExposedDropdownMenu 在 Material3 1.3 已移除，改用作用域内的 DropdownMenu
+                DropdownMenu(
                     expanded = modelMenuExpanded,
                     onDismissRequest = { modelMenuExpanded = false },
                 ) {
