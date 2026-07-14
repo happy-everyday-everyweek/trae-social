@@ -50,4 +50,8 @@ class InteractionRepository @Inject constructor(
     // M7 修复：删除某账号对某推文的 LIKE 互动记录（取消点赞时调用）
     suspend fun deleteLikeInteraction(tweetId: String, accountId: String) =
         interactionDao.deleteLikeInteraction(tweetId, accountId)
+
+    // m7 修复：删除某账号对某推文的 COMMENT 互动记录（评论失败回滚时清理孤儿 interaction）
+    suspend fun deleteCommentInteraction(tweetId: String, accountId: String) =
+        interactionDao.deleteCommentInteraction(tweetId, accountId)
 }
