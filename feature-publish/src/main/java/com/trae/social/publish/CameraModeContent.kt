@@ -684,7 +684,8 @@ private fun ShutterButton(
                 detectTapGestures(
                     onPress = {
                         // #3：手动发射按压状态，驱动缩放动画
-                        val press = PressInteraction.Press()
+                        // CI 修复：PressInteraction.Press 构造函数需要 pressPosition 参数
+                        val press = PressInteraction.Press(Offset.Zero)
                         interactionSource.emit(press)
                         val released = tryAwaitRelease()
                         if (released) {
