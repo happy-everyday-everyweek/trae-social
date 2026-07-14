@@ -113,13 +113,12 @@ object WorkerPolicies {
      * 构建 PersonaUpdateWorker 周期请求。
      *
      * IMPL-47：周期按 [level] 缩放（LOW=14 天 / MEDIUM=7 天 / HIGH=3 天）。
-     * #95：Doze 模式下长周期任务易被延迟，将超过 7 天的周期截断为 7 天，
-     * 并补充退避策略。
+     * m3 修复：WorkManager 周期上限 30 天可靠，将上限从 7 天放宽到 30 天，
+     * 保留 LOW/MEDIUM/HIGH 的分层语义，避免 LOW 与 MEDIUM 同频导致成本翻倍。
      */
     fun personaUpdatePeriodicRequest(level: AiActivityLevel): androidx.work.PeriodicWorkRequest {
         val periodDays = level.personaUpdatePeriodDays.toLong()
-        // #95：缩短周期以降低 Doze 影响（LOW 从 14 天缩短到 7 天）
-        val effectivePeriodDays = if (periodDays > 7) 7L else periodDays
+        val effectivePeriodDays = periodDays.coerceIn(1L, 30L)
         return PeriodicWorkRequestBuilder<PersonaUpdateWorker>(
             effectivePeriodDays, TimeUnit.DAYS,
         )

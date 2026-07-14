@@ -66,6 +66,8 @@ class PersonaSeeder @Inject constructor(
             val existingAccounts = accountDao.count()
             val existingTweets = tweetDao.count()
             if (existingAccounts >= SeedProgress.EXPECTED_TOTAL && existingTweets > 0) {
+                // m2 修复：幂等跳过路径也执行 index.json 校验，确保 count 与实际导入数一致
+                validateIndexJson((existingAccounts - 1).coerceAtLeast(0))
                 emit(SeedProgress(imported = existingAccounts, total = SeedProgress.EXPECTED_TOTAL, isComplete = true))
                 return@flow
             }

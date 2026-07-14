@@ -99,13 +99,23 @@ class FeedViewModel @Inject constructor(
         // #102：启动时从 DataStore 恢复收藏状态
         viewModelScope.launch {
             runCatching { configRepository.getBookmarkedTweetIds() }
-                .onSuccess { _bookmarkedTweetIds.value = it }
+                .onSuccess { restored ->
+                    // m6 修复：仅在用户尚未操作过时才用恢复值覆盖，避免恢复协程覆盖用户操作
+                    if (_bookmarkedTweetIds.value.isEmpty()) {
+                        _bookmarkedTweetIds.value = restored
+                    }
+                }
                 .onFailure { Timber.w(it, "恢复收藏状态失败") }
         }
         // #142：启动时从 DataStore 恢复不感兴趣状态
         viewModelScope.launch {
             runCatching { configRepository.getNotInterestedTweetIds() }
-                .onSuccess { _notInterestedTweetIds.value = it }
+                .onSuccess { restored ->
+                    // m6 修复：仅在用户尚未操作过时才用恢复值覆盖，避免恢复协程覆盖用户操作
+                    if (_notInterestedTweetIds.value.isEmpty()) {
+                        _notInterestedTweetIds.value = restored
+                    }
+                }
                 .onFailure { Timber.w(it, "恢复不感兴趣状态失败") }
         }
     }
@@ -160,6 +170,7 @@ class FeedViewModel @Inject constructor(
      */
     fun commentTweet(tweetId: String, text: String) {
         viewModelScope.launch {
+            var interactionInserted = false
             try {
                 val now = System.currentTimeMillis()
                 tweetRepository.updateCommentCount(tweetId, 1)
@@ -176,6 +187,7 @@ class FeedViewModel @Inject constructor(
                         executedAt = now,
                     )
                 )
+                interactionInserted = true
                 commentRepository.addComment(
                     CommentEntity(
                         id = UUID.randomUUID().toString(),
@@ -187,11 +199,16 @@ class FeedViewModel @Inject constructor(
                     )
                 )
             } catch (t: Throwable) {
-                Timber.e(t, "评论失败，回滚 commentCount")
+                Timber.e(t, "评论失败，回滚 commentCount 并清理孤儿 interaction")
                 // #139：步骤 1（updateCommentCount）已提交到 DB，若步骤 2/3 失败需回滚计数，
                 // 避免计数漂移累积（对比 likeTweet 失败时回滚 _likedTweetIds）
                 runCatching { tweetRepository.updateCommentCount(tweetId, -1) }
                     .onFailure { Timber.w(it, "回滚 commentCount 失败") }
+                // m7 修复：若 COMMENT interaction 已写入但 addComment 失败，删除孤儿 interaction
+                if (interactionInserted) {
+                    runCatching { interactionRepository.deleteCommentInteraction(tweetId, USER_SELF_ID) }
+                        .onFailure { Timber.w(it, "清理孤儿 COMMENT interaction 失败") }
+                }
             }
         }
     }
