@@ -3,6 +3,7 @@ package com.trae.social.feed
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
+import androidx.paging.cachedIn
 import androidx.paging.filter
 import androidx.paging.map
 import com.trae.social.core.data.entity.CommentEntity
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import timber.log.Timber
@@ -76,14 +78,18 @@ class FeedViewModel @Inject constructor(
      * TweetEntity → TweetWithAuthor：在 map 中逐条查账号（带内存缓存），
      * 缺失账号时回退为占位名，避免阻塞分页。
      * #142：过滤掉用户标记为"不感兴趣"的推文。
+     * UI-fix：使用 flatMapLatest 组合 _notInterestedTweetIds，点击"不感兴趣"后自动重新过滤，
+     * 无需用户手动下拉刷新；cachedIn 保持配置变更后的分页状态。
      */
-    val feedFlow: Flow<PagingData<TweetWithAuthor>> = tweetRepository.getFeedFlow()
-        .map { pagingData ->
-            val hidden = _notInterestedTweetIds.value
-            pagingData
-                .filter { it.id !in hidden }
-                .map { tweet -> resolveAuthor(tweet) }
+    val feedFlow: Flow<PagingData<TweetWithAuthor>> = _notInterestedTweetIds
+        .flatMapLatest { hidden ->
+            tweetRepository.getFeedFlow().map { pagingData ->
+                pagingData
+                    .filter { it.id !in hidden }
+                    .map { tweet -> resolveAuthor(tweet) }
+            }
         }
+        .cachedIn(viewModelScope)
 
     init {
         // IMPL-13：读取跳过引导标记，驱动 FeedScreen 顶部 banner

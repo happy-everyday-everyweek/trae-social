@@ -82,8 +82,6 @@ fun FeedScreen(
     val likedIds by viewModel.likedTweetIds.collectAsStateWithLifecycle()
     val bookmarkedIds by viewModel.bookmarkedTweetIds.collectAsStateWithLifecycle()
     val isOnboardingSkipped by viewModel.isOnboardingSkipped.collectAsStateWithLifecycle()
-    // #142：不感兴趣推文 ID 集合，用于即时隐藏列表项
-    val notInterestedIds by viewModel.notInterestedTweetIds.collectAsStateWithLifecycle()
 
     // 互动弹层状态
     var commentTarget by remember { mutableStateOf<TweetWithAuthor?>(null) }
@@ -107,14 +105,6 @@ fun FeedScreen(
         if (isOnboardingSkipped) {
             OnboardingSkippedBanner(onNavigateToSettings = onNavigateToSettings)
         }
-        PullToRefreshBox(
-            isRefreshing = isRefreshing,
-            onRefresh = {
-                // #135：refresh() 已移除（FeedUiState 死状态），直接刷新分页数据
-                pagingItems.refresh()
-            },
-            modifier = Modifier.fillMaxSize(),
-        ) {
         // #23：首次加载 shimmer→内容、错误态/空态切换使用 Crossfade 平滑过渡，避免瞬间跳变
         val contentKey = when {
             isInitialLoading -> "loading"
@@ -130,6 +120,7 @@ fun FeedScreen(
             targetState = contentKey,
             animationSpec = tween(300),
             label = "feed-state",
+            modifier = Modifier.fillMaxSize(),
         ) { key ->
             when (key) {
                 "loading" -> LoadingPlaceholderList()
@@ -141,26 +132,33 @@ fun FeedScreen(
                     },
                 )
                 "empty" -> EmptyPlaceholder()
-                else -> FeedList(
-                    pagingItems = pagingItems,
-                    likedIds = likedIds,
-                    bookmarkedIds = bookmarkedIds,
-                    notInterestedIds = notInterestedIds,
-                    imageLoader = viewModel.imageLoader,
-                    onImageClick = { uris, index -> fullScreenTarget = FullScreenImageTarget(uris, index) },
-                    onLikeClick = { item ->
-                        // #101：移除 authorId 参数，内部统一使用 USER_SELF_ID
-                        viewModel.likeTweet(item.tweet.id)
+                else -> PullToRefreshBox(
+                    isRefreshing = isRefreshing,
+                    onRefresh = {
+                        // #135：refresh() 已移除（FeedUiState 死状态），直接刷新分页数据
+                        pagingItems.refresh()
                     },
-                    onCommentClick = { commentTarget = it },
-                    onRetweetClick = { retweetTarget = it },
-                    onBookmarkClick = { viewModel.bookmarkTweet(it.tweet.id) },
-                    onNotInterestedClick = { viewModel.markNotInterested(it.tweet.id) },
-                    onScrollingChange = onScrollingChange,
-                )
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    FeedList(
+                        pagingItems = pagingItems,
+                        likedIds = likedIds,
+                        bookmarkedIds = bookmarkedIds,
+                        imageLoader = viewModel.imageLoader,
+                        onImageClick = { uris, index -> fullScreenTarget = FullScreenImageTarget(uris, index) },
+                        onLikeClick = { item ->
+                            // #101：移除 authorId 参数，内部统一使用 USER_SELF_ID
+                            viewModel.likeTweet(item.tweet.id)
+                        },
+                        onCommentClick = { commentTarget = it },
+                        onRetweetClick = { retweetTarget = it },
+                        onBookmarkClick = { viewModel.bookmarkTweet(it.tweet.id) },
+                        onNotInterestedClick = { viewModel.markNotInterested(it.tweet.id) },
+                        onScrollingChange = onScrollingChange,
+                    )
+                }
             }
         }
-        } // PullToRefreshBox
     } // Column
 
     // 评论弹层
@@ -215,7 +213,6 @@ private fun FeedList(
     pagingItems: LazyPagingItems<TweetWithAuthor>,
     likedIds: Set<String>,
     bookmarkedIds: Set<String>,
-    notInterestedIds: Set<String>,
     imageLoader: ImageLoader,
     onImageClick: (List<String>, Int) -> Unit,
     onLikeClick: (TweetWithAuthor) -> Unit,
@@ -242,24 +239,20 @@ private fun FeedList(
             key = pagingItems.itemKey { it.tweet.id },
         ) { index ->
             pagingItems[index]?.let { item ->
-                // #142：即时隐藏不感兴趣的推文（PagingData 过滤在下次 emit 生效，
-                // 此处 UI 层即时跳过渲染，避免用户看到已隐藏的推文）
-                if (item.tweet.id !in notInterestedIds) {
-                    TweetCard(
-                        data = item,
-                        isLiked = item.tweet.id in likedIds,
-                        isBookmarked = item.tweet.id in bookmarkedIds,
-                        imageLoader = imageLoader,
-                        onImageClick = onImageClick,
-                        onLikeClick = { onLikeClick(item) },
-                        onCommentClick = { onCommentClick(item) },
-                        onRetweetClick = { onRetweetClick(item) },
-                        onBookmarkClick = { onBookmarkClick(item) },
-                        onNotInterestedClick = { onNotInterestedClick(item) },
-                        // #23：列表项进场/位移动画，下拉刷新与新增项有平滑过渡
-                        modifier = Modifier.animateItem(),
-                    )
-                }
+                TweetCard(
+                    data = item,
+                    isLiked = item.tweet.id in likedIds,
+                    isBookmarked = item.tweet.id in bookmarkedIds,
+                    imageLoader = imageLoader,
+                    onImageClick = onImageClick,
+                    onLikeClick = { onLikeClick(item) },
+                    onCommentClick = { onCommentClick(item) },
+                    onRetweetClick = { onRetweetClick(item) },
+                    onBookmarkClick = { onBookmarkClick(item) },
+                    onNotInterestedClick = { onNotInterestedClick(item) },
+                    // #23：列表项进场/位移动画，下拉刷新与新增项有平滑过渡
+                    modifier = Modifier.animateItem(),
+                )
             }
         }
 
