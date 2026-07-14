@@ -5,7 +5,6 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
-import com.trae.social.core.data.entity.PersonaDynamicFieldEntity
 import com.trae.social.core.data.entity.SchedulerLogEntity
 import com.trae.social.core.data.repository.AccountRepository
 import com.trae.social.core.data.repository.ConfigRepository
@@ -116,30 +115,19 @@ class PersonaUpdateWorker @AssistedInject constructor(
      *
      * #75：改用最久未更新优先策略，按动态字段 updatedAt 升序选取，
      * 确保长期未更新的账号也能被覆盖，避免纯随机导致的覆盖率不足。
-     * 未更新过的账号 updatedAt 为 0（最久前），排最前优先更新。
+     * 未更新过的账号 updatedAt 为 NULL（最久前），排最前优先更新。
+     *
+     * m1 修复：原实现先分页加载全部虚拟账号，再在 sortedBy 中逐账号调用
+     * `getDynamicFields(account.id)`（N+1 查询，~220 账号 = 220 次单查）。
+     * 现改为调用 [AccountRepository.getVirtualAccountsLeastRecentlyUpdated] 单条
+     * LEFT JOIN 查询直接由数据库排序并 LIMIT，行为等价但查询数从 O(N) 降为 1。
      */
     private suspend fun pickRandomAccounts(
         count: Int,
     ): List<com.trae.social.core.data.entity.AccountEntity> {
-        val all = mutableListOf<com.trae.social.core.data.entity.AccountEntity>()
-        var page = 1
-        // #106：移除 MAX_PAGES 硬编码上限，循环直到无更多数据，
-        // 避免账号数超过 240 时静默丢弃部分账号。
-        while (true) {
-            val batch = accountRepository.getAccounts(page)
-            if (batch.isEmpty()) break
-            all.addAll(batch.filter { it.isVirtual })
-            page++
-        }
-        if (all.isEmpty()) return emptyList()
-        Timber.i("pickRandomAccounts: 加载了 %d 个虚拟账号", all.size)
-        // #75：优先选取最久未更新的账号（按动态字段 updatedAt 升序），
-        // 未更新过的账号 getDynamicFields 返回 null，视为 0L 排最前
-        return all.sortedBy { account ->
-            runCatching {
-                accountRepository.getDynamicFields(account.id)?.updatedAt ?: 0L
-            }.getOrDefault(0L)
-        }.take(count)
+        val accounts = accountRepository.getVirtualAccountsLeastRecentlyUpdated(count)
+        Timber.i("pickRandomAccounts: 选取了 %d 个最久未更新的虚拟账号", accounts.size)
+        return accounts
     }
 
     /**

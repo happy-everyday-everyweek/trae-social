@@ -175,7 +175,8 @@ class InteractionWorker @AssistedInject constructor(
      * 从虚拟账号中按人设相似度筛选 3-8 个评论者。
      *
      * 翻页加载全部虚拟账号（约 220 个），按 bio 关键词 + 职业重合度评分，
-     * 取相似度 Top 30% 后随机选取；候选不足时回退到全量随机选取。
+     * 取相似度 Top targetCount 个作为评论者，打乱顺序以随机化各账号分配到的互动类型
+     * （LIKE/COMMENT/RETWEET/FOLLOW）。候选不足时回退到全量随机选取。
      */
     private suspend fun selectCommenters(
         authorId: String,
@@ -199,11 +200,16 @@ class InteractionWorker @AssistedInject constructor(
             val professionMatch = if (account.profession == authorProfession) 2 else 0
             account to (overlap + professionMatch)
         }
-        // #82：取相似度 Top 30% 后随机选取（按分数降序取前 30%，而非 score >= max/2）
-        val sortedScored = scored.sortedByDescending { it.second }
+        // #82：按相似度分数降序选取。targetCount = min(MAX, max(MIN, 全量 30%))，
+        // 即受 MIN/MAX 约束的相似度 Top targetCount 个。
         val targetCount = min(MAX_COMMENTERS, max(MIN_COMMENTERS, (all.size * 0.3).toInt().coerceAtLeast(1)))
-        val pool = sortedScored.take(targetCount).map { it.first }
-        return pool.shuffled(Random(System.currentTimeMillis())).take(targetCount)
+        // m2 修复：原 pool.shuffled().take(targetCount) 中 pool.size == targetCount，
+        // take 为冗余空操作已移除；shuffled 保留用于打乱评论者顺序，进而随机化
+        // 各账号在后续 assignInteractionType 中分到的互动类型。
+        return scored.sortedByDescending { it.second }
+            .take(targetCount)
+            .map { it.first }
+            .shuffled(Random(System.currentTimeMillis()))
     }
 
     private fun extractKeywords(text: String): Set<String> {
