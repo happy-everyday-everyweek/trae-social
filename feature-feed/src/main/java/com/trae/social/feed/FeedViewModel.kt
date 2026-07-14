@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import timber.log.Timber
 import java.util.UUID
 import javax.inject.Inject
@@ -40,6 +41,7 @@ import javax.inject.Inject
  * #135：移除了未被 FeedScreen 消费的 FeedUiState 死状态。
  * FeedScreen 的 Loading/Error/Empty/List 判断全部基于 pagingItems.loadState。
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class FeedViewModel @Inject constructor(
     private val tweetRepository: TweetRepository,
