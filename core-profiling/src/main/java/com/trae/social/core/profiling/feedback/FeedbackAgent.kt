@@ -161,8 +161,11 @@ class FeedbackAgent @Inject constructor(
         } catch (t: Throwable) {
             Timber.w(t, "FeedbackAgent Stage-2 LLM 调用失败，降级")
             // 预解析已给出建议澄清问句时优先复用，避免完全降级
-            if (parsedIntent.needsClarification && parsedIntent.clarificationQuestion != null) {
-                val reply = clarifyReply(parsedIntent.clarificationQuestion)
+            // 注意：clarificationQuestion 为跨模块 public 属性，Kotlin 无法 smart-cast，
+            // 需用局部变量捕获非空值后传递
+            val preParseQuestion = parsedIntent.clarificationQuestion
+            if (parsedIntent.needsClarification && preParseQuestion != null) {
+                val reply = clarifyReply(preParseQuestion)
                 persistAssistantReply(reply)
                 return reply
             }
