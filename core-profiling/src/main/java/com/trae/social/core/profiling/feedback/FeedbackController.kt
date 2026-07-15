@@ -82,7 +82,8 @@ class FeedbackController @Inject constructor(
         if (!shouldApply(scenarioId, sessionId) || pool.isEmpty()) return emptyList()
         val quotaCount = maxOf(1, (pool.size * quotaRatio).toInt())
         // 主题多样性：避免全是 Top-1 主题，按 diversityKey 分组轮取
-        val grouped = pool.groupBy { diversityKey(it) ?: "unknown" }
+        // toMutableMap：groupBy 返回不可变 Map，下方需逐组消费候选（set/remove），故转可变
+        val grouped = pool.groupBy { diversityKey(it) ?: "unknown" }.toMutableMap()
         val keys = grouped.keys.shuffled()
         val result = ArrayList<T>(quotaCount)
         var ki = 0
