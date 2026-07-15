@@ -32,4 +32,13 @@ interface CommentDao {
         """
     )
     suspend fun getCommentsForTweet(tweetId: String): List<CommentWithAuthor>
+
+    /**
+     * #146：按推文 + 作者查询评论原文（供 EventTextPreParser 回查用户评论文本）。
+     *
+     * 与 [getCommentsForTweet] 不同，此方法返回原始 [CommentEntity]（无 JOIN），
+     * 避免在批量回查时产生不必要的账号关联开销。
+     */
+    @Query("SELECT * FROM comments WHERE tweetId = :tweetId AND authorId = :authorId ORDER BY createdAt ASC")
+    suspend fun getByTweetAndAuthor(tweetId: String, authorId: String): List<CommentEntity>
 }

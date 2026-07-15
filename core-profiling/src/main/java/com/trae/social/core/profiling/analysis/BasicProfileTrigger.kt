@@ -30,6 +30,7 @@ class BasicProfileTrigger @Inject constructor(
     private val userActionDao: UserActionDao,
     private val userProfileDao: UserProfileDao,
     private val gate: ProfilingGate,
+    private val eventTextPreParser: EventTextPreParser,
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -82,18 +83,22 @@ class BasicProfileTrigger @Inject constructor(
         if (entities.isEmpty()) return
         val events = entities.mapNotNull { it.toDomain() }
         if (events.isEmpty()) return
+        // #146 算法优化：对携带文本的事件（PUBLISH_TWEET / TWEET_COMMENT）进行 LLM 预解析，
+        // 提取 textTopic / textSentiment / textIntent 写回 extra，供 BasicProfileAnalyzer 融合消费。
+        // 已解析过的事件跳过（持久化缓存），LLM 不可用时优雅降级返回原始事件。
+        val enrichedEvents = eventTextPreParser.enrichWithTextSignals(events)
         val previous = userProfileDao.latestSnapshot()?.toDomain()
         val doFullRecompute = (now - lastFullRecomputeAt) >= FULL_RECOMPUTE_INTERVAL_MS
         val snapshot = if (doFullRecompute && previous != null) {
             // 全量重算：忽略 previous 增量，从原始事件重算
             lastFullRecomputeAt = now
-            BasicProfileAnalyzer.analyze(events, previous = null, now = now)
+            BasicProfileAnalyzer.analyze(enrichedEvents, previous = null, now = now)
         } else {
-            BasicProfileAnalyzer.analyze(events, previous = previous, now = now)
+            BasicProfileAnalyzer.analyze(enrichedEvents, previous = previous, now = now)
         }
         val source = if (doFullRecompute) SOURCE_FULL_RECOMPUTE else SOURCE_INCREMENTAL
         userProfileDao.insertSnapshot(snapshot.toEntity(source))
-        Timber.i("基础分析完成 source=%s events=%d", source, events.size)
+        Timber.i("基础分析完成 source=%s events=%d", source, enrichedEvents.size)
     }
 
     private fun com.trae.social.core.data.entity.UserActionEventEntity.toDomain() =

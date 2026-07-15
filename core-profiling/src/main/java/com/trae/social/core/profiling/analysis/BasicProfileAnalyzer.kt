@@ -32,6 +32,12 @@ object BasicProfileAnalyzer {
     const val HALF_LIFE_DAYS = 7.0
     const val MS_PER_DAY = 24.0 * 60 * 60 * 1000.0
 
+    /** textTopic 权重提升倍数（用户主动表达的主题比被动浏览的图片主题更能反映真实兴趣）。 */
+    private const val TEXT_TOPIC_BOOST = 1.5
+
+    /** textTopics 次要主题权重系数（辅助信号，降权）。 */
+    private const val TEXT_TOPICS_WEIGHT = 0.5
+
     /** 互动事件权重（view=1, like=3, comment=5, retweet=4, bookmark=6, dwell>5s +2）。 */
     private val themeWeights = mapOf(
         UserActionType.TWEET_VIEW to 1.0,
@@ -182,12 +188,29 @@ object BasicProfileAnalyzer {
 
     // ---- 内容偏好向量 ----
 
+    /**
+     * 兴趣向量计算：融合 imageTheme（预打标主题，被动消费信号）与
+     * textTopic / textTopics（LLM 预解析主题，主动表达信号）。
+     *
+     * textTopic 权重提升 [TEXT_TOPIC_BOOST] 倍（用户主动写出的主题比被动浏览
+     * 的图片主题更能反映真实兴趣），textTopics 次要主题权重降为 [TEXT_TOPICS_WEIGHT]。
+     */
     private fun computeInterestVector(weighted: List<Pair<UserActionEvent, Double>>): Map<String, Double> {
         val raw = HashMap<String, Double>()
         weighted.forEach { (e, w) ->
-            val theme = ProfileMappers.readExtraString(e.extra, "imageTheme") ?: return@forEach
             val typeWeight = themeWeights[e.type] ?: 0.5
-            raw[theme] = (raw[theme] ?: 0.0) + w * typeWeight
+            // 1. imageTheme（预打标主题，被动消费信号）
+            ProfileMappers.readExtraString(e.extra, "imageTheme")?.let { theme ->
+                raw[theme] = (raw[theme] ?: 0.0) + w * typeWeight
+            }
+            // 2. textTopic（LLM 预解析主主题，主动表达信号，权重提升）
+            ProfileMappers.readExtraString(e.extra, "textTopic")?.let { topic ->
+                raw[topic] = (raw[topic] ?: 0.0) + w * typeWeight * TEXT_TOPIC_BOOST
+            }
+            // 3. textTopics（LLM 预解析次要主题，辅助信号）
+            ProfileMappers.readExtraStringList(e.extra, "textTopics").forEach { topic ->
+                raw[topic] = (raw[topic] ?: 0.0) + w * typeWeight * TEXT_TOPICS_WEIGHT
+            }
         }
         return normalize(raw)
     }
@@ -326,11 +349,10 @@ object BasicProfileAnalyzer {
             .take(5)
             .map { (theme, w) ->
                 val viewed = events.count { e ->
-                    ProfileMappers.readExtraString(e.extra, "imageTheme") == theme &&
-                        e.type == UserActionType.TWEET_VIEW
+                    matchesTheme(e, theme) && e.type == UserActionType.TWEET_VIEW
                 }
                 val interactions = events.count { e ->
-                    ProfileMappers.readExtraString(e.extra, "imageTheme") == theme &&
+                    matchesTheme(e, theme) &&
                         e.type in setOf(
                             UserActionType.TWEET_LIKE, UserActionType.TWEET_COMMENT,
                             UserActionType.TWEET_RETWEET, UserActionType.TWEET_BOOKMARK,
@@ -355,6 +377,16 @@ object BasicProfileAnalyzer {
     }
 
     // ---- 工具 ----
+
+    /**
+     * 判断事件是否匹配指定主题：检查 imageTheme（预打标）或 textTopic（LLM 预解析）。
+     * 用于证据链统计，使文本主题也能出现在 ThemeEvidence 中。
+     */
+    private fun matchesTheme(e: UserActionEvent, theme: String): Boolean {
+        ProfileMappers.readExtraString(e.extra, "imageTheme")?.let { if (it == theme) return true }
+        ProfileMappers.readExtraString(e.extra, "textTopic")?.let { if (it == theme) return true }
+        return false
+    }
 
     private fun normalize(map: Map<String, Double>): Map<String, Double> {
         val sum = map.values.sum()

@@ -18,6 +18,7 @@ import com.trae.social.core.data.model.UserProfileSnapshot
 import com.trae.social.core.data.model.UserProfileVersion
 import com.trae.social.core.data.model.VersionSummary
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -182,6 +183,12 @@ object ProfileMappers {
         (extra[key] as? JsonPrimitive)?.let {
             runCatching { it.content.toInt() }.getOrNull()
         }
+
+    /** 读取 extra 中的字符串列表字段（容错），用于 textTopics 等 JsonArray 字段。 */
+    fun readExtraStringList(extra: Map<String, JsonElement>, key: String): List<String> =
+        (extra[key] as? JsonArray)?.mapNotNull { el ->
+            runCatching { (el as? JsonPrimitive)?.content }.getOrNull()
+        }?.filter { it.isNotBlank() } ?: emptyList()
 
     /** 序列化 FeedbackWeights（用于覆盖 value 等）。 */
     fun encodeWeights(weights: FeedbackWeights): String =

@@ -53,6 +53,15 @@ interface UserActionDao {
     suspend fun deleteAll()
 
     /**
+     * #146：更新指定事件的 extra 字段（供 EventTextPreParser 持久化 LLM 预解析结果）。
+     *
+     * 预解析产生的 textTopic / textSentiment / textIntent 等信号写回 extra，
+     * 下次分析窗口内重复读取时无需再次调用 LLM，避免重复消耗配额。
+     */
+    @Query("UPDATE user_action_events SET extra = :extra WHERE id = :id")
+    suspend fun updateExtra(id: String, extra: String)
+
+    /**
      * 计算指定场景 driven/control 两组的反馈差异（A/B 回测）。
      *
      * extra JSON 中标记了 drivenByProfile / scenarioId / group。
