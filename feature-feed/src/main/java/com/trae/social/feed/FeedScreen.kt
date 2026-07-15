@@ -105,14 +105,6 @@ fun FeedScreen(
         if (isOnboardingSkipped) {
             OnboardingSkippedBanner(onNavigateToSettings = onNavigateToSettings)
         }
-        PullToRefreshBox(
-            isRefreshing = isRefreshing,
-            onRefresh = {
-                viewModel.refresh()
-                pagingItems.refresh()
-            },
-            modifier = Modifier.fillMaxSize(),
-        ) {
         // #23：首次加载 shimmer→内容、错误态/空态切换使用 Crossfade 平滑过渡，避免瞬间跳变
         val contentKey = when {
             isInitialLoading -> "loading"
@@ -128,34 +120,45 @@ fun FeedScreen(
             targetState = contentKey,
             animationSpec = tween(300),
             label = "feed-state",
+            modifier = Modifier.fillMaxSize(),
         ) { key ->
             when (key) {
                 "loading" -> LoadingPlaceholderList()
                 "error" -> ErrorPlaceholder(
                     message = errorMessage,
                     onRetry = {
-                        viewModel.refresh()
+                        // #135：refresh() 已移除（FeedUiState 死状态），直接重试分页
                         pagingItems.retry()
                     },
                 )
                 "empty" -> EmptyPlaceholder()
-                else -> FeedList(
-                    pagingItems = pagingItems,
-                    likedIds = likedIds,
-                    bookmarkedIds = bookmarkedIds,
-                    imageLoader = viewModel.imageLoader,
-                    onImageClick = { uris, index -> fullScreenTarget = FullScreenImageTarget(uris, index) },
-                    onLikeClick = { item ->
-                        viewModel.likeTweet(item.tweet.id, item.tweet.authorId)
+                else -> PullToRefreshBox(
+                    isRefreshing = isRefreshing,
+                    onRefresh = {
+                        // #135：refresh() 已移除（FeedUiState 死状态），直接刷新分页数据
+                        pagingItems.refresh()
                     },
-                    onCommentClick = { commentTarget = it },
-                    onRetweetClick = { retweetTarget = it },
-                    onBookmarkClick = { viewModel.bookmarkTweet(it.tweet.id) },
-                    onScrollingChange = onScrollingChange,
-                )
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    FeedList(
+                        pagingItems = pagingItems,
+                        likedIds = likedIds,
+                        bookmarkedIds = bookmarkedIds,
+                        imageLoader = viewModel.imageLoader,
+                        onImageClick = { uris, index -> fullScreenTarget = FullScreenImageTarget(uris, index) },
+                        onLikeClick = { item ->
+                            // #101：移除 authorId 参数，内部统一使用 USER_SELF_ID
+                            viewModel.likeTweet(item.tweet.id)
+                        },
+                        onCommentClick = { commentTarget = it },
+                        onRetweetClick = { retweetTarget = it },
+                        onBookmarkClick = { viewModel.bookmarkTweet(it.tweet.id) },
+                        onNotInterestedClick = { viewModel.markNotInterested(it.tweet.id) },
+                        onScrollingChange = onScrollingChange,
+                    )
+                }
             }
         }
-        } // PullToRefreshBox
     } // Column
 
     // 评论弹层
@@ -165,7 +168,8 @@ fun FeedScreen(
             imageLoader = viewModel.imageLoader,
             onDismiss = { commentTarget = null },
             onSendComment = { text ->
-                viewModel.commentTweet(item.tweet.id, item.tweet.authorId, text)
+                // #101：移除 authorId 参数，内部统一使用 USER_SELF_ID
+                viewModel.commentTweet(item.tweet.id, text)
             },
             loadComments = { viewModel.loadComments(item.tweet.id) },
         )
@@ -215,6 +219,7 @@ private fun FeedList(
     onCommentClick: (TweetWithAuthor) -> Unit,
     onRetweetClick: (TweetWithAuthor) -> Unit,
     onBookmarkClick: (TweetWithAuthor) -> Unit,
+    onNotInterestedClick: (TweetWithAuthor) -> Unit,
     onScrollingChange: (Boolean) -> Unit,
 ) {
     val appendState = pagingItems.loadState.append
@@ -244,6 +249,7 @@ private fun FeedList(
                     onCommentClick = { onCommentClick(item) },
                     onRetweetClick = { onRetweetClick(item) },
                     onBookmarkClick = { onBookmarkClick(item) },
+                    onNotInterestedClick = { onNotInterestedClick(item) },
                     // #23：列表项进场/位移动画，下拉刷新与新增项有平滑过渡
                     modifier = Modifier.animateItem(),
                 )

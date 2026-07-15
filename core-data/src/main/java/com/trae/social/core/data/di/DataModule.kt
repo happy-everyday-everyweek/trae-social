@@ -268,12 +268,20 @@ object DataModule {
             database.execSQL(
                 "CREATE INDEX IF NOT EXISTS `index_comments_tweetId` ON `comments` (`tweetId`)"
             )
-            // 回填历史 COMMENT 互动（content 非空）作为既有评论
+            // B3 修复：创建 tweets 表的复合索引（与 TweetEntity @Index 注解一致），
+            // 升级用户缺少此索引会导致 Room schema 校验失败崩溃
+            database.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_tweets_authorId_createdAt` ON `tweets` (`authorId`, `createdAt`)"
+            )
+            // M8 修复：回填历史 COMMENT 互动（content 非空且已执行）作为既有评论。
+            // 仅迁移 executedAt IS NOT NULL 的记录，避免把"已调度未执行"的 COMMENT 也回填为可见评论。
+            // 使用 executedAt（执行时间）作为 comments.createdAt，与新写入路径时间戳语义一致。
             database.execSQL(
                 "INSERT INTO `comments` (`id`, `tweetId`, `authorId`, `content`, `createdAt`) " +
-                    "SELECT `id`, `tweetId`, `accountId`, `content`, `createdAt` " +
+                    "SELECT `id`, `tweetId`, `accountId`, `content`, `executedAt` " +
                     "FROM `interactions` " +
-                    "WHERE `type` = 'COMMENT' AND `content` IS NOT NULL AND `content` != ''"
+                    "WHERE `type` = 'COMMENT' AND `content` IS NOT NULL AND `content` != '' " +
+                    "AND `executedAt` IS NOT NULL"
             )
         }
     }

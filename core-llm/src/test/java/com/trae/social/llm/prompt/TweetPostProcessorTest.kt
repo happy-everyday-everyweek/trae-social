@@ -106,4 +106,35 @@ class TweetPostProcessorTest {
         val result = processor.truncate(text, 1)
         assertEquals("…", result)
     }
+
+    @Test
+    fun `truncate 截断位置落在代理对中间时回退避免孤立代理项`() {
+        // 用码点构造 emoji（高位+低位代理对），避免源码中出现字面 emoji。
+        val emoji = String(intArrayOf(0x1F600), 0, 1)
+        // "ab" + emoji + 后续长文本，使 text.length > max。
+        // max=4 -> cut=3，恰好落在 emoji 高位代理之后、低位代理之前。
+        val text = "ab" + emoji + "cdefghijklmnop"
+        val result = processor.truncate(text, 4)
+        // cut 应回退至 2，结果为 "ab…"，不含孤立高位代理。
+        assertEquals("ab…", result)
+    }
+
+    @Test
+    fun `truncate 多个 emoji 连续时不在代理对中间截断`() {
+        val emoji = String(intArrayOf(0x1F600), 0, 1)
+        // 两个连续 emoji，max=3 -> cut=2 落在第一个 emoji 高位代理之后。
+        val text = emoji + emoji + "xyz"
+        val result = processor.truncate(text, 3)
+        // 结果不得以孤立高位代理结尾；总长不超过 max。
+        assertTrue("结果长度应不超过 3: ${result.length}", result.length <= 3)
+        assertTrue("应以省略号结尾: $result", result.endsWith("…"))
+        // 截断点前不应是高位代理
+        val beforeEllipsis = result.dropLast(1)
+        if (beforeEllipsis.isNotEmpty()) {
+            assertTrue(
+                "截断点不应落在高位代理之后: $result",
+                !beforeEllipsis.last().isHighSurrogate()
+            )
+        }
+    }
 }

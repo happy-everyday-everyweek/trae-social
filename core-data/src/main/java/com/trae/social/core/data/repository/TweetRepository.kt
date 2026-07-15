@@ -70,6 +70,13 @@ class TweetRepository @Inject constructor(
     suspend fun updateRetweetCount(tweetId: String, delta: Int) =
         tweetDao.updateRetweetCount(tweetId, delta)
 
+    /**
+     * #138：按 ID 列表观察推文（用于个人主页 LIKES Tab）。
+     */
+    fun observeByIds(ids: List<String>): Flow<List<TweetEntity>> =
+        if (ids.isEmpty()) kotlinx.coroutines.flow.flowOf(emptyList())
+        else tweetDao.observeByIds(ids)
+
     companion object {
         const val PAGE_SIZE = 20
     }

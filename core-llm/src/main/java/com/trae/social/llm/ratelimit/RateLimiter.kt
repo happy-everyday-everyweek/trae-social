@@ -53,6 +53,29 @@ class RateLimiter(
     }
 
     /**
+     * #93：带超时的阻塞获取令牌，超时未获取到则返回 false。
+     *
+     * Worker 可在调用前用此方法避免因限流阻塞超过 10 分钟 Worker 超时上限。
+     * 返回 false 时调用方应主动放弃本次执行（Result.retry()）。
+     */
+    suspend fun acquireWithTimeout(timeoutMillis: Long): Boolean {
+        val deadline = nowProvider() + timeoutMillis
+        while (true) {
+            val waitMs = mutex.withLock {
+                refillLocked()
+                if (availableTokens > 0) {
+                    availableTokens -= 1
+                    return true
+                }
+                if (nowProvider() >= deadline) return false
+                val elapsed = nowProvider() - lastRefillTimestamp
+                (refillIntervalMillis - (elapsed % refillIntervalMillis)).coerceAtMost(deadline - nowProvider())
+            }
+            delay(waitMs.coerceAtLeast(1))
+        }
+    }
+
+    /**
      * 非阻塞尝试获取一个令牌，成功返回 true。
      */
     suspend fun tryAcquire(): Boolean = mutex.withLock {
@@ -97,10 +120,14 @@ class RateLimiter(
             return
         }
         if (elapsed >= refillIntervalMillis) {
-            // 按经过的完整周期补充
+            // #119：每个补充周期补满到 maxTokens（与 RPM 语义一致），而非每周期只补 1 个
+            // M1 修复：cycles * maxTokens 为 Int×Int，长期不活跃（~25天）会溢出为负值，
+            // 导致 availableTokens 变为大负数后限流器永久失效。
+            // cycles>=1 时 cycles*maxTokens >= maxTokens 必然被 coerceAtMost 截到 maxTokens，
+            // 故直接赋值 maxTokens 即可，无需乘法。
             val cycles = (elapsed / refillIntervalMillis).toInt()
             if (cycles > 0) {
-                availableTokens = (availableTokens + cycles).coerceAtMost(maxTokens)
+                availableTokens = maxTokens
                 lastRefillTimestamp += cycles * refillIntervalMillis
             }
         }

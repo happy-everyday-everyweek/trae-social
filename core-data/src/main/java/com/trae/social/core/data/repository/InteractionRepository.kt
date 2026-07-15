@@ -21,8 +21,9 @@ class InteractionRepository @Inject constructor(
     suspend fun scheduleInteractions(interactions: List<InteractionEntity>) =
         interactionDao.insertAll(interactions)
 
-    suspend fun getPendingInteractions(now: Long): List<InteractionEntity> =
-        interactionDao.getPendingBefore(now)
+    // #79：透传 batch limit，控制单次拉取的待执行互动数量
+    suspend fun getPendingInteractions(now: Long, limit: Int = 50): List<InteractionEntity> =
+        interactionDao.getPendingBefore(now, limit)
 
     fun observePendingInteractions(now: Long): Flow<List<InteractionEntity>> =
         interactionDao.observePendingBefore(now)
@@ -41,4 +42,16 @@ class InteractionRepository @Inject constructor(
 
     suspend fun countExecutedByType(tweetId: String, type: InteractionType): Int =
         interactionDao.countExecutedByType(tweetId, type)
+
+    // #103：查询某账号已点赞的推文 ID 列表，替代 likeCount > 0 启发式
+    suspend fun getLikedTweetIdsByAccount(accountId: String): List<String> =
+        interactionDao.getLikedTweetIdsByAccount(accountId)
+
+    // M7 修复：删除某账号对某推文的 LIKE 互动记录（取消点赞时调用）
+    suspend fun deleteLikeInteraction(tweetId: String, accountId: String) =
+        interactionDao.deleteLikeInteraction(tweetId, accountId)
+
+    // m7 修复：删除某账号对某推文的 COMMENT 互动记录（评论失败回滚时清理孤儿 interaction）
+    suspend fun deleteCommentInteraction(tweetId: String, accountId: String) =
+        interactionDao.deleteCommentInteraction(tweetId, accountId)
 }

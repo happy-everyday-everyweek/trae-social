@@ -51,7 +51,8 @@ class PendingInteractionWorker @AssistedInject constructor(
         var failed = 0
 
         try {
-            val pending = interactionRepository.getPendingInteractions(now)
+            // #79：限制单批拉取数量，避免积压时 Worker 执行超时
+            val pending = interactionRepository.getPendingInteractions(now, limit = PENDING_BATCH_LIMIT)
             if (pending.isEmpty()) {
                 return Result.success(workDataOf(WorkerKeys.KEY_RESULT to "no_pending"))
             }
@@ -104,15 +105,22 @@ class PendingInteractionWorker @AssistedInject constructor(
                 }
             }
 
+            // #115：processed=0 且 failed=0 时为空操作（可能是并发重复扫描），
+            // 记录为 no_pending 而非 processed_0_failed_0，避免可观测性指标失真。
+            val finalStatus = if (processed == 0 && failed == 0) {
+                "no_pending"
+            } else {
+                "processed_${processed}_failed_${failed}"
+            }
             logSchedulerEvent(
                 accountId = "system",
                 startedAt = started,
-                status = "processed_${processed}_failed_${failed}",
+                status = finalStatus,
                 error = if (failed > 0) "$failed failed" else null,
             )
             return Result.success(
                 workDataOf(
-                    WorkerKeys.KEY_RESULT to "processed_$processed",
+                    WorkerKeys.KEY_RESULT to finalStatus,
                     "failed" to failed,
                 )
             )
@@ -185,7 +193,7 @@ class PendingInteractionWorker @AssistedInject constructor(
             Timber.w(t, "批量生成评论失败")
             return emptyMap()
         }
-        val results = CommentPromptBuilder.parseCommentResults(raw)
+        val results = CommentPromptBuilder.parseCommentResults(raw, interactionIds.size)
         val mapping = mutableMapOf<String, String>()
         results.forEach { result ->
             val idx = result.commenterIndex
@@ -235,5 +243,7 @@ class PendingInteractionWorker @AssistedInject constructor(
     private companion object {
         const val MAX_RUN_ATTEMPTS = 3
         const val MAX_COMMENT_LENGTH = 100
+        /** #79：单批拉取待执行互动的上限，避免积压时 Worker 执行超时 */
+        const val PENDING_BATCH_LIMIT = 50
     }
 }

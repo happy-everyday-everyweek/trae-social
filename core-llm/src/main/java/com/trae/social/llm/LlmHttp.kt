@@ -32,11 +32,18 @@ object LlmHttp {
 }
 
 /**
- * 把 API Key 脱敏为 "前4...后4" 形式，长度不足时仅显示星号。
+ * 把 API Key 脱敏为 "前N...后N" 形式，长度不足时仅显示星号。
+ *
+ * 脱敏策略（避免短密钥近乎明文泄漏）：
+ * - 空白返回 "<empty>"。
+ * - 长度 <= 12 的短密钥只显示末 2 位，前缀星号，避免 9-10 位短 token 暴露 8 位。
+ * - 较长密钥按长度 1/4（最多 4 位）前后各显示相同位数，标准 40+ 位密钥暴露 8 位，
+ *   短密钥按比例减少暴露位数。
  */
 fun maskApiKey(key: String?): String {
     if (key.isNullOrBlank()) return "<empty>"
     val trimmed = key.trim()
-    if (trimmed.length <= 8) return "***"
-    return trimmed.take(4) + "..." + trimmed.takeLast(4)
+    if (trimmed.length <= 12) return "***..." + trimmed.takeLast(2)
+    val showLen = (trimmed.length / 4).coerceAtMost(4)
+    return trimmed.take(showLen) + "..." + trimmed.takeLast(showLen)
 }

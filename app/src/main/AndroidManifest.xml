@@ -62,16 +62,8 @@
                 android:value="social_ai_scheduler_keepalive" />
         </service>
 
-        <!-- IMPL-18：开机自启接收器，注册 BOOT_COMPLETED + LOCKED_BOOT_COMPLETED -->
-        <receiver
-            android:name="com.trae.social.core.scheduler.BootReceiver"
-            android:exported="true"
-            android:directBootAware="false">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
-            </intent-filter>
-        </receiver>
+        <!-- #69/#88：BootReceiver 声明已移至 core-scheduler 模块的 AndroidManifest.xml，
+             避免在两个 manifest 中重复声明导致合并冲突。 -->
 
         <!-- 移除 androidx.startup 默认的 WorkManager 初始化，
              改由 SocialApp 实现 Configuration.Provider 接入 HiltWorkerFactory -->

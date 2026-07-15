@@ -71,6 +71,12 @@ data class GeminiGenerationConfig(
 @Serializable
 data class GeminiResponse(
     val candidates: List<GeminiCandidate> = emptyList(),
+    @SerialName("promptFeedback") val promptFeedback: GeminiPromptFeedback? = null,
+)
+
+@Serializable
+data class GeminiPromptFeedback(
+    @SerialName("blockReason") val blockReason: String? = null,
 )
 
 @Serializable

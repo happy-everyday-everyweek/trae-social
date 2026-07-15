@@ -79,8 +79,11 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onNavigateToApiKey: () -> Unit,
     onNavigateToDevOptions: () -> Unit,
+    // #137：人设管理入口导航至个人主页
+    onNavigateToProfile: () -> Unit = {},
     modifier: Modifier = Modifier,
-    viewModel: ProfileViewModel = hiltViewModel(),
+    // #143：使用独立的 SettingsViewModel，避免复用 ProfileViewModel 导致冗余初始化
+    viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val activityLevel by viewModel.activityLevel.collectAsStateWithLifecycle()
     val colors = socialColors()
@@ -191,10 +194,9 @@ fun SettingsScreen(
                     Column {
                         SettingsEntryRow(title = "API Key 管理", onClick = onNavigateToApiKey)
                         SocialDivider(thickness = 0.5.dp)
-                        SettingsEntryRow(title = "人设管理", onClick = {
-                            // 人设管理跳转至个人页面（当前用户人设展示在 Profile 页）
-                            onBack()
-                        })
+                        // #137：人设管理入口实际导航至个人主页（当前用户人设展示在 Profile 页），
+                        // 而非静默调用 onBack() 误导用户。通过 onNavigateToProfile 回调显式导航。
+                        SettingsEntryRow(title = "个人主页", onClick = onNavigateToProfile)
                         SocialDivider(thickness = 0.5.dp)
                         SettingsEntryRow(title = "清除缓存", onClick = { showClearCacheDialog = true })
                         SocialDivider(thickness = 0.5.dp)
@@ -331,27 +333,29 @@ fun SettingsScreen(
 }
 
 /**
- * 清除应用缓存目录，返回清除的字节数。
+ * 清除应用缓存，返回清除的字节数（KB）。
+ *
+ * #144：不再递归删除整个 cacheDir（可能误删其他组件依赖的非图片缓存文件），
+ * 仅清除已知的图片缓存目录（image_cache）。移除了冗余的 image_cache 二次删除。
  */
 private suspend fun clearCache(context: Context): Long = withContext(Dispatchers.IO) {
     var total = 0L
     runCatching {
-        fun deleteDir(dir: java.io.File): Long {
+        fun deleteDirContents(dir: java.io.File): Long {
             var size = 0L
             if (dir.isDirectory) {
                 dir.listFiles()?.forEach { child ->
-                    size += deleteDir(child)
+                    size += deleteDirContents(child)
+                    val len = child.length()
+                    if (child.delete()) size += len
                 }
             }
-            val len = dir.length()
-            if (dir.delete()) size += len
             return size
         }
-        total += deleteDir(context.cacheDir)
-        // 清除 Coil 图片缓存目录
-        runCatching {
-            val cacheDir = java.io.File(context.cacheDir, "image_cache")
-            if (cacheDir.exists()) total += deleteDir(cacheDir)
+        // #144：仅清除图片缓存目录，不删除整个 cacheDir
+        val imageCacheDir = java.io.File(context.cacheDir, "image_cache")
+        if (imageCacheDir.exists()) {
+            total += deleteDirContents(imageCacheDir)
         }
     }.onFailure { Timber.w(it, "清除缓存失败") }
     total / 1024

@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.hilt.work.HiltWorker
 import android.database.sqlite.SQLiteConstraintException
 import androidx.work.CoroutineWorker
-import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
@@ -112,8 +111,13 @@ class TweetGenerationWorker @AssistedInject constructor(
                 return Result.success(workDataOf(WorkerKeys.KEY_RESULT to resultStatus))
             }
 
-            // 限流：阻塞至令牌可用
-            rateLimiter.acquire()
+            // 限流：M2 修复——使用带超时的 acquire，避免限流阻塞超过 WorkManager 超时上限
+            if (!rateLimiter.acquireWithTimeout(ACQUIRE_TIMEOUT_MS)) {
+                Timber.i("账号 %s 限流等待超时，稍后重试", accountId)
+                resultStatus = "retry_rate_limited"
+                logSchedulerEvent(accountId, started, resultStatus, "acquire timeout")
+                return Result.retry()
+            }
 
             // ------------------------------------------------------------------
             // 2. 查最近 3 条该账号推文
@@ -138,7 +142,8 @@ class TweetGenerationWorker @AssistedInject constructor(
                 typoRate = account.typoRate,
                 recentMood = account.recentMood.ifBlank { "平和" },
             )
-            val timeSlotDescription = describeTimeWindow(windowStart, accountZone)
+            // #80：传入 activeWindows 以计算活跃窗实际结束小时
+            val timeSlotDescription = describeTimeWindow(windowStart, accountZone, account.activeWindows)
             val messages = promptBuilder.build(personaInput, timeSlotDescription, recentTweets)
 
             // ------------------------------------------------------------------
@@ -171,7 +176,8 @@ class TweetGenerationWorker @AssistedInject constructor(
 
             if (rawResponse.isBlank()) {
                 Timber.w("账号 %s LLM 返回空响应", accountId)
-                resultStatus = "skipped_empty_response"
+                // #94：状态改为 retry_empty_response 以准确反映重试行为
+                resultStatus = "retry_empty_response"
                 logSchedulerEvent(accountId, started, resultStatus, "empty LLM response")
                 return Result.retry()
             }
@@ -227,6 +233,26 @@ class TweetGenerationWorker @AssistedInject constructor(
             }
 
             // ------------------------------------------------------------------
+            // 8.5 #117：TOCTOU 检查——执行时再次校验窗内推文数
+            // 调度时检查与执行时写入之间存在时间窗口，并发或补发可能使窗内推文数超限。
+            // M3 修复：使用活跃窗实际结束时刻，而非硬编码 1 小时，避免多小时窗口超发
+            // ------------------------------------------------------------------
+            if (windowStart > 0L) {
+                val windowEndMillis = com.trae.social.core.scheduler.rule.ScheduleRuleResolver
+                    .windowEndMillisForStart(windowStart, accountZone, account.activeWindows)
+                val currentInWindow = runCatching {
+                    tweetRepository.countByAuthorInWindow(accountId, windowStart, windowEndMillis)
+                }.getOrDefault(0)
+                if (currentInWindow >= POSTS_PER_WINDOW) {
+                    Timber.i("账号 %s 窗内推文数已达上限 %d/%d，跳过（TOCTOU）",
+                        accountId, currentInWindow, POSTS_PER_WINDOW)
+                    resultStatus = "skipped_window_full"
+                    logSchedulerEvent(accountId, started, resultStatus, "window full at execution time")
+                    return Result.success(workDataOf(WorkerKeys.KEY_RESULT to resultStatus))
+                }
+            }
+
+            // ------------------------------------------------------------------
             // 9. 构建 TweetEntity 并写入
             // ------------------------------------------------------------------
             val now = System.currentTimeMillis()
@@ -256,17 +282,9 @@ class TweetGenerationWorker @AssistedInject constructor(
 
             // P1 修复：AI 推文入库后触发 InteractionWorker 排程互动，
             // 使 AI 生成内容也能获得点赞/评论/转发，避免信息流"死气沉沉"。
+            // #89：复用 WorkerPolicies.interactionRequest 替代手动构建
             runCatching {
-                val interactionRequest = OneTimeWorkRequestBuilder<InteractionWorker>()
-                    .setInputData(workDataOf(WorkerKeys.KEY_TWEET_ID to tweet.id))
-                    .setConstraints(WorkerPolicies.networkConstraints)
-                    .setBackoffCriteria(
-                        WorkerPolicies.backoffPolicy,
-                        WorkerPolicies.BACKOFF_INITIAL_SECONDS,
-                        java.util.concurrent.TimeUnit.SECONDS,
-                    )
-                    .addTag(WorkerTags.INTERACTION)
-                    .build()
+                val interactionRequest = WorkerPolicies.interactionRequest(tweet.id)
                 // P2 修复：使用 enqueueUniqueWork 避免 InteractionWorker 重复入队
                 WorkManager.getInstance(applicationContext).enqueueUniqueWork(
                     "interaction_${tweet.id}",
@@ -358,7 +376,12 @@ class TweetGenerationWorker @AssistedInject constructor(
             },
         ) ?: return
 
-        val windowStartMillis = nextTrigger.toEpochMilli()
+        // #109：自链路径使用窗口起始时刻（而非随机触发时刻）作为 dedup key 的 windowStart，
+        // 与补发路径保持一致，确保跨重启幂等性。
+        // M3 修复：传入 activeWindows 以查找实际窗口起点，避免多小时窗口 dedup key 不一致
+        val currentWindowStart = com.trae.social.core.scheduler.rule.ScheduleRuleResolver
+            .windowStartForTrigger(nextTrigger, accountZone, account.activeWindows) ?: nextTrigger
+        val windowStartMillis = currentWindowStart.toEpochMilli()
         val deduplicationKey = com.trae.social.core.scheduler.rule.DeduplicationKeys.forTweet(
             accountId = accountId,
             windowStart = windowStartMillis,
@@ -366,24 +389,14 @@ class TweetGenerationWorker @AssistedInject constructor(
         )
         val delayMillis = (nextTrigger.toEpochMilli() - System.currentTimeMillis())
             .coerceAtLeast(0L)
-        val request = OneTimeWorkRequestBuilder<TweetGenerationWorker>()
-            .setInputData(
-                workDataOf(
-                    WorkerKeys.KEY_ACCOUNT_ID to accountId,
-                    WorkerKeys.KEY_DEDUP_KEY to deduplicationKey,
-                    WorkerKeys.KEY_WINDOW_START to windowStartMillis,
-                    WorkerKeys.KEY_SEQUENCE_NO to 0,
-                )
-            )
-            .setConstraints(WorkerPolicies.networkConstraints)
-            .setBackoffCriteria(
-                WorkerPolicies.backoffPolicy,
-                WorkerPolicies.BACKOFF_INITIAL_SECONDS,
-                java.util.concurrent.TimeUnit.SECONDS,
-            )
-            .setInitialDelay(delayMillis, java.util.concurrent.TimeUnit.MILLISECONDS)
-            .addTag(WorkerTags.TWEET_GENERATION)
-            .build()
+        // #89：复用 WorkerPolicies.tweetGenerationRequest 替代手动构建
+        val request = WorkerPolicies.tweetGenerationRequest(
+            accountId = accountId,
+            deduplicationKey = deduplicationKey,
+            windowStart = windowStartMillis,
+            sequenceNo = 0,
+            initialDelayMillis = delayMillis,
+        )
         WorkManager.getInstance(applicationContext).enqueueUniqueWork(
             deduplicationKey,
             androidx.work.ExistingWorkPolicy.KEEP,
@@ -397,8 +410,14 @@ class TweetGenerationWorker @AssistedInject constructor(
      *
      * P1 修复：使用账号自身时区 [zone] 而非系统时区，避免跨时区旅行时
      * prompt 中的时段描述与账号实际活跃窗不符。
+     *
+     * #80：根据 [activeWindows] 解析出窗口实际结束小时，而非固定假设 1 小时窗口。
      */
-    private fun describeTimeWindow(windowStartMillis: Long, zone: ZoneId): String {
+    private fun describeTimeWindow(
+        windowStartMillis: Long,
+        zone: ZoneId,
+        activeWindows: List<Boolean>,
+    ): String {
         if (windowStartMillis <= 0L) return "当前时段"
         val zoned = ZonedDateTime.ofInstant(
             Instant.ofEpochMilli(windowStartMillis),
@@ -408,7 +427,10 @@ class TweetGenerationWorker @AssistedInject constructor(
         val isWeekend = dayOfWeek == java.time.DayOfWeek.SATURDAY || dayOfWeek == java.time.DayOfWeek.SUNDAY
         val dayLabel = if (isWeekend) "周末" else "工作日"
         val startHour = zoned.hour
-        val endHour = (startHour + 1).coerceAtMost(24)
+        // #80：从活跃窗配置解析实际结束小时，避免仅显示首个小时
+        val windows = com.trae.social.core.scheduler.rule.ScheduleRuleResolver.parseWindows(activeWindows)
+        val matchingWindow = windows.firstOrNull { it.contains(startHour) }
+        val endHour = matchingWindow?.endHour ?: (startHour + 1).coerceAtMost(24)
         return String.format("%s %02d:00-%02d:00", dayLabel, startHour, endHour)
     }
 
@@ -437,5 +459,8 @@ class TweetGenerationWorker @AssistedInject constructor(
 
         /** P1 修复：每个活跃窗内允许发布的推文数上限（与 SchedulerInitializer 保持一致） */
         const val POSTS_PER_WINDOW = 2
+
+        /** M2 修复：限流等待超时（8 分钟，低于 WorkManager 默认 10 分钟超时） */
+        const val ACQUIRE_TIMEOUT_MS = 8 * 60 * 1000L
     }
 }

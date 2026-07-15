@@ -53,18 +53,22 @@ object WorkerPolicies {
 
     val backoffPolicy: BackoffPolicy = BackoffPolicy.EXPONENTIAL
     const val BACKOFF_INITIAL_SECONDS: Long = 10L
-    const val BACKOFF_MAX_SECONDS: Long = 90L
+    // #77：移除 BACKOFF_MAX_SECONDS=90L 死代码，
+    // WorkManager setBackoffCriteria 不接受自定义上限，指数退避由 WM 内部按 5h 封顶
 
     /**
      * 构建 TweetGenerationWorker 请求。
+     *
+     * #89：支持可选初始延迟 [initialDelayMillis]，供自链路径复用，避免重复手动构建。
      */
     fun tweetGenerationRequest(
         accountId: String,
         deduplicationKey: String,
         windowStart: Long,
         sequenceNo: Int,
+        initialDelayMillis: Long = 0L,
     ): androidx.work.OneTimeWorkRequest {
-        return OneTimeWorkRequestBuilder<TweetGenerationWorker>()
+        val builder = OneTimeWorkRequestBuilder<TweetGenerationWorker>()
             .setInputData(
                 workDataOf(
                     WorkerKeys.KEY_ACCOUNT_ID to accountId,
@@ -76,7 +80,11 @@ object WorkerPolicies {
             .setConstraints(networkConstraints)
             .setBackoffCriteria(backoffPolicy, BACKOFF_INITIAL_SECONDS, TimeUnit.SECONDS)
             .addTag(WorkerTags.TWEET_GENERATION)
-            .build()
+        // #89：仅在有延迟时设置，避免无延迟场景产生多余调度参数
+        if (initialDelayMillis > 0L) {
+            builder.setInitialDelay(initialDelayMillis, TimeUnit.MILLISECONDS)
+        }
+        return builder.build()
     }
 
     /**
@@ -105,12 +113,17 @@ object WorkerPolicies {
      * 构建 PersonaUpdateWorker 周期请求。
      *
      * IMPL-47：周期按 [level] 缩放（LOW=14 天 / MEDIUM=7 天 / HIGH=3 天）。
+     * m3 修复：WorkManager 周期上限 30 天可靠，将上限从 7 天放宽到 30 天，
+     * 保留 LOW/MEDIUM/HIGH 的分层语义，避免 LOW 与 MEDIUM 同频导致成本翻倍。
      */
     fun personaUpdatePeriodicRequest(level: AiActivityLevel): androidx.work.PeriodicWorkRequest {
+        val periodDays = level.personaUpdatePeriodDays.toLong()
+        val effectivePeriodDays = periodDays.coerceIn(1L, 30L)
         return PeriodicWorkRequestBuilder<PersonaUpdateWorker>(
-            level.personaUpdatePeriodDays.toLong(), TimeUnit.DAYS,
+            effectivePeriodDays, TimeUnit.DAYS,
         )
             .setConstraints(networkConstraints)
+            .setBackoffCriteria(backoffPolicy, BACKOFF_INITIAL_SECONDS, TimeUnit.SECONDS)
             .addTag(WorkerTags.PERSONA_UPDATE)
             .build()
     }

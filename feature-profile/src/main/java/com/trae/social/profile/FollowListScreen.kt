@@ -1,6 +1,5 @@
 package com.trae.social.profile
 
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -49,12 +48,14 @@ import com.trae.social.designsystem.theme.LocalSocialTypography
  *
  * @param type 列表类型（关注 / 粉丝）
  * @param onBack 返回
+ * @param onAccountClick 点击账号项回调（#11：进入账号详情或主页）
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FollowListScreen(
     type: FollowListType,
     onBack: () -> Unit,
+    onAccountClick: (AccountEntity) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: FollowListViewModel = hiltViewModel(),
 ) {
@@ -91,6 +92,8 @@ fun FollowListScreen(
                                 imageLoader = imageLoader,
                                 isFollowing = account.id in followingIds,
                                 onToggleFollow = { viewModel.toggleFollow(type, account.id) },
+                                // #11：点击账号项触发回调，进入账号详情
+                                onAccountClick = { onAccountClick(account) },
                             )
                             SocialDivider(thickness = 0.5.dp)
                         }
@@ -104,7 +107,7 @@ fun FollowListScreen(
 /**
  * 关注/粉丝列表项。
  *
- * - 整行可点击：进入账号主页（当前为占位提示，账号详情路由待后续接入）
+ * - 整行可点击：触发 [onAccountClick] 回调进入账号详情（#11：替代原占位 Toast）
  * - 右侧关注/已关注按钮：真实写库并刷新列表
  */
 @Composable
@@ -113,6 +116,7 @@ private fun FollowAccountRow(
     imageLoader: coil.ImageLoader,
     isFollowing: Boolean,
     onToggleFollow: () -> Unit,
+    onAccountClick: () -> Unit,
 ) {
     val colors = socialColors()
     val typography = LocalSocialTypography.current
@@ -120,13 +124,8 @@ private fun FollowAccountRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable {
-                Toast.makeText(
-                    context,
-                    "查看 @${account.username} 的主页（即将开放）",
-                    Toast.LENGTH_SHORT,
-                ).show()
-            }
+            // #11：整行可点击，触发账号详情回调（替代原占位 Toast）
+            .clickable { onAccountClick() }
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,

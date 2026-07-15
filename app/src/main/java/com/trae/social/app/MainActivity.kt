@@ -314,6 +314,10 @@ private fun MainScaffold() {
                         onBack = { navController.popBackStack() },
                         onNavigateToApiKey = { navController.navigate(AppRoutes.API_KEY) },
                         onNavigateToDevOptions = { navController.navigate(AppRoutes.DEV_OPTIONS) },
+                        // #137：个人主页入口，弹出 Settings 回到 Profile
+                        onNavigateToProfile = {
+                            navController.popBackStack(AppRoutes.PROFILE, inclusive = false)
+                        },
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -355,6 +359,8 @@ private fun MainScaffold() {
                     FollowListScreen(
                         type = type,
                         onBack = { navController.popBackStack() },
+                        // #11：账号详情页待接入，预留回调结构
+                        onAccountClick = { },
                         modifier = Modifier.fillMaxSize(),
                     )
                 }

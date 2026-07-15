@@ -12,7 +12,6 @@ import com.trae.social.core.scheduler.work.WorkerTags
 import com.trae.social.onboarding.ColdStartFiller
 import dagger.hilt.android.qualifiers.ApplicationContext
 import timber.log.Timber
-import java.util.Calendar
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -38,13 +37,19 @@ class AppColdStartFiller @Inject constructor(
     override suspend fun triggerInitialFill() {
         runCatching {
             val now = System.currentTimeMillis()
-            val hour = Calendar.getInstance().apply { timeInMillis = now }
-                .get(Calendar.HOUR_OF_DAY)
 
-            // 选取当前小时活跃的虚拟账号，最多取 20 个
-            val active = accountRepository.getActiveAccountsNow(hour)
+            // #100：使用每个账号的时区计算当前小时，而非设备时区，
+            // 避免跨时区场景下冷启动活跃账号选择错误
+            val allVirtual = accountRepository.getVirtualAccountsList()
+            val active = allVirtual.filter { account ->
+                runCatching {
+                    val zone = java.time.ZoneId.of(account.timezone)
+                    val hour = java.time.ZonedDateTime.now(zone).hour
+                    account.activeWindows.getOrNull(hour) == true
+                }.getOrDefault(false)
+            }
             if (active.isEmpty()) {
-                Timber.i("ColdStartFiller: 当前小时 %d 无活跃账号，跳过冷启动填充", hour)
+                Timber.i("ColdStartFiller: 当前无活跃账号，跳过冷启动填充")
                 return
             }
             val targets = active.take(MAX_COLD_START_ACCOUNTS)

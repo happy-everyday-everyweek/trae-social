@@ -6,19 +6,24 @@ import com.trae.social.core.data.config.AiActivityLevel
 import com.trae.social.core.data.config.LlmProvider
 import com.trae.social.core.data.dao.FollowRelationDao
 import com.trae.social.core.data.entity.AccountEntity
+import com.trae.social.core.data.entity.InteractionEntity
+import com.trae.social.core.data.entity.InteractionType
 import com.trae.social.core.data.entity.TweetEntity
 import com.trae.social.core.data.repository.AccountRepository
 import com.trae.social.core.data.repository.ConfigRepository
+import com.trae.social.core.data.repository.InteractionRepository
 import com.trae.social.core.data.repository.TweetRepository
 import com.trae.social.profile.di.ProfileImageLoader
 import coil.ImageLoader
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -36,6 +41,8 @@ class ProfileViewModel @Inject constructor(
     private val tweetRepository: TweetRepository,
     private val configRepository: ConfigRepository,
     private val followRelationDao: FollowRelationDao,
+    // #134：注入 InteractionRepository，使 retweetTweet 能创建实际互动记录
+    private val interactionRepository: InteractionRepository,
     @ProfileImageLoader val imageLoader: ImageLoader,
 ) : ViewModel() {
 
@@ -51,6 +58,15 @@ class ProfileViewModel @Inject constructor(
     /** 已点赞推文 ID 集合（乐观更新，与 feature-feed FeedViewModel 一致） */
     private val _likedTweetIds = MutableStateFlow<Set<String>>(emptySet())
     val likedTweetIds: StateFlow<Set<String>> = _likedTweetIds.asStateFlow()
+
+    /**
+     * #140：标记用户是否已手动切换过点赞。
+     *
+     * loadInitialLikedTweetIds 是异步的，若用户在 DB 查询返回前点击了 toggleLike，
+     * 后续 DB 结果的整体覆盖会丢弃用户操作。此标记用于在 DB 结果返回时跳过覆盖。
+     */
+    @Volatile
+    private var userToggledLike = false
 
     init {
         loadProfile()
@@ -84,20 +100,27 @@ class ProfileViewModel @Inject constructor(
     }
 
     /**
-     * 恢复已点赞状态（#8 review）。
+     * 恢复已点赞状态。
      *
-     * DB 暂无 per-user 点赞记录，按 likeCount > 0 启发式还原：进入个人主页时，
-     * 将 likeCount > 0 的自身推文视为已点赞。后续由 [toggleLike] 维护本地集合；
-     * 理想方案需 DB 记录按用户点赞状态。
+     * #103：此前按 likeCount > 0 启发式还原，但 likeCount 包含虚拟账号的点赞，
+     * 导致未点赞推文被误标为已点赞。现在查询 interactions 表中当前用户的
+     * LIKE 类型已执行互动记录，准确还原点赞状态。
+     *
+     * #140：竞态修复——若用户在 DB 查询返回前已手动切换点赞（userToggledLike=true），
+     * 跳过整体覆盖，避免丢弃用户操作。
      */
     private fun loadInitialLikedTweetIds() {
         viewModelScope.launch {
-            runCatching { tweetRepository.observeByAuthor(SELF_ID).first() }
-                .onSuccess { tweets ->
-                    _likedTweetIds.value = tweets
-                        .filter { it.likeCount > 0 }
-                        .map { it.id }
-                        .toSet()
+            runCatching {
+                // #103：查询 interactions 表中当前用户已执行的 LIKE 互动，
+                // 替代此前 likeCount > 0 的启发式判断
+                interactionRepository.getLikedTweetIdsByAccount(SELF_ID)
+            }
+                .onSuccess { likedIds ->
+                    // #140：仅当用户尚未手动切换点赞时才用 DB 结果覆盖
+                    if (!userToggledLike) {
+                        _likedTweetIds.value = likedIds.toSet()
+                    }
                 }
                 .onFailure { Timber.w(it, "恢复已点赞状态失败") }
         }
@@ -114,6 +137,19 @@ class ProfileViewModel @Inject constructor(
      */
     val mediaTweetsFlow: StateFlow<List<TweetEntity>> = tweetRepository.observeByAuthor(SELF_ID)
         .map { list -> list.filter { !it.mediaPath.isNullOrBlank() } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /**
+     * #138：已点赞推文流（LIKES Tab 数据源）。
+     *
+     * 基于 [likedTweetIds] 动态切换查询，当点赞集合变化时自动刷新。
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val likedTweetsFlow: StateFlow<List<TweetEntity>> = _likedTweetIds
+        .flatMapLatest { ids ->
+            if (ids.isEmpty()) flowOf(emptyList())
+            else tweetRepository.observeByIds(ids.toList())
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun selectTab(tab: ProfileTab) {
@@ -139,6 +175,8 @@ class ProfileViewModel @Inject constructor(
      */
     fun toggleLike(tweetId: String) {
         val wasLiked = tweetId in _likedTweetIds.value
+        // #140：标记用户已手动切换点赞，防止 loadInitialLikedTweetIds 的 DB 结果覆盖
+        userToggledLike = true
         // 乐观更新本地集合
         _likedTweetIds.value = if (wasLiked) {
             _likedTweetIds.value - tweetId
@@ -147,8 +185,28 @@ class ProfileViewModel @Inject constructor(
         }
         viewModelScope.launch {
             val delta = if (wasLiked) -1 else 1
-            runCatching { tweetRepository.updateLikeCount(tweetId, delta) }
-                .onFailure {
+            runCatching {
+                // M7 修复：同步写入/删除 interactions 表的 LIKE 记录，
+                // 使 #103 的 loadInitialLikedTweetIds 能正确恢复点赞状态
+                if (wasLiked) {
+                    interactionRepository.deleteLikeInteraction(tweetId, SELF_ID)
+                } else {
+                    val now = System.currentTimeMillis()
+                    interactionRepository.scheduleInteraction(
+                        InteractionEntity(
+                            id = UUID.randomUUID().toString(),
+                            tweetId = tweetId,
+                            accountId = SELF_ID,
+                            type = InteractionType.LIKE,
+                            content = null,
+                            createdAt = now,
+                            scheduledAt = now,
+                            executedAt = now,
+                        )
+                    )
+                }
+                tweetRepository.updateLikeCount(tweetId, delta)
+            }.onFailure {
                     Timber.w(it, "更新点赞计数失败，回滚本地状态")
                     // 仅在当前状态仍符合本次预期时回滚，避免与后续 toggle 竞态误覆盖
                     val currentState = _likedTweetIds.value
@@ -164,28 +222,56 @@ class ProfileViewModel @Inject constructor(
     }
 
     /**
-     * 评论（#8）：评论计数 +1 持久化。
+     * 评论（#8 / #134）：个人主页评论按钮。
      *
-     * 注：个人主页暂未接入评论弹层与 CommentRepository（避免引入跨 feature 依赖），
-     * 此处仅持久化计数，提供与信息流一致的互动反馈。
+     * #134 修复：此前仅递增 commentCount 不创建评论数据，导致计数与实际脱节。
+     * 现在不再递增计数（个人主页暂无评论输入弹层），保持计数与实际数据一致。
+     * 后续接入评论弹层后，应创建 CommentEntity 并递增计数。
      */
     fun commentTweet(tweetId: String) {
-        viewModelScope.launch {
-            runCatching { tweetRepository.updateCommentCount(tweetId, 1) }
-                .onFailure { Timber.w(it, "更新评论计数失败") }
-        }
+        // #134：暂无评论输入弹层，不递增计数，避免计数与实际脱节
+        Timber.i("个人主页评论按钮点击 tweetId=%s，暂未接入评论弹层", tweetId)
     }
 
     /**
-     * 转发（#8）：转发计数 +1 持久化。
+     * 转发（#8 / #134）：创建转发推文副本 + 更新转发计数 + 排程 RETWEET 互动。
      *
-     * 注：暂不创建转发推文副本与排程互动（避免引入 InteractionRepository 依赖），
-     * 仅持久化计数，保持互动按钮可用。
+     * #134 修复：此前仅递增 retweetCount 不创建转发推文，导致计数与实际脱节。
+     * 现在创建实际的转发推文（引用原推文本），与 feature-feed 的 retweetTweet 一致。
      */
     fun retweetTweet(tweetId: String) {
         viewModelScope.launch {
-            runCatching { tweetRepository.updateRetweetCount(tweetId, 1) }
-                .onFailure { Timber.w(it, "更新转发计数失败") }
+            runCatching {
+                val original = tweetRepository.getById(tweetId) ?: return@runCatching
+                val now = System.currentTimeMillis()
+                val retweet = TweetEntity(
+                    id = UUID.randomUUID().toString(),
+                    authorId = SELF_ID,
+                    text = "转发：${original.text}",
+                    mediaPath = original.mediaPath,
+                    mediaTheme = original.mediaTheme,
+                    createdAt = now,
+                    likeCount = 0,
+                    commentCount = 0,
+                    retweetCount = 0,
+                    isAiGenerated = false,
+                    deduplicationKey = "retweet-${original.id}-$now"
+                )
+                tweetRepository.insertTweet(retweet)
+                tweetRepository.updateRetweetCount(original.id, 1)
+                interactionRepository.scheduleInteraction(
+                    InteractionEntity(
+                        id = UUID.randomUUID().toString(),
+                        tweetId = original.id,
+                        accountId = SELF_ID,
+                        type = InteractionType.RETWEET,
+                        content = null,
+                        createdAt = now,
+                        scheduledAt = now,
+                        executedAt = now,
+                    )
+                )
+            }.onFailure { Timber.w(it, "转发失败") }
         }
     }
 

@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.trae.social.core.data.config.AiActivityLevel
 import com.trae.social.core.data.config.LlmProvider
@@ -139,10 +140,34 @@ class ConfigRepository @Inject constructor(
     private fun baseUrlEntry(provider: LlmProvider) = "base_url_${provider.id}"
     private fun modelEntry(provider: LlmProvider) = "model_${provider.id}"
 
+    // ------------------------------------------------------------------
+    // 收藏 / 不感兴趣推文 ID 集合（DataStore，#102 / #142）
+    // ------------------------------------------------------------------
+
+    /** #102：读取已收藏推文 ID 集合 */
+    suspend fun getBookmarkedTweetIds(): Set<String> =
+        dataStore.data.map { it[KEY_BOOKMARKED_TWEET_IDS] ?: emptySet() }.first()
+
+    /** #102：写入已收藏推文 ID 集合 */
+    suspend fun setBookmarkedTweetIds(ids: Set<String>) {
+        dataStore.edit { it[KEY_BOOKMARKED_TWEET_IDS] = ids }
+    }
+
+    /** #142：读取不感兴趣推文 ID 集合 */
+    suspend fun getNotInterestedTweetIds(): Set<String> =
+        dataStore.data.map { it[KEY_NOT_INTERESTED_TWEET_IDS] ?: emptySet() }.first()
+
+    /** #142：写入不感兴趣推文 ID 集合 */
+    suspend fun setNotInterestedTweetIds(ids: Set<String>) {
+        dataStore.edit { it[KEY_NOT_INTERESTED_TWEET_IDS] = ids }
+    }
+
     companion object {
         private val KEY_DEFAULT_PROVIDER = stringPreferencesKey("default_provider")
         private val KEY_ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
         private val KEY_ONBOARDING_SKIPPED = booleanPreferencesKey("onboarding_skipped")
         private val KEY_AI_ACTIVITY_LEVEL = stringPreferencesKey("ai_activity_level")
+        private val KEY_BOOKMARKED_TWEET_IDS = stringSetPreferencesKey("bookmarked_tweet_ids")
+        private val KEY_NOT_INTERESTED_TWEET_IDS = stringSetPreferencesKey("not_interested_tweet_ids")
     }
 }

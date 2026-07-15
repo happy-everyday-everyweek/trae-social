@@ -5,7 +5,6 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
-import com.trae.social.core.data.entity.PersonaDynamicFieldEntity
 import com.trae.social.core.data.entity.SchedulerLogEntity
 import com.trae.social.core.data.repository.AccountRepository
 import com.trae.social.core.data.repository.ConfigRepository
@@ -18,13 +17,12 @@ import com.trae.social.llm.prompt.PersonaUpdatePromptBuilder
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import timber.log.Timber
-import kotlin.random.Random
 
 /**
  * 人设动态字段更新 Worker（SubTask 8.4）。
  *
  * 周期按 AI 活跃度档位缩放执行（LOW=14 天 / MEDIUM=7 天 / HIGH=3 天）：
- * 1. 随机选 batchSize 个虚拟账号（按档位 10/20/40）；
+ * 1. 选取 batchSize 个最久未更新的虚拟账号（按档位 10/20/40，#75）；
  * 2. 加载其当前动态字段与最近活动事件；
  * 3. 调 [PersonaUpdatePromptBuilder.build] + LlmClient.chatSync；
  * 4. [PersonaUpdatePromptBuilder.parsePersonaUpdate] 解析；
@@ -52,6 +50,7 @@ class PersonaUpdateWorker @AssistedInject constructor(
         var updated = 0
         var rolledBack = 0
         var failed = 0
+        var skipped = 0
 
         try {
             // IMPL-47：按当前活跃度档位确定批次大小（LOW=10 / MEDIUM=20 / HIGH=40）
@@ -59,7 +58,7 @@ class PersonaUpdateWorker @AssistedInject constructor(
                 .getOrDefault(com.trae.social.core.data.config.AiActivityLevel.MEDIUM)
             val batchSize = level.personaUpdateBatchSize
 
-            // 1. 随机选 batchSize 个虚拟账号
+            // 1. 选取 batchSize 个最久未更新的虚拟账号（#75）
             val candidates = pickRandomAccounts(batchSize)
             if (candidates.isEmpty()) {
                 logSchedulerEvent("system", started, "no_accounts", null)
@@ -68,12 +67,19 @@ class PersonaUpdateWorker @AssistedInject constructor(
 
             for (account in candidates) {
                 try {
-                    rateLimiter.acquire()
+                    // M2 修复：使用带超时的 acquire，避免限流阻塞超过 WorkManager 超时上限
+                    if (!rateLimiter.acquireWithTimeout(ACQUIRE_TIMEOUT_MS)) {
+                        Timber.i("账号 %s 限流等待超时，跳过", account.id)
+                        skipped++
+                        continue
+                    }
                     val success = updateSinglePersona(account)
                     when (success) {
                         UpdateResult.UPDATED -> updated++
                         UpdateResult.ROLLED_BACK -> rolledBack++
-                        UpdateResult.SKIPPED -> failed++
+                        // #112：SKIPPED 是"跳过本次更新"（LLM 临时不可用或 JSON 解析失败），
+                        // 不是执行失败，下次周期会重试。独立计数，不计入 failed。
+                        UpdateResult.SKIPPED -> skipped++
                     }
                 } catch (e: RateLimitedException) {
                     // IMPL-19：429 限流向上抛出，由 doWork 统一捕获并跳过整个批次
@@ -84,7 +90,8 @@ class PersonaUpdateWorker @AssistedInject constructor(
                 }
             }
 
-            val status = "updated_${updated}_rolledBack_${rolledBack}_failed_$failed"
+            // #112：日志状态增加 skipped；errorMessage 仅在真正 failed > 0 时设置
+            val status = "updated_${updated}_rolledBack_${rolledBack}_skipped_${skipped}_failed_$failed"
             logSchedulerEvent("system", started, status, if (failed > 0) "$failed failed" else null)
             return Result.success(workDataOf(WorkerKeys.KEY_RESULT to status))
         } catch (e: RateLimitedException) {
@@ -104,23 +111,23 @@ class PersonaUpdateWorker @AssistedInject constructor(
     }
 
     /**
-     * 从虚拟账号中随机选取 [count] 个。
+     * 从虚拟账号中选取 [count] 个。
+     *
+     * #75：改用最久未更新优先策略，按动态字段 updatedAt 升序选取，
+     * 确保长期未更新的账号也能被覆盖，避免纯随机导致的覆盖率不足。
+     * 未更新过的账号 updatedAt 为 NULL（最久前），排最前优先更新。
+     *
+     * m1 修复：原实现先分页加载全部虚拟账号，再在 sortedBy 中逐账号调用
+     * `getDynamicFields(account.id)`（N+1 查询，~220 账号 = 220 次单查）。
+     * 现改为调用 [AccountRepository.getVirtualAccountsLeastRecentlyUpdated] 单条
+     * LEFT JOIN 查询直接由数据库排序并 LIMIT，行为等价但查询数从 O(N) 降为 1。
      */
     private suspend fun pickRandomAccounts(
         count: Int,
     ): List<com.trae.social.core.data.entity.AccountEntity> {
-        val all = mutableListOf<com.trae.social.core.data.entity.AccountEntity>()
-        var page = 1
-        // P1 修复：翻页加载虚拟账号，最多翻 12 页（覆盖 240 个账号），
-        // 与 SchedulerInitializer.MAX_PAGES 保持一致，避免遗漏部分账号人设更新。
-        while (page <= MAX_PAGES) {
-            val batch = accountRepository.getAccounts(page)
-            if (batch.isEmpty()) break
-            all.addAll(batch.filter { it.isVirtual })
-            page++
-        }
-        if (all.isEmpty()) return emptyList()
-        return all.shuffled(Random(System.currentTimeMillis())).take(count)
+        val accounts = accountRepository.getVirtualAccountsLeastRecentlyUpdated(count)
+        Timber.i("pickRandomAccounts: 选取了 %d 个最久未更新的虚拟账号", accounts.size)
+        return accounts
     }
 
     /**
@@ -176,12 +183,12 @@ class PersonaUpdateWorker @AssistedInject constructor(
 
         // 写入更新
         val now = System.currentTimeMillis()
-        val relationshipList = dynamic?.relationshipNetwork?.takeIf { it.isNotEmpty() } ?: emptyList()
+        // #74：relationshipNetwork 改由 LLM 生成（parsed.relationshipNetwork），不再写回旧值
         accountRepository.updateDynamicFields(
             accountId = account.id,
             lifeStory = parsed.lifeStory,
             workInfo = parsed.workInfo,
-            relationshipNetwork = relationshipList,
+            relationshipNetwork = parsed.relationshipNetwork,
             mood = parsed.mood,
             updatedAt = now,
         )
@@ -213,6 +220,7 @@ class PersonaUpdateWorker @AssistedInject constructor(
     private companion object {
         const val MAX_RUN_ATTEMPTS = 3
         const val RECENT_EVENTS_LIMIT = 5
-        const val MAX_PAGES = 12
+        /** M2 修复：限流等待超时（8 分钟，低于 WorkManager 默认 10 分钟超时） */
+        const val ACQUIRE_TIMEOUT_MS = 8 * 60 * 1000L
     }
 }

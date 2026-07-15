@@ -2,6 +2,7 @@ package com.trae.social.llm.prompt
 
 import com.trae.social.llm.ChatMessage
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -39,6 +40,8 @@ class PersonaUpdatePromptBuilder {
         val lifeStory: String,
         val workInfo: String,
         val mood: String,
+        // #74：relationshipNetwork 原为死字段，现由 LLM 生成并写入
+        val relationshipNetwork: List<String> = emptyList(),
     )
 
     /**
@@ -86,7 +89,7 @@ class PersonaUpdatePromptBuilder {
                 recentEvents.forEachIndexed { i, e -> appendLine("${i + 1}. $e") }
             }
             appendLine()
-            appendLine("请输出 JSON：{\"lifeStory\": \"...\", \"workInfo\": \"...\", \"mood\": \"...\"}。")
+            appendLine("请输出 JSON：{\"lifeStory\": \"...\", \"workInfo\": \"...\", \"mood\": \"...\", \"relationshipNetwork\": [\"...\"]}。")
             appendLine("不要输出 JSON 以外的任何说明文字。")
         }
     }
@@ -114,20 +117,27 @@ class PersonaUpdatePromptBuilder {
                 ?: return null
             val mood = obj["mood"]?.let { (it as? JsonPrimitive)?.content }
                 ?: return null
+            // #74：解析 relationshipNetwork 数组，缺失或格式不符时降级为空列表
+            val relationshipNetwork = obj["relationshipNetwork"]?.let { element ->
+                (element as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.content }
+            } ?: emptyList()
 
             return PersonaUpdateResult(
                 lifeStory = lifeStory,
                 workInfo = workInfo,
                 mood = mood,
+                relationshipNetwork = relationshipNetwork,
             )
         }
 
         /**
-         * 计算两段文本的字符级 Jaccard 相似度，作为 embedding cosine 的轻量替代。
+         * 计算两段文本的 Jaccard 相似度，作为 embedding cosine 的轻量替代。
          *
-         * 公式：|A ∩ B| / |A ∪ B|，取值 0.0-1.0。
+         * #85：改用 bigram（字符二元组）替代单字符集合，捕捉局部词序信息，
+         * 对短文本突变更敏感。公式：|A ∩ B| / |A ∪ B|，取值 0.0-1.0。
          * 空字符串视为空集合：两空串相似度记为 1.0（视为相同）；
          * 一空一非空相似度记为 0.0。
+         * 长度不足 2 的字符串退化为单元素集合。
          *
          * 不依赖任何 NLP 库，满足"不引入额外依赖"约束。
          *
@@ -136,8 +146,10 @@ class PersonaUpdatePromptBuilder {
         fun jaccardSimilarity(a: String, b: String): Double {
             if (a.isEmpty() && b.isEmpty()) return 1.0
             if (a.isEmpty() || b.isEmpty()) return 0.0
-            val setA = a.toSet()
-            val setB = b.toSet()
+            // #85：改用 bigram（字符二元组）替代单字符集合，捕捉局部词序信息
+            val setA = if (a.length >= 2) a.windowed(2).toSet() else setOf(a)
+            val setB = if (b.length >= 2) b.windowed(2).toSet() else setOf(b)
+            if (setA.isEmpty() && setB.isEmpty()) return 1.0
             val intersection = setA.intersect(setB).size
             val union = setA.union(setB).size
             if (union == 0) return 1.0
@@ -153,6 +165,8 @@ class PersonaUpdatePromptBuilder {
          * @return true 表示应回退（保留旧值）。
          */
         fun shouldRollback(old: String, new: String, threshold: Double = 0.5): Boolean {
+            // #73：旧值为空时视为首次更新，不触发回退
+            if (old.isEmpty()) return false
             return jaccardSimilarity(old, new) < threshold
         }
     }

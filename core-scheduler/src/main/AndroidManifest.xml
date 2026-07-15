@@ -5,7 +5,9 @@
 
     <application>
 
-        <!-- 开机自启接收器：延迟启动调度前台服务 -->
+        <!-- #69/#88：开机自启接收器：仅注册 BOOT_COMPLETED。
+             M4 修复：移除 LOCKED_BOOT_COMPLETED 与 directBootAware=true，
+             因 WorkManager 不支持 Direct Boot 模式，设备未解锁时调用会崩溃。 -->
         <receiver
             android:name="com.trae.social.core.scheduler.BootReceiver"
             android:enabled="true"

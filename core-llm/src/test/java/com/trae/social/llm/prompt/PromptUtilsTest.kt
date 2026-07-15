@@ -44,6 +44,25 @@ class PromptUtilsTest {
     }
 
     @Test
+    fun `extractJson 尾随说明含花括号时只取首个配对对象`() {
+        // LLM 常在 JSON 后附带含花括号的说明文字，首末括号取跨度会包含垃圾文本。
+        val raw = "{\"lifeStory\":\"x\",\"mood\":\"y\"}\n注意：请保持 {lifeStory} 字段一致性。"
+        assertEquals("{\"lifeStory\":\"x\",\"mood\":\"y\"}", PromptUtils.extractJson(raw))
+    }
+
+    @Test
+    fun `extractJson 嵌套对象时正确匹配外层闭合括号`() {
+        val raw = "前缀 {\"a\":{\"b\":1},\"c\":2} 后缀 {extra}"
+        assertEquals("{\"a\":{\"b\":1},\"c\":2}", PromptUtils.extractJson(raw))
+    }
+
+    @Test
+    fun `extractJson 字符串内含花括号不影响匹配`() {
+        val raw = "{\"text\":\"a{b}c\"}"
+        assertEquals(raw, PromptUtils.extractJson(raw))
+    }
+
+    @Test
     fun `extractJsonArray 提取纯 JSON 数组`() {
         val raw = """[{"a": 1}, {"b": 2}]"""
         assertEquals(raw, PromptUtils.extractJsonArray(raw))
@@ -63,6 +82,12 @@ class PromptUtilsTest {
     fun `extractJsonArray 无数组时回退到对象提取`() {
         val raw = """结果 {"a": 1} 结束"""
         assertEquals("""{"a": 1}""", PromptUtils.extractJsonArray(raw))
+    }
+
+    @Test
+    fun `extractJsonArray 尾随说明含方括号时只取首个配对数组`() {
+        val raw = "[{\"a\":1}]\n说明 [后续]"
+        assertEquals("[{\"a\":1}]", PromptUtils.extractJsonArray(raw))
     }
 
     @Test

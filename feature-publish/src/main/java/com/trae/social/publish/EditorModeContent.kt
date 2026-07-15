@@ -121,11 +121,17 @@ enum class FilterPreset(val label: String) {
  * (2) `decodeBitmap` 先 `inJustDecodeBounds=true` 探测尺寸，动态算 inSampleSize
  * 使最长边降到 [MAX_DECODE_EDGE] 以下；(3) 缩略图降到 32×32；(4) 中间 Bitmap 用完 recycle。
  *
+ * #9：新增配文输入，用户可在编辑器内直接输入配文，与发布流程共享同一 caption 状态。
+ *
  * @param onEditComplete 编辑完成回调（传入落盘文件绝对路径）
+ * @param caption 当前配文文本
+ * @param onCaptionChange 配文变更回调
  */
 @Composable
 fun EditorModeContent(
     onEditComplete: (String) -> Unit,
+    caption: String,
+    onCaptionChange: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -222,6 +228,13 @@ fun EditorModeContent(
                 onSelect = { selectedFilter = it },
                 sourceBitmap = bitmap,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            )
+
+            // #9：编辑器内配文输入，与发布流程共享同一 caption 状态
+            CaptionInput(
+                text = caption,
+                onTextChanged = onCaptionChange,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
             )
 
             // 底部操作

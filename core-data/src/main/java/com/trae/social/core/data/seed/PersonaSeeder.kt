@@ -14,6 +14,9 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.intOrNull
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
@@ -24,7 +27,7 @@ import timber.log.Timber
 /**
  * 人设种子数据加载器。
  *
- * - 首次启动读取 assets/personas/personas_*.json（10 分片，每片 20+ 条）
+ * - 首次启动读取 assets/personas/personas_*.json（11 分片，每片 20 条，共 220 条）
  * - 异步执行（Dispatchers.IO），不阻塞 UI
  * - 提供 [Flow]<[SeedProgress]> 反馈导入进度
  * - 幂等：accounts 表非空时直接跳过
@@ -63,6 +66,8 @@ class PersonaSeeder @Inject constructor(
             val existingAccounts = accountDao.count()
             val existingTweets = tweetDao.count()
             if (existingAccounts >= SeedProgress.EXPECTED_TOTAL && existingTweets > 0) {
+                // m2 修复：幂等跳过路径也执行 index.json 校验，确保 count 与实际导入数一致
+                validateIndexJson((existingAccounts - 1).coerceAtLeast(0))
                 emit(SeedProgress(imported = existingAccounts, total = SeedProgress.EXPECTED_TOTAL, isComplete = true))
                 return@flow
             }
@@ -129,6 +134,9 @@ class PersonaSeeder @Inject constructor(
             }
 
             emit(SeedProgress(imported = imported, total = SeedProgress.EXPECTED_TOTAL, isComplete = true))
+
+            // #97：校验 index.json 的 count 与实际导入的账号数是否一致
+            validateIndexJson(imported)
         } finally {
             isSeeding.set(false)
         }
@@ -147,7 +155,7 @@ class PersonaSeeder @Inject constructor(
             id = USER_SELF_ID,
             displayName = "我",
             username = "user",
-            avatarSeed = USER_SELF_ID,
+            avatarSeed = "user",  // #92：avatarSeed 与 username 保持一致
             bio = "",
             profession = "",
             ageRange = "",
@@ -172,6 +180,23 @@ class PersonaSeeder @Inject constructor(
 
     private fun listPersonaFiles(): Array<String>? =
         runCatching { context.assets.list(PERSONAS_DIR) }.getOrNull()
+
+    /**
+     * #97：校验 index.json 的 count 字段与实际导入的账号数是否一致。
+     *
+     * index.json 由 generate.py 生成，若重新生成人设后忘记更新，count 会与实际数据不一致。
+     * 此方法读取 index.json 并比对，不一致时输出警告日志。
+     */
+    private fun validateIndexJson(actualCount: Int) {
+        runCatching {
+            val text = context.assets.open("$PERSONAS_DIR/index.json").bufferedReader().use { it.readText() }
+            val indexJson = json.parseToJsonElement(text).jsonObject
+            val expectedCount = indexJson["count"]?.jsonPrimitive?.intOrNull
+            if (expectedCount != null && expectedCount != actualCount) {
+                Timber.w("index.json count=%d 与实际导入账号数=%d 不一致，请重新运行 generate.py 更新 index.json", expectedCount, actualCount)
+            }
+        }.onFailure { Timber.w(it, "读取 index.json 失败，跳过校验") }
+    }
 
     private fun parsePersonaFile(fileName: String): List<PersonaDto> {
         val text = context.assets.open("$PERSONAS_DIR/$fileName").bufferedReader().use { it.readText() }
@@ -213,7 +238,7 @@ class PersonaSeeder @Inject constructor(
                 authorId = id,
                 text = tweet.text,
                 mediaPath = null,
-                mediaTheme = tweet.mediaTheme,
+                mediaTheme = null,  // #76：mediaPath 为 null 时 mediaTheme 也置空，保持数据不变式一致
                 createdAt = tweetTime,
                 likeCount = Random.nextInt(0, 80),
                 commentCount = Random.nextInt(0, 15),

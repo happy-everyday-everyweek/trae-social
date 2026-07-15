@@ -90,7 +90,9 @@ class InteractionWorker @AssistedInject constructor(
 
             // 3. 分配互动类型
             val now = System.currentTimeMillis()
-            val random = Random(now)
+            // #116：使用 nanoTime + accountId.hashCode() 作为种子，
+            // 避免毫秒级种子在并发时产生相同互动模式
+            val random = Random(System.nanoTime() xor tweet.authorId.hashCode().toLong())
             val assignments = candidates.map { account ->
                 val type = assignInteractionType(random)
                 val delayMillis = scheduleDelayFor(type, random)
@@ -125,10 +127,15 @@ class InteractionWorker @AssistedInject constructor(
             }
             interactionRepository.scheduleInteractions(interactions)
 
-            // IMPL-21：短延迟（< 5min）的 LIKE/FOLLOW 用 OneTimeWorkRequest + setInitialDelay
-            // 直接调度，避免受 PendingInteractionWorker 15 分钟周期限制，使 LIKE 更像真人"秒赞"
+            // #78：短延迟的 LIKE/FOLLOW/COMMENT/RETWEET 用 OneTimeWorkRequest + setInitialDelay
+            // 直接调度，避免受 PendingInteractionWorker 15 分钟周期限制，使互动更像真人即时反应
             val shortDelayInteractions = interactions.filter {
-                it.type == InteractionType.LIKE || it.type == InteractionType.FOLLOW
+                it.type in setOf(
+                    InteractionType.LIKE,
+                    InteractionType.FOLLOW,
+                    InteractionType.COMMENT,
+                    InteractionType.RETWEET,
+                )
             }.filter {
                 (it.scheduledAt - now) <= SHORT_DELAY_THRESHOLD_MS
             }
@@ -168,17 +175,18 @@ class InteractionWorker @AssistedInject constructor(
      * 从虚拟账号中按人设相似度筛选 3-8 个评论者。
      *
      * 翻页加载全部虚拟账号（约 220 个），按 bio 关键词 + 职业重合度评分，
-     * 取相似度 Top 30% 后随机选取；候选不足时回退到全量随机选取。
+     * 取相似度 Top targetCount 个作为评论者，打乱顺序以随机化各账号分配到的互动类型
+     * （LIKE/COMMENT/RETWEET/FOLLOW）。候选不足时回退到全量随机选取。
      */
     private suspend fun selectCommenters(
         authorId: String,
         authorProfession: String,
         authorBio: String,
     ): List<com.trae.social.core.data.entity.AccountEntity> {
-        // 翻页加载全部虚拟账号，避免只取首页 20 个
+        // #106：移除 MAX_ACCOUNT_PAGES 硬编码上限，循环直到无更多数据
         val all = mutableListOf<com.trae.social.core.data.entity.AccountEntity>()
         var page = 1
-        while (page <= MAX_ACCOUNT_PAGES) {
+        while (true) {
             val batch = runCatching { accountRepository.getAccounts(page) }.getOrDefault(emptyList())
             if (batch.isEmpty()) break
             all.addAll(batch.filter { it.isVirtual && it.id != authorId })
@@ -192,15 +200,16 @@ class InteractionWorker @AssistedInject constructor(
             val professionMatch = if (account.profession == authorProfession) 2 else 0
             account to (overlap + professionMatch)
         }
-        // 取相似度 Top 30% 后随机选取
-        val threshold = scored.maxOfOrNull { it.second } ?: 0
-        val pool = if (threshold > 0) {
-            scored.filter { it.second >= threshold / 2 }.map { it.first }
-        } else {
-            all
-        }
-        val targetCount = min(MAX_COMMENTERS, max(MIN_COMMENTERS, pool.size))
-        return pool.shuffled(Random(System.currentTimeMillis())).take(targetCount)
+        // #82：按相似度分数降序选取。targetCount = min(MAX, max(MIN, 全量 30%))，
+        // 即受 MIN/MAX 约束的相似度 Top targetCount 个。
+        val targetCount = min(MAX_COMMENTERS, max(MIN_COMMENTERS, (all.size * 0.3).toInt().coerceAtLeast(1)))
+        // m2 修复：原 pool.shuffled().take(targetCount) 中 pool.size == targetCount，
+        // take 为冗余空操作已移除；shuffled 保留用于打乱评论者顺序，进而随机化
+        // 各账号在后续 assignInteractionType 中分到的互动类型。
+        return scored.sortedByDescending { it.second }
+            .take(targetCount)
+            .map { it.first }
+            .shuffled(Random(System.currentTimeMillis()))
     }
 
     private fun extractKeywords(text: String): Set<String> {
@@ -293,7 +302,7 @@ class InteractionWorker @AssistedInject constructor(
             Timber.w(t, "批量生成评论失败，跳过评论内容")
             return emptyMap()
         }
-        val results = CommentPromptBuilder.parseCommentResults(raw)
+        val results = CommentPromptBuilder.parseCommentResults(raw, commenters.size)
         val mapping = mutableMapOf<String, String>()
         results.forEach { result ->
             val idx = result.commenterIndex
@@ -348,9 +357,10 @@ class InteractionWorker @AssistedInject constructor(
     )
 
     /**
-     * IMPL-21：为短延迟的 LIKE/FOLLOW 入队即时执行 Worker。
+     * IMPL-21：为短延迟的互动入队即时执行 Worker。
      *
      * PendingInteractionWorker 是 15 分钟周期，LIKE 设计延迟 30s-5min 会最坏延迟到 20min。
+     * #78：COMMENT/RETWEET 也纳入即时执行，阈值放宽到 30min 覆盖其延迟区间。
      * 此处为短延迟互动入队 OneTimeWorkRequest + setInitialDelay，由 WorkManager 精确触发。
      */
     private fun enqueueImmediateInteractionExecution(
@@ -366,7 +376,12 @@ class InteractionWorker @AssistedInject constructor(
                     .setConstraints(WorkerPolicies.networkConstraints)
                     .addTag(WorkerTags.INTERACTION)
                     .build()
-                workManager.enqueue(request)
+                // #71：使用 enqueueUniqueWork 避免同一互动重复入队
+                workManager.enqueueUniqueWork(
+                    "pending_interaction_${interaction.id}",
+                    androidx.work.ExistingWorkPolicy.KEEP,
+                    request,
+                )
             }
             Timber.i("IMPL-21: 为 %d 个短延迟互动入队即时执行", interactions.size)
         }.onFailure { Timber.w(it, "即时互动入队失败，回退到周期执行") }
@@ -377,11 +392,10 @@ class InteractionWorker @AssistedInject constructor(
         const val MIN_COMMENTERS = 3
         const val MAX_COMMENTERS = 8
         const val MAX_COMMENT_LENGTH = 100
-        const val MAX_ACCOUNT_PAGES = 12
         const val LIKE_THRESHOLD = 0.50
         const val COMMENT_THRESHOLD = 0.30
         const val RETWEET_THRESHOLD = 0.15
-        /** IMPL-21：短延迟阈值，低于此值的 LIKE/FOLLOW 用 OneTimeWorkRequest 直接调度 */
-        const val SHORT_DELAY_THRESHOLD_MS = 5L * 60L * 1000L
+        /** #78：短延迟阈值，覆盖 COMMENT(<=15min)/RETWEET(<=30min)，低于此值的互动用 OneTimeWorkRequest 直接调度 */
+        const val SHORT_DELAY_THRESHOLD_MS = 30L * 60L * 1000L
     }
 }

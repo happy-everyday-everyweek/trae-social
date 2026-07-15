@@ -93,6 +93,7 @@ import com.trae.social.designsystem.theme.LocalSocialTypography
  * @param onCommentClick 评论回调
  * @param onRetweetClick 转发回调
  * @param onBookmarkClick 收藏回调
+ * @param onNotInterestedClick 不感兴趣回调（#142：隐藏该推文）
  */
 @Composable
 fun TweetCard(
@@ -105,6 +106,7 @@ fun TweetCard(
     onCommentClick: () -> Unit,
     onRetweetClick: () -> Unit,
     onBookmarkClick: () -> Unit,
+    onNotInterestedClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalSocialColors.current
@@ -211,6 +213,8 @@ fun TweetCard(
                     DropdownMenuItem(
                         text = { Text("不感兴趣") },
                         onClick = {
+                            // #142：回调 ViewModel 隐藏该推文，而非仅 Toast
+                            onNotInterestedClick()
                             Toast.makeText(context, "已减少推荐类似内容", Toast.LENGTH_SHORT).show()
                             moreMenuExpanded = false
                         },

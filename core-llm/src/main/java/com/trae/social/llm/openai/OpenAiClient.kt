@@ -8,6 +8,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
+import retrofit2.HttpException
+import timber.log.Timber
 import java.io.IOException
 
 /**
@@ -55,15 +57,39 @@ class OpenAiClient(
                 // 避免写入残缺推文
                 throw IOException("streaming truncated after partial emit", e)
             }
+            // #120：持久性 HTTP 错误（4xx 非 429，如 401/403/400）不降级，
+            // 直接 rethrow，让调用方明确感知鉴权/配置失败。
+            if (e is HttpException) {
+                val code = e.code()
+                if (code in 400..499 && code != 429) {
+                    Timber.w(e, "流式 chat 遭遇持久性 HTTP %d，不降级", code)
+                    throw e
+                }
+            }
             // 尚未 emit：降级为非流式调用
-            val full = runCatching { chatSync(messages, config) }.getOrDefault("")
-            if (full.isNotEmpty()) emit(full)
+            try {
+                val full = chatSync(messages, config)
+                if (full.isNotEmpty()) emit(full)
+            } catch (fallbackError: HttpException) {
+                Timber.w(fallbackError, "降级 chatSync 也失败")
+                throw fallbackError
+            }
         }
     }
 
     override suspend fun chatSync(messages: List<ChatMessage>, config: ChatConfig): String {
         val response = api.chat(buildRequest(messages, config, stream = false), provider.id)
-        return response.choices.firstOrNull()?.message?.content.orEmpty()
+        val choice = response.choices.firstOrNull()
+        if (choice == null) {
+            // 空 choices：模型未返回任何内容，可能是安全过滤或服务异常。
+            // 记录 warn 便于运维区分“内容合规拦截”与“LLM 服务异常”。
+            Timber.w("chatSync 返回空 choices，可能被安全策略拦截或服务异常")
+            return ""
+        }
+        if (choice.finishReason == FINISH_REASON_CONTENT_FILTER) {
+            Timber.w("chatSync 响应被内容安全策略拦截 (finish_reason=content_filter)")
+        }
+        return choice.message?.content.orEmpty()
     }
 
     override suspend fun ping(): Boolean {
@@ -110,5 +136,6 @@ class OpenAiClient(
     private companion object {
         const val DATA_PREFIX = "data:"
         const val DONE_MARKER = "[DONE]"
+        const val FINISH_REASON_CONTENT_FILTER = "content_filter"
     }
 }

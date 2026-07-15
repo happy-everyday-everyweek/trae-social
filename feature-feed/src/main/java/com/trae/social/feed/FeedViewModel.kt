@@ -3,6 +3,8 @@ package com.trae.social.feed
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
+import androidx.paging.cachedIn
+import androidx.paging.filter
 import androidx.paging.map
 import com.trae.social.core.data.entity.CommentEntity
 import com.trae.social.core.data.entity.InteractionEntity
@@ -20,35 +22,26 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import timber.log.Timber
 import java.util.UUID
 import javax.inject.Inject
-
-/**
- * 信息流 UI 状态。
- */
-sealed interface FeedUiState {
-    /** 加载中（首次加载） */
-    data object Loading : FeedUiState
-    /** 加载成功，有数据 */
-    data object Success : FeedUiState
-    /** 加载失败 */
-    data class Error(val message: String) : FeedUiState
-    /** 空状态 */
-    data object Empty : FeedUiState
-}
 
 /**
  * 信息流 ViewModel。
  *
  * 职责：
  * 1. 通过 Paging 3 暴露 [feedFlow]，逐条 join 账号信息得到 [TweetWithAuthor]
- * 2. 维护 [uiState] 驱动 Loading / Empty / Error 视图
- * 3. 维护点赞 / 收藏的本地乐观状态集合
- * 4. 提供刷新、点赞、评论、转发、收藏操作
+ * 2. 维护点赞 / 收藏 / 不感兴趣的本地乐观状态集合（收藏与不感兴趣持久化到 DataStore）
+ * 3. 提供点赞、评论、转发、收藏、不感兴趣操作
+ *
+ * #135：移除了未被 FeedScreen 消费的 FeedUiState 死状态。
+ * FeedScreen 的 Loading/Error/Empty/List 判断全部基于 pagingItems.loadState。
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class FeedViewModel @Inject constructor(
     private val tweetRepository: TweetRepository,
@@ -60,75 +53,79 @@ class FeedViewModel @Inject constructor(
 ) : ViewModel() {
 
     /** 账号信息内存缓存，避免分页滚动时重复查库（key = authorId）。
-     *  P2 修复：使用 ConcurrentHashMap 保证线程安全，避免 Paging 后台线程并发访问导致 ConcurrentModificationException。 */
-    private val authorCache = java.util.concurrent.ConcurrentHashMap<String, AuthorInfo>()
+     *  P2 修复：使用 ConcurrentHashMap 保证线程安全，避免 Paging 后台线程并发访问导致 ConcurrentModificationException。
+     *  #141：缓存条目带时间戳，超过 [AUTHOR_CACHE_TTL_MS] 后自动失效重新查库，
+     *  确保 PersonaUpdateWorker 更新人设后 Feed 能刷新到最新作者信息。 */
+    private val authorCache = java.util.concurrent.ConcurrentHashMap<String, CachedAuthor>()
 
     /** 已点赞推文 ID 集合（乐观更新） */
     private val _likedTweetIds = MutableStateFlow<Set<String>>(emptySet())
     val likedTweetIds: StateFlow<Set<String>> = _likedTweetIds.asStateFlow()
 
-    /** 已收藏推文 ID 集合 */
+    /** 已收藏推文 ID 集合（#102：持久化到 DataStore，重启不丢失） */
     private val _bookmarkedTweetIds = MutableStateFlow<Set<String>>(emptySet())
     val bookmarkedTweetIds: StateFlow<Set<String>> = _bookmarkedTweetIds.asStateFlow()
+
+    /** #142：不感兴趣的推文 ID 集合（持久化到 DataStore，从信息流过滤） */
+    private val _notInterestedTweetIds = MutableStateFlow<Set<String>>(emptySet())
+    val notInterestedTweetIds: StateFlow<Set<String>> = _notInterestedTweetIds.asStateFlow()
 
     /** IMPL-13：是否跳过引导，FeedScreen 据此展示补全配置 banner */
     private val _isOnboardingSkipped = MutableStateFlow(false)
     val isOnboardingSkipped: StateFlow<Boolean> = _isOnboardingSkipped.asStateFlow()
-
-    /** UI 状态 */
-    private val _uiState = MutableStateFlow<FeedUiState>(FeedUiState.Loading)
-    val uiState: StateFlow<FeedUiState> = _uiState.asStateFlow()
 
     /**
      * 信息流分页数据流。
      *
      * TweetEntity → TweetWithAuthor：在 map 中逐条查账号（带内存缓存），
      * 缺失账号时回退为占位名，避免阻塞分页。
+     * #142：过滤掉用户标记为"不感兴趣"的推文。
+     * UI-fix：使用 flatMapLatest 组合 _notInterestedTweetIds，点击"不感兴趣"后自动重新过滤，
+     * 无需用户手动下拉刷新；cachedIn 保持配置变更后的分页状态。
      */
-    val feedFlow: Flow<PagingData<TweetWithAuthor>> = tweetRepository.getFeedFlow()
-        .map { pagingData ->
-            pagingData.map { tweet -> resolveAuthor(tweet) }
+    val feedFlow: Flow<PagingData<TweetWithAuthor>> = _notInterestedTweetIds
+        .flatMapLatest { hidden ->
+            tweetRepository.getFeedFlow().map { pagingData ->
+                pagingData
+                    .filter { it.id !in hidden }
+                    .map { tweet -> resolveAuthor(tweet) }
+            }
         }
+        .cachedIn(viewModelScope)
 
     init {
-        _uiState.value = FeedUiState.Loading
         // IMPL-13：读取跳过引导标记，驱动 FeedScreen 顶部 banner
         viewModelScope.launch {
             _isOnboardingSkipped.value = configRepository.isOnboardingSkipped()
         }
-    }
-
-    /**
-     * 刷新：重置 UI 状态为 Loading。
-     *
-     * 实际分页数据刷新由 UI 层调用 `LazyPagingItems.refresh()` 触发，
-     * 此处仅重置状态以显示 Loading 占位。
-     */
-    fun refresh() {
-        _uiState.value = FeedUiState.Loading
-    }
-
-    /**
-     * 通知 UI 层当前数据是否为空（由 Screen 收集 PagingItems 后回调）。
-     */
-    fun onEmptyResult() {
-        _uiState.value = FeedUiState.Empty
-    }
-
-    fun onNonEmptyResult() {
-        if (_uiState.value is FeedUiState.Loading || _uiState.value is FeedUiState.Error) {
-            _uiState.value = FeedUiState.Success
+        // #102：启动时从 DataStore 恢复收藏状态
+        viewModelScope.launch {
+            runCatching { configRepository.getBookmarkedTweetIds() }
+                .onSuccess { restored ->
+                    // m6 修复：仅在用户尚未操作过时才用恢复值覆盖，避免恢复协程覆盖用户操作
+                    if (_bookmarkedTweetIds.value.isEmpty()) {
+                        _bookmarkedTweetIds.value = restored
+                    }
+                }
+                .onFailure { Timber.w(it, "恢复收藏状态失败") }
         }
-    }
-
-    fun onError(message: String) {
-        _uiState.value = FeedUiState.Error(message)
+        // #142：启动时从 DataStore 恢复不感兴趣状态
+        viewModelScope.launch {
+            runCatching { configRepository.getNotInterestedTweetIds() }
+                .onSuccess { restored ->
+                    // m6 修复：仅在用户尚未操作过时才用恢复值覆盖，避免恢复协程覆盖用户操作
+                    if (_notInterestedTweetIds.value.isEmpty()) {
+                        _notInterestedTweetIds.value = restored
+                    }
+                }
+                .onFailure { Timber.w(it, "恢复不感兴趣状态失败") }
+        }
     }
 
     /**
      * 点赞：乐观更新本地集合，后台调 InteractionRepository 排程 + 更新计数。
      */
-    fun likeTweet(tweetId: String, authorId: String) {
+    fun likeTweet(tweetId: String) {
         val wasLiked = tweetId in _likedTweetIds.value
         val newSet = _likedTweetIds.value.toMutableSet()
         if (wasLiked) {
@@ -146,7 +143,8 @@ class FeedViewModel @Inject constructor(
                     InteractionEntity(
                         id = UUID.randomUUID().toString(),
                         tweetId = tweetId,
-                        accountId = authorId,
+                        // #132：accountId 应为执行互动的当前用户，而非推文作者
+                        accountId = USER_SELF_ID,
                         type = InteractionType.LIKE,
                         content = null,
                         createdAt = System.currentTimeMillis(),
@@ -172,8 +170,9 @@ class FeedViewModel @Inject constructor(
      * - InteractionEntity 受 (tweetId,accountId,type) 唯一索引约束，每用户每推文仅一条；
      * - comments 表无此约束，支持同一用户对同一推文发表多条评论。
      */
-    fun commentTweet(tweetId: String, authorId: String, text: String) {
+    fun commentTweet(tweetId: String, text: String) {
         viewModelScope.launch {
+            var interactionInserted = false
             try {
                 val now = System.currentTimeMillis()
                 tweetRepository.updateCommentCount(tweetId, 1)
@@ -181,7 +180,8 @@ class FeedViewModel @Inject constructor(
                     InteractionEntity(
                         id = UUID.randomUUID().toString(),
                         tweetId = tweetId,
-                        accountId = authorId,
+                        // #133：accountId 应为发表评论的当前用户，而非推文作者
+                        accountId = USER_SELF_ID,
                         type = InteractionType.COMMENT,
                         content = text,
                         createdAt = now,
@@ -189,17 +189,28 @@ class FeedViewModel @Inject constructor(
                         executedAt = now,
                     )
                 )
+                interactionInserted = true
                 commentRepository.addComment(
                     CommentEntity(
                         id = UUID.randomUUID().toString(),
                         tweetId = tweetId,
-                        authorId = authorId,
+                        // #133：评论作者为当前用户，与 CommentSheet 乐观展示的"我"一致
+                        authorId = USER_SELF_ID,
                         content = text,
                         createdAt = now,
                     )
                 )
             } catch (t: Throwable) {
-                Timber.e(t, "评论失败")
+                Timber.e(t, "评论失败，回滚 commentCount 并清理孤儿 interaction")
+                // #139：步骤 1（updateCommentCount）已提交到 DB，若步骤 2/3 失败需回滚计数，
+                // 避免计数漂移累积（对比 likeTweet 失败时回滚 _likedTweetIds）
+                runCatching { tweetRepository.updateCommentCount(tweetId, -1) }
+                    .onFailure { Timber.w(it, "回滚 commentCount 失败") }
+                // m7 修复：若 COMMENT interaction 已写入但 addComment 失败，删除孤儿 interaction
+                if (interactionInserted) {
+                    runCatching { interactionRepository.deleteCommentInteraction(tweetId, USER_SELF_ID) }
+                        .onFailure { Timber.w(it, "清理孤儿 COMMENT interaction 失败") }
+                }
             }
         }
     }
@@ -266,7 +277,7 @@ class FeedViewModel @Inject constructor(
     }
 
     /**
-     * 收藏：切换本地收藏状态。
+     * 收藏：切换本地收藏状态并持久化到 DataStore（#102：重启不丢失）。
      */
     fun bookmarkTweet(tweetId: String) {
         val wasBookmarked = tweetId in _bookmarkedTweetIds.value
@@ -277,21 +288,47 @@ class FeedViewModel @Inject constructor(
             newSet.add(tweetId)
         }
         _bookmarkedTweetIds.value = newSet
+        // #102：持久化到 DataStore，确保旋转屏幕或杀进程重启后收藏状态不丢失
+        viewModelScope.launch {
+            runCatching { configRepository.setBookmarkedTweetIds(newSet) }
+                .onFailure { Timber.w(it, "持久化收藏状态失败") }
+        }
     }
 
     /**
-     * 解析推文作者信息（带内存缓存）。
+     * 不感兴趣：将推文加入隐藏集合并持久化（#142）。
+     *
+     * 该推文将从信息流中过滤，且重启后仍保持隐藏。
+     */
+    fun markNotInterested(tweetId: String) {
+        val newSet = _notInterestedTweetIds.value + tweetId
+        _notInterestedTweetIds.value = newSet
+        viewModelScope.launch {
+            runCatching { configRepository.setNotInterestedTweetIds(newSet) }
+                .onFailure { Timber.w(it, "持久化不感兴趣状态失败") }
+        }
+    }
+
+    /**
+     * 解析推文作者信息（带 TTL 内存缓存）。
      *
      * 查不到账号时回退为 "未知用户" / "unknown"，不阻塞分页。
+     * #141：缓存条目超过 [AUTHOR_CACHE_TTL_MS] 后自动失效，重新查库获取最新人设信息。
      */
     private suspend fun resolveAuthor(tweet: TweetEntity): TweetWithAuthor {
-        val author = authorCache.getOrPut(tweet.authorId) {
+        val now = System.currentTimeMillis()
+        val cached = authorCache[tweet.authorId]
+        val author = if (cached != null && now - cached.cachedAt < AUTHOR_CACHE_TTL_MS) {
+            cached.info
+        } else {
             val account = runCatching { accountRepository.getById(tweet.authorId) }.getOrNull()
-            AuthorInfo(
+            val info = AuthorInfo(
                 displayName = account?.displayName ?: "未知用户",
                 username = account?.username ?: "unknown",
                 avatarSeed = account?.avatarSeed ?: tweet.authorId
             )
+            authorCache[tweet.authorId] = CachedAuthor(info = info, cachedAt = now)
+            info
         }
         return TweetWithAuthor(
             tweet = tweet,
@@ -308,8 +345,16 @@ class FeedViewModel @Inject constructor(
         val avatarSeed: String
     )
 
+    /** #141：带时间戳的缓存条目，用于 TTL 判断 */
+    private data class CachedAuthor(
+        val info: AuthorInfo,
+        val cachedAt: Long,
+    )
+
     private companion object {
         /** 当前用户账号 ID，与 PersonaSeeder.USER_SELF_ID / PublishViewModel.AUTHOR_SELF 一致 */
         const val USER_SELF_ID = "user-self"
+        /** #141：作者缓存 TTL（5 分钟），超时后重新查库刷新人设信息 */
+        const val AUTHOR_CACHE_TTL_MS = 5 * 60 * 1000L
     }
 }

@@ -42,6 +42,25 @@ abstract class AccountDao {
     @Query("SELECT * FROM accounts WHERE isVirtual = 1 ORDER BY createdAt ASC")
     abstract suspend fun getVirtualAccountsList(): List<AccountEntity>
 
+    /**
+     * 选取最久未更新的虚拟账号（#75）。
+     *
+     * m1 修复：用单条 LEFT JOIN 查询替代调用方分页加载全部账号 + 逐账号 getDynamicFields
+     * 的 N+1 模式（~220 账号 = 220 次单查）。未更新过的账号 persona_dynamic_fields 行缺失，
+     * updatedAt 为 NULL，`p.updatedAt IS NOT NULL` 对 NULL 求值得 0，升序排最前优先更新；
+     * 已更新账号按 updatedAt 升序；再以 createdAt 升序兜底保证结果稳定。
+     */
+    @Query(
+        """
+        SELECT a.* FROM accounts a
+        LEFT JOIN persona_dynamic_fields p ON a.id = p.accountId
+        WHERE a.isVirtual = 1
+        ORDER BY p.updatedAt IS NOT NULL, p.updatedAt ASC, a.createdAt ASC
+        LIMIT :count
+        """
+    )
+    abstract suspend fun getVirtualAccountsLeastRecentlyUpdated(count: Int): List<AccountEntity>
+
     @Query("SELECT * FROM accounts ORDER BY createdAt ASC LIMIT :size OFFSET :offset")
     abstract suspend fun getAccounts(offset: Int, size: Int): List<AccountEntity>
 

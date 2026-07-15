@@ -8,6 +8,7 @@ Task 7: 人设种子数据校验脚本。
 - 断言数量 >= 220
 - 断言 username 唯一
 - 断言 id 唯一
+- 断言 displayName 唯一（UI 主要标识，重复会造成识别困难）
 - 断言 (worldview, values, languageStyle) 三元组无完全重复
 - 断言所有必要字段非空
 - 断言 activeWindows 长度 = 24
@@ -81,6 +82,20 @@ def validate(personas: List[dict]) -> List[str]:
     if dup_un:
         errors.append(
             f"username 重复: {len(dup_un)} 个 ({dup_un[:3]}...)"
+        )
+
+    # 3.1 displayName 唯一（UI 主要标识，重复造成识别困难）
+    display_names = [p.get("displayName", "") for p in personas]
+    seen_dn: set = set()
+    dup_dn: List[str] = []
+    for dn in display_names:
+        if dn in seen_dn:
+            dup_dn.append(dn)
+        else:
+            seen_dn.add(dn)
+    if dup_dn:
+        errors.append(
+            f"displayName 重复: {len(dup_dn)} 个 ({dup_dn[:5]}...)"
         )
 
     # 4. 三元组无完全重复
