@@ -50,13 +50,23 @@ class ProfileAdjuster @Inject constructor(
         applyMutex.withLock {
             if (!gate.isEnabled()) return@withLock emptyList()
             val applied = ArrayList<OverrideRecord>()
+            // M-反馈1 修复：以"是否发生 DB 变更"决定失效缓存，而非仅看 applied 是否非空。
+            // EnableScenario 仅软删 SCENARIO_DISABLE 覆盖（无新记录，applyOne 返回 null），
+            // 但读侧 shouldApply / disabled_scenarios 缓存必须失效，否则拿不到刚启用的场景。
+            var mutated = false
             for (action in actions) {
                 if (action is FeedbackAction.RollbackProfileVersion) continue
                 val sanitized = action.sanitize() ?: continue
-                val record = applyOne(sanitized, reason) ?: continue
-                applied.add(record)
+                val record = applyOne(sanitized, reason)
+                if (record != null) {
+                    applied.add(record)
+                    mutated = true
+                } else if (sanitized is FeedbackAction.EnableScenario) {
+                    // EnableScenario 无新记录但已软删 SCENARIO_DISABLE，需失效缓存
+                    mutated = true
+                }
             }
-            if (applied.isNotEmpty()) {
+            if (mutated) {
                 cache.invalidate()
                 loader.refresh()
                 Timber.i("ProfileAdjuster 应用 %d 条覆盖", applied.size)
@@ -87,7 +97,6 @@ class ProfileAdjuster @Inject constructor(
         return when (action) {
             is FeedbackAction.BoostTheme -> {
                 val key = action.theme
-                overrideDao.markSuperseded(OverrideType.THEME_BOOST.id, key)
                 val record = OverrideRecord(
                     type = OverrideType.THEME_BOOST,
                     key = key,
@@ -96,12 +105,12 @@ class ProfileAdjuster @Inject constructor(
                     createdAt = now,
                     source = SOURCE_FEEDBACK_AGENT,
                 )
-                overrideDao.insert(record.toEntity())
+                // M-反馈2 修复：软删旧覆盖 + 插入新覆盖包在同一 @Transaction 内，保证原子性
+                overrideDao.markSupersededAndInsert(OverrideType.THEME_BOOST.id, key, record.toEntity())
                 record
             }
             is FeedbackAction.SuppressTheme -> {
                 val key = action.theme
-                overrideDao.markSuperseded(OverrideType.THEME_SUPPRESS.id, key)
                 val record = OverrideRecord(
                     type = OverrideType.THEME_SUPPRESS,
                     key = key,
@@ -110,12 +119,11 @@ class ProfileAdjuster @Inject constructor(
                     createdAt = now,
                     source = SOURCE_FEEDBACK_AGENT,
                 )
-                overrideDao.insert(record.toEntity())
+                overrideDao.markSupersededAndInsert(OverrideType.THEME_SUPPRESS.id, key, record.toEntity())
                 record
             }
             is FeedbackAction.AddPreference -> {
                 val key = action.preference
-                overrideDao.markSuperseded(OverrideType.ADD_PREFERENCE.id, key)
                 val record = OverrideRecord(
                     type = OverrideType.ADD_PREFERENCE,
                     key = key,
@@ -124,12 +132,11 @@ class ProfileAdjuster @Inject constructor(
                     createdAt = now,
                     source = SOURCE_FEEDBACK_AGENT,
                 )
-                overrideDao.insert(record.toEntity())
+                overrideDao.markSupersededAndInsert(OverrideType.ADD_PREFERENCE.id, key, record.toEntity())
                 record
             }
             is FeedbackAction.RemovePreference -> {
                 val key = action.preference
-                overrideDao.markSuperseded(OverrideType.REMOVE_PREFERENCE.id, key)
                 val record = OverrideRecord(
                     type = OverrideType.REMOVE_PREFERENCE,
                     key = key,
@@ -138,12 +145,11 @@ class ProfileAdjuster @Inject constructor(
                     createdAt = now,
                     source = SOURCE_FEEDBACK_AGENT,
                 )
-                overrideDao.insert(record.toEntity())
+                overrideDao.markSupersededAndInsert(OverrideType.REMOVE_PREFERENCE.id, key, record.toEntity())
                 record
             }
             is FeedbackAction.DisableScenario -> {
                 val key = action.scenarioId.toString()
-                overrideDao.markSuperseded(OverrideType.SCENARIO_DISABLE.id, key)
                 val record = OverrideRecord(
                     type = OverrideType.SCENARIO_DISABLE,
                     key = key,
@@ -152,18 +158,17 @@ class ProfileAdjuster @Inject constructor(
                     createdAt = now,
                     source = SOURCE_FEEDBACK_AGENT,
                 )
-                overrideDao.insert(record.toEntity())
+                overrideDao.markSupersededAndInsert(OverrideType.SCENARIO_DISABLE.id, key, record.toEntity())
                 record
             }
             is FeedbackAction.EnableScenario -> {
-                // 启用场景 = 撤销该场景的 SCENARIO_DISABLE 覆盖
+                // 启用场景 = 撤销该场景的 SCENARIO_DISABLE 覆盖（单条软删，本身原子，无新记录）
                 val key = action.scenarioId.toString()
                 overrideDao.markSuperseded(OverrideType.SCENARIO_DISABLE.id, key)
                 null
             }
             is FeedbackAction.CorrectNarrative -> {
                 val key = "narrative"
-                overrideDao.markSuperseded(OverrideType.CORRECT_NARRATIVE.id, key)
                 val record = OverrideRecord(
                     type = OverrideType.CORRECT_NARRATIVE,
                     key = key,
@@ -172,12 +177,11 @@ class ProfileAdjuster @Inject constructor(
                     createdAt = now,
                     source = SOURCE_FEEDBACK_AGENT,
                 )
-                overrideDao.insert(record.toEntity())
+                overrideDao.markSupersededAndInsert(OverrideType.CORRECT_NARRATIVE.id, key, record.toEntity())
                 record
             }
             is FeedbackAction.SetActiveHours -> {
                 val key = "active_hours"
-                overrideDao.markSuperseded(OverrideType.SET_ACTIVE_HOURS.id, key)
                 val record = OverrideRecord(
                     type = OverrideType.SET_ACTIVE_HOURS,
                     key = key,
@@ -186,7 +190,7 @@ class ProfileAdjuster @Inject constructor(
                     createdAt = now,
                     source = SOURCE_FEEDBACK_AGENT,
                 )
-                overrideDao.insert(record.toEntity())
+                overrideDao.markSupersededAndInsert(OverrideType.SET_ACTIVE_HOURS.id, key, record.toEntity())
                 record
             }
             is FeedbackAction.RollbackProfileVersion -> null

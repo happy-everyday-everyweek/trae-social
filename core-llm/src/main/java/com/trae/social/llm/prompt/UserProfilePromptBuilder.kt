@@ -83,6 +83,7 @@ class UserProfilePromptBuilder {
         appendLine("- 低置信度维度输出更保守的 feedbackWeights（接近 0）。")
         appendLine("- feedbackWeights 各字段取值 0-1。")
         appendLine("- feedbackWeights 字段：topicBias / accountPriority / interactionAffinity / commentPersona / feedBoost / followRecommend / personaCoEvolve / interactionTiming。")
+        appendLine("- narrative 不得包含对真实人物的虚假身份断言、暴力/仇恨/色情内容，仅作用户画像叙事（与 PersonaUpdatePromptBuilder 风险控制一致）。")
     }
 
     private fun buildUserPrompt(input: Input): String = buildString {

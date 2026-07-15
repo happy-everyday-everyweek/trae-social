@@ -309,7 +309,8 @@ object BasicProfileAnalyzer {
         val iqr = q3 - q1
         val lower = q1 - 1.5 * iqr
         val upper = q3 + 1.5 * iqr
-        val filtered = sorted.filter { it in lower..upper }
+        // B3 修复：it 为 Long，lower/upper 为 Double，需转 Double 后再比较，否则类型不匹配编译失败
+        val filtered = sorted.filter { it.toDouble() in lower..upper }
         return filtered to (sorted.size - filtered.size)
     }
 

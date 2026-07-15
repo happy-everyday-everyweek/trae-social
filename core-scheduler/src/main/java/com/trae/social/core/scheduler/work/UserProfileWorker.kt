@@ -74,7 +74,9 @@ class UserProfileWorker @AssistedInject constructor(
             val sinceMs = started - FEEDBACK_EFFECT_WINDOW_MS
             val aggregated = aggregator.aggregate(snapshot, sinceMs)
             val latestVersion = userProfileDao.latestVersion()?.let { ProfileMappers.run { it.toDomain() } }
-            val fingerprint = computeFingerprint(snapshot, aggregated, latestVersion)
+            // M1 修复：指纹剔除 latestVersion.id——版本 id 每次自增会让指纹永远变化，
+            // 导致缓存命中短路永远失败，48h 周期 LLM 画像每次重算浪费配额
+            val fingerprint = computeFingerprint(snapshot, aggregated)
             val newFeedbackCount = feedbackDao.countSince(latestVersion?.createdAt ?: 0L)
             val hasNewFeedback = newFeedbackCount > 0
 
@@ -103,8 +105,14 @@ class UserProfileWorker @AssistedInject constructor(
                 previousNarrative = aggregated.previousNarrative,
             )
             val messages = promptBuilder.build(input)
+            // M2 修复：默认 provider 未配置时显式跳过，避免 getDefaultClient 内部异常导致无效 retry
+            val provider = configRepository.getDefaultProvider()
+            if (provider == null) {
+                logEvent(started, "no_default_provider", null)
+                return Result.success(workDataOf(WorkerKeys.KEY_RESULT to "no_default_provider"))
+            }
             val raw = try {
-                llmRegistry.getDefaultClient().chatSync(
+                llmRegistry.getClient(provider).chatSync(
                     messages = messages,
                     config = ChatConfig(temperature = 0.6f, maxTokens = 768, jsonMode = true),
                 )
@@ -140,8 +148,7 @@ class UserProfileWorker @AssistedInject constructor(
             }
 
             // 6. 落库新版本（isActive=true，自动取消其他）
-            val provider = runCatching { configRepository.getDefaultProvider() }
-                .getOrDefault(com.trae.social.core.data.config.LlmProvider.OPENAI)
+            // M2：provider 已在 LLM 调用前获取并判空，此处直接复用（移除冗余 runCatching 兜底）
             val now = System.currentTimeMillis()
             val version = com.trae.social.core.data.model.UserProfileVersion(
                 id = 0,
@@ -178,12 +185,13 @@ class UserProfileWorker @AssistedInject constructor(
     }
 
     /**
-     * 计算输入指纹：hash(snapshotId + promptHash + activeOverridesHash + userFeedbackHash + feedbackEffectHash)。
+     * 计算输入指纹：hash(snapshot + promptHash + activeOverridesHash + userFeedbackHash + feedbackEffectHash)。
+     *
+     * M1 修复：剔除 latestVersion.id——它是输出而非输入，每次自增会让指纹永远变化，缓存命中短路失效。
      */
     private fun computeFingerprint(
         snapshot: com.trae.social.core.data.model.UserProfileSnapshot,
         aggregated: UserProfileAggregator.AggregatedInput,
-        latestVersion: com.trae.social.core.data.model.UserProfileVersion?,
     ): String {
         val md = MessageDigest.getInstance("SHA-256")
         val sb = StringBuilder()
@@ -192,15 +200,16 @@ class UserProfileWorker @AssistedInject constructor(
         sb.append(promptHash()).append('|')
         sb.append(aggregated.userFeedback.activeOverrides.joinToString(",") { "${it.type.id}:${it.key}" }).append('|')
         sb.append(aggregated.userFeedback.recentMessages.take(10).joinToString(",") { "${it.role}:${it.createdAt}" }).append('|')
-        sb.append(aggregated.feedbackEffect.scenarioDeltas.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value}" }).append('|')
-        sb.append(latestVersion?.id ?: 0)
+        sb.append(aggregated.feedbackEffect.scenarioDeltas.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value}" })
         md.update(sb.toString().toByteArray(Charsets.UTF_8))
         return md.digest().joinToString("") { "%02x".format(it) }.take(16)
     }
 
+    // M4 修复：原 promptHash 仅哈希类名，模板内容变更无法识别；改为类名 + 显式 TEMPLATE_VERSION，
+    // 模板变更时递增该常量即可让指纹失效，触发重新生成
     private fun promptHash(): String {
         val md = MessageDigest.getInstance("SHA-256")
-        md.update(this::class.java.name.toByteArray(Charsets.UTF_8))
+        md.update("${this::class.java.name}#${PROMPT_TEMPLATE_VERSION}".toByteArray(Charsets.UTF_8))
         return md.digest().joinToString("") { "%02x".format(it) }.take(8)
     }
 
@@ -225,5 +234,7 @@ class UserProfileWorker @AssistedInject constructor(
         const val FEEDBACK_EFFECT_WINDOW_MS = 14L * 24 * 60 * 60 * 1000 // 14 天
         // #146：日志 accountId 用 user-self（真实账号，满足外键约束）
         const val LOG_ACCOUNT_ID = "user-self"
+        // M4：prompt 模板版本，模板内容变更时递增以使指纹失效
+        const val PROMPT_TEMPLATE_VERSION = 1
     }
 }

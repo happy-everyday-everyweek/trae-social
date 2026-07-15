@@ -22,6 +22,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import timber.log.Timber
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -55,6 +56,14 @@ class FeedbackAgent @Inject constructor(
     private val rateMutex = Mutex()
 
     /**
+     * M-反馈4 修复：已通过限流闸门、但用户消息尚未落盘的并发调用计数（reserve 占位）。
+     *
+     * 用于补足纯 DB 计数（[UserProfileFeedbackDao.countSince]）的 check-then-act 竞争窗口：
+     * 闸门放行后到用户消息落盘前，并发调用不会增加 DB 计数，需以此计数预留配额。
+     */
+    private val inFlight = AtomicInteger(0)
+
+    /**
      * 处理用户消息：解析意图 → 应用非回滚 Action → 生成回滚预览 → 持久化回复。
      *
      * 返回 [AgentReply]；LLM 不可用 / 解析失败时返回降级或澄清回复。
@@ -83,6 +92,9 @@ class FeedbackAgent @Inject constructor(
                 )
             )
         }.onFailure { Timber.w(it, "持久化用户消息失败") }
+        // M-反馈4 修复：用户消息已落盘（或持久化失败），DB 计数接管，释放 in-flight 预留占位。
+        // 后续调 LLM：配额已由 DB 行持有，LLM 失败亦不退还（符合 reserve 语义）。
+        inFlight.decrementAndGet()
         trackFeedbackEvent(UserActionType.FEEDBACK_MESSAGE_SENT, userMessage, now)
 
         // 2. 构造 prompt 上下文
@@ -186,10 +198,14 @@ class FeedbackAgent @Inject constructor(
         val since = now - 60 * 60 * 1000L
         val count = runCatching { feedbackDao.countSince(since) }.getOrDefault(0)
         // 用户消息 + 智能体回复共享配额，count 翻倍近似（每轮 2 条消息）
-        val effectiveCount = count / 2 + 1
-        if (effectiveCount > ConfigRepository.FEEDBACK_AGENT_RATE_LIMIT_PER_HOUR) {
+        // M-反馈4 修复：reserve 语义——计入 in-flight 未落盘的并发调用，关闭 check-then-act 竞争窗口；
+        // 预留本调用配额（+1）在调用 LLM 前即扣除，LLM 失败不退还
+        // （用户消息落盘后由 DB 计数接管，随后释放 in-flight 占位）。
+        val reservedRounds = count / 2 + inFlight.get()
+        if (reservedRounds + 1 > ConfigRepository.FEEDBACK_AGENT_RATE_LIMIT_PER_HOUR) {
             return@withLock false
         }
+        inFlight.incrementAndGet() // 预留本调用配额
         true
     }
 

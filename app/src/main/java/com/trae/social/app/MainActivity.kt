@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,8 +45,11 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.trae.social.app.ui.AppRoutes
 import com.trae.social.app.ui.SocialBottomBar
+import com.trae.social.core.data.model.UserActionType
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.profiling.capture.SessionManager
+import com.trae.social.core.profiling.capture.UserActionEventBuilder
+import com.trae.social.core.profiling.capture.UserActionTracker
 import com.trae.social.core.scheduler.SchedulerInitializer
 import com.trae.social.designsystem.components.GlassBlurTier
 import com.trae.social.designsystem.components.provideIsScrolling
@@ -65,6 +69,7 @@ import com.trae.social.publish.PublishScreen
 import com.trae.social.timeline.TimelineScreen
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonPrimitive
 import javax.inject.Inject
 
 /**
@@ -84,6 +89,10 @@ class MainActivity : ComponentActivity() {
     // #146：会话管理（onResume/onPause 触发 SESSION_START/END 埋点，30s 超时合并）
     @Inject
     lateinit var sessionManager: SessionManager
+
+    // #146：用户行为埋点 Tracker（M1/M2 修复：NavHost 屏幕进入/离开 + Tab 切换埋点）
+    @Inject
+    lateinit var userActionTracker: UserActionTracker
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -112,7 +121,11 @@ class MainActivity : ComponentActivity() {
             // #12：读取主题偏好覆写系统深色模式；偏好变更时此处会重组
             val darkTheme = ThemePreferences.isDarkTheme(isSystemInDarkTheme())
             SocialTheme(darkTheme = darkTheme) {
-                SocialApp(configRepository = configRepository)
+                SocialApp(
+                    configRepository = configRepository,
+                    userActionTracker = userActionTracker,
+                    sessionManager = sessionManager,
+                )
             }
         }
     }
@@ -125,7 +138,11 @@ class MainActivity : ComponentActivity() {
  * - 引导已完成：startDestination = "main" -> [MainScaffold]
  */
 @Composable
-private fun SocialApp(configRepository: ConfigRepository) {
+private fun SocialApp(
+    configRepository: ConfigRepository,
+    userActionTracker: UserActionTracker,
+    sessionManager: SessionManager,
+) {
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -181,7 +198,10 @@ private fun SocialApp(configRepository: ConfigRepository) {
                     )
                 }
                 composable(AppRoutes.MAIN) {
-                    MainScaffold()
+                    MainScaffold(
+                        userActionTracker = userActionTracker,
+                        sessionManager = sessionManager,
+                    )
                 }
             }
         }
@@ -196,10 +216,19 @@ private fun SocialApp(configRepository: ConfigRepository) {
  * - Tab 间切换淡入淡出
  */
 @Composable
-private fun MainScaffold() {
+private fun MainScaffold(
+    userActionTracker: UserActionTracker,
+    sessionManager: SessionManager,
+) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+
+    // M1/M2 修复：构造埋点 Builder，session 由 SessionManager 提供。
+    // Tracker/SessionManager 均为 Hilt 单例，remember 一次即可；emit 内部走 trackNow（fire-and-forget，非 suspend）。
+    val actionBuilder = remember(userActionTracker, sessionManager) {
+        UserActionEventBuilder(userActionTracker) { sessionManager.currentSessionId() ?: "" }
+    }
 
     // 仅在三个主 Tab 显示底部栏；settings/devoptions/apikey/followlist/publish 为全屏路由
     val showBottomBar = currentRoute in setOf(AppRoutes.FEED, AppRoutes.TIMELINE, AppRoutes.PROFILE)
@@ -233,6 +262,17 @@ private fun MainScaffold() {
                     SocialBottomBar(
                         currentRoute = currentRoute,
                         onTabSelected = { route ->
+                            // M2 修复：Tab 切换埋点（Feed/Timeline/Profile 间切换，带 from/to）
+                            if (route != currentRoute) {
+                                actionBuilder.emit(
+                                    type = UserActionType.TAB_SWITCH,
+                                    screen = route,
+                                    extra = mapOf(
+                                        "from" to JsonPrimitive(currentRoute ?: "unknown"),
+                                        "to" to JsonPrimitive(route),
+                                    ),
+                                )
+                            }
                             navController.navigate(route) {
                                 popUpTo(navController.graph.findStartDestination().id) {
                                     saveState = true
@@ -290,6 +330,8 @@ private fun MainScaffold() {
                     popEnterTransition = { fadeIn() },
                     popExitTransition = { fadeOut() },
                 ) {
+                    // M1 修复：屏幕进入/离开埋点
+                    ScreenTracking(route = AppRoutes.FEED, builder = actionBuilder)
                     FeedScreen(
                         modifier = Modifier.fillMaxSize(),
                         onScrollingChange = { isScrolling = it },
@@ -303,6 +345,8 @@ private fun MainScaffold() {
                     popEnterTransition = { fadeIn() },
                     popExitTransition = { fadeOut() },
                 ) {
+                    // M1 修复：屏幕进入/离开埋点
+                    ScreenTracking(route = AppRoutes.TIMELINE, builder = actionBuilder)
                     TimelineScreen(
                         modifier = Modifier.fillMaxSize(),
                         onPublishClick = { navController.navigate(AppRoutes.PUBLISH) },
@@ -316,6 +360,8 @@ private fun MainScaffold() {
                     popEnterTransition = { fadeIn() },
                     popExitTransition = { fadeOut() },
                 ) {
+                    // M1 修复：屏幕进入/离开埋点
+                    ScreenTracking(route = AppRoutes.PROFILE, builder = actionBuilder)
                     ProfileScreen(
                         onNavigateToSettings = { navController.navigate(AppRoutes.SETTINGS) },
                         onNavigateToFollowList = { type ->
@@ -331,6 +377,8 @@ private fun MainScaffold() {
                     popEnterTransition = { fadeIn() },
                     popExitTransition = { fadeOut() },
                 ) {
+                    // M1 修复：屏幕进入/离开埋点
+                    ScreenTracking(route = AppRoutes.SETTINGS, builder = actionBuilder)
                     SettingsScreen(
                         onBack = { navController.popBackStack() },
                         onNavigateToApiKey = { navController.navigate(AppRoutes.API_KEY) },
@@ -349,6 +397,8 @@ private fun MainScaffold() {
                     popEnterTransition = { fadeIn() },
                     popExitTransition = { fadeOut() },
                 ) {
+                    // M1 修复：屏幕进入/离开埋点
+                    ScreenTracking(route = AppRoutes.API_KEY, builder = actionBuilder)
                     ApiKeyManagementScreen(
                         onBack = { navController.popBackStack() },
                         modifier = Modifier.fillMaxSize(),
@@ -361,6 +411,8 @@ private fun MainScaffold() {
                     popEnterTransition = { fadeIn() },
                     popExitTransition = { fadeOut() },
                 ) {
+                    // M1 修复：屏幕进入/离开埋点
+                    ScreenTracking(route = AppRoutes.DEV_OPTIONS, builder = actionBuilder)
                     DevOptionsScreen(
                         onBack = { navController.popBackStack() },
                         onNavigateToProfileChat = { navController.navigate(AppRoutes.OPEN_PROFILE_CHAT) },
@@ -374,6 +426,8 @@ private fun MainScaffold() {
                     popEnterTransition = { fadeIn() },
                     popExitTransition = { slideOutVertically(targetOffsetY = { it }) },
                 ) {
+                    // M1 修复：屏幕进入/离开埋点
+                    ScreenTracking(route = AppRoutes.OPEN_PROFILE_CHAT, builder = actionBuilder)
                     // #146：画像对话页（用户反馈智能体）
                     ProfileChatScreen(
                         onBack = { navController.popBackStack() },
@@ -388,6 +442,8 @@ private fun MainScaffold() {
                     popEnterTransition = { fadeIn() },
                     popExitTransition = { fadeOut() },
                 ) { backStackEntry ->
+                    // M1 修复：屏幕进入/离开埋点
+                    ScreenTracking(route = AppRoutes.FOLLOW_LIST, builder = actionBuilder)
                     val typeName = backStackEntry.arguments?.getString(AppRoutes.FOLLOW_LIST_TYPE_ARG) ?: "FOLLOWING"
                     val type = runCatching { FollowListType.valueOf(typeName) }
                         .getOrElse { FollowListType.FOLLOWING }
@@ -405,6 +461,8 @@ private fun MainScaffold() {
                     exitTransition = { fadeOut() },
                     popExitTransition = { slideOutVertically(targetOffsetY = { it }) },
                 ) {
+                    // M1 修复：屏幕进入/离开埋点
+                    ScreenTracking(route = AppRoutes.PUBLISH, builder = actionBuilder)
                     // #45：publish 全屏覆盖，NavHost 已统一应用 innerPadding；
                     // showBottomBar=false 时 innerPadding.bottom 仅含系统导航栏 inset，
                     // publish 内部自行处理状态栏 inset。
@@ -417,4 +475,30 @@ private fun MainScaffold() {
             }
         } // Scaffold
     } // provideIsScrolling
+}
+
+/**
+ * M1 修复：屏幕进入/离开埋点辅助 Composable。
+ *
+ * 进入组合时发 SCREEN_ENTER，离开组合（onDispose）时发 SCREEN_LEAVE。
+ * Navigation Compose 切换目的地时旧目的地离开组合、新目的地进入组合，
+ * 因此可正确捕获屏幕级进入/离开事件（含 Tab saveState/restoreState 切换）。
+ *
+ * emit 内部走 [UserActionTracker.trackNow]（fire-and-forget，非 suspend），
+ * 可直接在 DisposableEffect 中调用；Tracker 自身有 1s 去重窗口防 Compose 重组重复触发。
+ *
+ * @param route 当前屏幕路由名（作为 screen 参数）
+ * @param builder 事件构建器（由 [MainScaffold] 通过 Hilt 单例 Tracker + SessionManager 构造）
+ */
+@Composable
+private fun ScreenTracking(
+    route: String,
+    builder: UserActionEventBuilder,
+) {
+    DisposableEffect(route, builder) {
+        builder.emit(UserActionType.SCREEN_ENTER, screen = route)
+        onDispose {
+            builder.emit(UserActionType.SCREEN_LEAVE, screen = route)
+        }
+    }
 }

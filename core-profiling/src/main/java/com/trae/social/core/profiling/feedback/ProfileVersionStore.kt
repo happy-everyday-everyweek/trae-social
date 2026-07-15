@@ -1,8 +1,10 @@
 package com.trae.social.core.profiling.feedback
 
+import androidx.room.withTransaction
 import com.trae.social.core.data.dao.UserProfileDao
 import com.trae.social.core.data.dao.UserProfileOverrideDao
 import com.trae.social.core.data.dao.UserProfileRollbackDao
+import com.trae.social.core.data.db.AppDatabase
 import com.trae.social.core.data.entity.UserProfileRollbackEntity
 import com.trae.social.core.data.model.DoubleDelta
 import com.trae.social.core.data.model.FeedbackAction
@@ -33,6 +35,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class ProfileVersionStore @Inject constructor(
+    private val database: AppDatabase,
     private val versionDao: UserProfileDao,
     private val overrideDao: UserProfileOverrideDao,
     private val rollbackDao: UserProfileRollbackDao,
@@ -116,16 +119,20 @@ class ProfileVersionStore @Inject constructor(
             val from = (versionDao.activeVersion() ?: versionDao.latestVersion())?.toDomain()
             val to = versionDao.versionById(versionId)?.toDomain()
                 ?: throw IllegalArgumentException("回滚目标版本不存在: $versionId")
-            versionDao.setActive(versionId)
-            runCatching { trimExcessVersions() }
-            rollbackDao.insert(
-                UserProfileRollbackEntity(
-                    fromVersionId = from?.id ?: 0L,
-                    toVersionId = versionId,
-                    reason = reason,
-                    appliedAt = System.currentTimeMillis(),
-                )
+            val rollbackEntity = UserProfileRollbackEntity(
+                fromVersionId = from?.id ?: 0L,
+                toVersionId = versionId,
+                reason = reason,
+                appliedAt = System.currentTimeMillis(),
             )
+            // M-反馈3 修复：回滚多步写（取消当前 active + 设目标 active + 清理超额版本 + 写回滚记录）
+            // 包在 Room 事务内，中途失败整体回滚，避免出现 active 错乱或回滚记录缺失的脏状态。
+            // trimExcessVersions 的 runCatching 仍保留：其失败不致整事务回滚（仅吞掉超额清理）。
+            database.withTransaction {
+                versionDao.setActive(versionId)
+                runCatching { trimExcessVersions() }
+                rollbackDao.insert(rollbackEntity)
+            }
             cache.invalidate()
             loader.refresh()
             val result = RollbackResult(

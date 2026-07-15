@@ -52,6 +52,12 @@ dependencies {
 
     implementation(libs.androidx.core.ktx)
 
+    // Room：M-反馈3 修复——ProfileVersionStore.applyRollback 用 withTransaction 包裹多步写，
+    // 与 core-data 既有的 AppDatabase.withTransaction 跨 DAO 事务模式一致。
+    // core-profiling 不定义 @Database/@Dao，故无需 room-compiler（KSP）。
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+
     // 协程
     implementation(libs.kotlinx.coroutines.android)
 

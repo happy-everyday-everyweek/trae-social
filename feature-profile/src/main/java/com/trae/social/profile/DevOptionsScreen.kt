@@ -1,6 +1,7 @@
 package com.trae.social.profile
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -62,14 +63,21 @@ import kotlinx.coroutines.launch
 @Composable
 fun DevOptionsScreen(
     onBack: () -> Unit,
+    onNavigateToProfileChat: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: DevOptionsViewModel = hiltViewModel(),
+    // B7 修复：接入 ProfileInspectViewModel，让"我的画像"展示与回滚入口落地（原为孤立死代码）
+    profileViewModel: ProfileInspectViewModel = hiltViewModel(),
 ) {
     val logs by viewModel.logsFlow.collectAsStateWithLifecycle()
     val activityLevel by viewModel.activityLevel.collectAsStateWithLifecycle()
     val llmStats by viewModel.llmStats.collectAsStateWithLifecycle()
     val actionCounts by viewModel.actionCounts.collectAsStateWithLifecycle()
     val triggerResult by viewModel.triggerResult.collectAsStateWithLifecycle()
+    // #146：画像展示数据（B7 落地）
+    val profileVersion by profileViewModel.activeVersion.collectAsStateWithLifecycle()
+    val profileRecentVersions by profileViewModel.recentVersions.collectAsStateWithLifecycle()
+    val profileTriggerResult by profileViewModel.triggerResult.collectAsStateWithLifecycle()
     val colors = socialColors()
     val typography = LocalSocialTypography.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -81,6 +89,15 @@ fun DevOptionsScreen(
             scope.launch {
                 snackbarHostState.showSnackbar(it, withDismissAction = true)
                 viewModel.clearTriggerResult()
+            }
+        }
+    }
+    // #146：画像操作（生成/回滚）结果通过 Snackbar 反馈
+    LaunchedEffect(profileTriggerResult) {
+        profileTriggerResult?.let {
+            scope.launch {
+                snackbarHostState.showSnackbar(it, withDismissAction = true)
+                profileViewModel.clearTriggerResult()
             }
         }
     }
@@ -97,6 +114,79 @@ fun DevOptionsScreen(
             )
 
             LazyColumn(Modifier.fillMaxSize()) {
+                // #146：我的画像（B7 落地：激活版本叙事 + 版本时间线 + 回滚 + 调校对话入口）
+                item {
+                    Text(
+                        "我的画像",
+                        style = typography.subheadline,
+                        color = colors.secondaryLabel,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                    SocialCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                        Column(Modifier.padding(16.dp)) {
+                            val version = profileVersion
+                            if (version == null) {
+                                Text("尚未生成画像版本", color = colors.tertiaryLabel, style = typography.callout)
+                            } else {
+                                Text(
+                                    "当前版本 #${version.id}",
+                                    color = colors.label,
+                                    style = typography.callout,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    version.narrative.take(200),
+                                    color = colors.secondaryLabel,
+                                    style = typography.subheadline,
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(
+                                    onClick = { profileViewModel.triggerUserProfileUpdate() },
+                                    modifier = Modifier.weight(1f),
+                                ) { Text("生成画像") }
+                                Button(
+                                    onClick = onNavigateToProfileChat,
+                                    modifier = Modifier.weight(1f),
+                                ) { Text("调校对话") }
+                            }
+                            if (profileRecentVersions.isNotEmpty()) {
+                                Spacer(Modifier.height(8.dp))
+                                SocialDivider(thickness = 0.5.dp)
+                                Spacer(Modifier.height(4.dp))
+                                Text("版本时间线", style = typography.caption1, color = colors.tertiaryLabel)
+                                profileRecentVersions.take(5).forEach { v ->
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            "#${v.id} ${if (v.isActive) "[当前]" else ""} ${v.narrativePreview.take(30)}",
+                                            color = colors.secondaryLabel,
+                                            style = typography.caption2,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        if (!v.isActive) {
+                                            Text(
+                                                "回滚",
+                                                color = colors.systemBlue,
+                                                style = typography.caption1,
+                                                modifier = Modifier
+                                                    .semantics { contentDescription = "回滚到版本 ${v.id}" }
+                                                    .clickable { profileViewModel.rollbackTo(v.id) },
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    SocialDivider()
+                }
+
                 // 当前活跃度档位
                 item {
                     Text(

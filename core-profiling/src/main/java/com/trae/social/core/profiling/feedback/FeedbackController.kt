@@ -54,9 +54,10 @@ class FeedbackController @Inject constructor(
     }
 
     /** 带 sessionId 的灰度分流（稳定分组，同会话始终同组）。 */
-    fun shouldApply(scenarioId: Int, sessionId: String): Boolean {
+    // B4 修复：getFeedbackGrayRatio() 为 suspend，本函数须声明 suspend；runCatching 无法在非 suspend 上下文调用 suspend 函数
+    suspend fun shouldApply(scenarioId: Int, sessionId: String): Boolean {
         if (!shouldApply(scenarioId)) return false
-        val ratio = readAccess.let { runCatching { configRepository.getFeedbackGrayRatio() }.getOrDefault(1.0) }
+        val ratio = configRepository.getFeedbackGrayRatio()
         if (ratio >= 1.0) return true
         val bucket = (sessionId.hashCode().absoluteMod(100)) / 100.0
         return bucket < ratio
@@ -70,7 +71,8 @@ class FeedbackController @Inject constructor(
      * @param quotaRatio 该场景 driven 上限占比（如场景5=0.2）。
      * @param diversityKey 提取候选元素的主题/账号键，用于多样性约束。
      */
-    fun <T> selectDriven(
+    // B4 修复：内部调用 suspend 版 shouldApply(scenarioId, sessionId)，故声明 suspend
+    suspend fun <T> selectDriven(
         scenarioId: Int,
         sessionId: String,
         pool: List<T>,
