@@ -6,6 +6,10 @@ import com.trae.social.core.data.dao.FollowRelationDao
 import com.trae.social.core.data.entity.AccountEntity
 import com.trae.social.core.data.entity.FollowRelationEntity
 import com.trae.social.core.data.repository.AccountRepository
+import com.trae.social.core.data.model.UserActionType
+import com.trae.social.core.profiling.capture.SessionManager
+import com.trae.social.core.profiling.capture.UserActionEventBuilder
+import com.trae.social.core.profiling.capture.UserActionTracker
 import com.trae.social.profile.di.ProfileImageLoader
 import coil.ImageLoader
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -25,8 +29,15 @@ import timber.log.Timber
 class FollowListViewModel @Inject constructor(
     private val followRelationDao: FollowRelationDao,
     private val accountRepository: AccountRepository,
+    private val userActionTracker: UserActionTracker,
+    private val sessionManager: SessionManager,
     @ProfileImageLoader val imageLoader: ImageLoader,
 ) : ViewModel() {
+
+    /** #146 B：关注/取关埋点构建器。 */
+    private val actionBuilder = UserActionEventBuilder(userActionTracker) {
+        sessionManager.currentSessionId() ?: "unknown"
+    }
 
     private val _uiState = MutableStateFlow<FollowListUiState>(FollowListUiState.Loading)
     val uiState: StateFlow<FollowListUiState> = _uiState.asStateFlow()
@@ -65,9 +76,18 @@ class FollowListViewModel @Inject constructor(
      * 切换对某账号的关注状态（关注/取关），写库后刷新本地集合与列表。
      */
     fun toggleFollow(type: FollowListType, accountId: String) {
+        val isFollowing = accountId in _followingIds.value
+        // #146 B：关注/取关埋点（在落库前记录意图，extra 带 listType）
+        actionBuilder.emit(
+            type = if (isFollowing) UserActionType.UNFOLLOW else UserActionType.FOLLOW,
+            screen = "followlist",
+            targetId = accountId,
+            targetKind = "account",
+            extra = mapOf("listType" to kotlinx.serialization.json.JsonPrimitive(type.name)),
+        )
         viewModelScope.launch {
             runCatching {
-                if (accountId in _followingIds.value) {
+                if (isFollowing) {
                     followRelationDao.delete(ProfileViewModel.SELF_ID, accountId)
                 } else {
                     followRelationDao.insert(

@@ -15,6 +15,10 @@ import com.trae.social.core.data.repository.CommentRepository
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.data.repository.InteractionRepository
 import com.trae.social.core.data.repository.TweetRepository
+import com.trae.social.core.profiling.capture.SessionManager
+import com.trae.social.core.profiling.capture.UserActionEventBuilder
+import com.trae.social.core.profiling.capture.UserActionTracker
+import com.trae.social.core.data.model.UserActionType
 import com.trae.social.feed.di.FeedImageLoader
 import coil.ImageLoader
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -49,8 +53,15 @@ class FeedViewModel @Inject constructor(
     private val interactionRepository: InteractionRepository,
     private val commentRepository: CommentRepository,
     private val configRepository: ConfigRepository,
+    private val userActionTracker: UserActionTracker,
+    private val sessionManager: SessionManager,
     @FeedImageLoader val imageLoader: ImageLoader,
 ) : ViewModel() {
+
+    /** #146 B：信息流交互埋点构建器（session 由 SessionManager 提供，冷启动兜底 "unknown"）。 */
+    private val actionBuilder = UserActionEventBuilder(userActionTracker) {
+        sessionManager.currentSessionId() ?: "unknown"
+    }
 
     /** 账号信息内存缓存，避免分页滚动时重复查库（key = authorId）。
      *  P2 修复：使用 ConcurrentHashMap 保证线程安全，避免 Paging 后台线程并发访问导致 ConcurrentModificationException。
@@ -134,6 +145,13 @@ class FeedViewModel @Inject constructor(
             newSet.add(tweetId)
         }
         _likedTweetIds.value = newSet
+        // #146 B：点赞/取消点赞埋点（驱动第二层基础分析的互动率统计）
+        actionBuilder.emit(
+            type = if (wasLiked) UserActionType.TWEET_UNLIKE else UserActionType.TWEET_LIKE,
+            screen = "feed",
+            targetId = tweetId,
+            targetKind = "tweet",
+        )
 
         viewModelScope.launch {
             try {
@@ -171,6 +189,14 @@ class FeedViewModel @Inject constructor(
      * - comments 表无此约束，支持同一用户对同一推文发表多条评论。
      */
     fun commentTweet(tweetId: String, text: String) {
+        // #146 B：评论埋点（extra 带评论字数，供画像分析评论偏好）
+        actionBuilder.emit(
+            type = UserActionType.TWEET_COMMENT,
+            screen = "feed",
+            targetId = tweetId,
+            targetKind = "tweet",
+            extra = mapOf("commentLen" to kotlinx.serialization.json.JsonPrimitive(text.length)),
+        )
         viewModelScope.launch {
             var interactionInserted = false
             try {
@@ -240,6 +266,13 @@ class FeedViewModel @Inject constructor(
      * 转发推文的 authorId 为当前用户（user-self），而非原推作者。
      */
     fun retweetTweet(original: TweetEntity) {
+        // #146 B：转发埋点
+        actionBuilder.emit(
+            type = UserActionType.TWEET_RETWEET,
+            screen = "feed",
+            targetId = original.id,
+            targetKind = "tweet",
+        )
         viewModelScope.launch {
             try {
                 val now = System.currentTimeMillis()
@@ -288,6 +321,13 @@ class FeedViewModel @Inject constructor(
             newSet.add(tweetId)
         }
         _bookmarkedTweetIds.value = newSet
+        // #146 B：收藏/取消收藏埋点
+        actionBuilder.emit(
+            type = if (wasBookmarked) UserActionType.TWEET_UNBOOKMARK else UserActionType.TWEET_BOOKMARK,
+            screen = "feed",
+            targetId = tweetId,
+            targetKind = "tweet",
+        )
         // #102：持久化到 DataStore，确保旋转屏幕或杀进程重启后收藏状态不丢失
         viewModelScope.launch {
             runCatching { configRepository.setBookmarkedTweetIds(newSet) }
