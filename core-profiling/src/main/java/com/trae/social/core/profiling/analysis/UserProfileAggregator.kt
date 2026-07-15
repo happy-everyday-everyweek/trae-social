@@ -77,7 +77,7 @@ class UserProfileAggregator @Inject constructor(
         for (scenarioId in 1..8) {
             runCatching {
                 val pattern = "%\"scenarioId\":$scenarioId%"
-                val events = userActionDao.queryScenarioEventsSince(scenarioId, since, pattern)
+                val events = userActionDao.queryScenarioEventsSince(since, pattern)
                 if (events.isEmpty()) return@runCatching
                 val stats = computeScenarioStats(scenarioId, events)
                 deltas[scenarioId] = stats.delta

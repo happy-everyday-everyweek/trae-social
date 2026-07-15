@@ -50,6 +50,7 @@ import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.profiling.capture.SessionManager
 import com.trae.social.core.profiling.capture.UserActionEventBuilder
 import com.trae.social.core.profiling.capture.UserActionTracker
+import com.trae.social.core.profiling.analysis.BasicProfileTrigger
 import com.trae.social.core.scheduler.SchedulerInitializer
 import com.trae.social.designsystem.components.GlassBlurTier
 import com.trae.social.designsystem.components.provideIsScrolling
@@ -94,6 +95,11 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var userActionTracker: UserActionTracker
 
+    // #146：基础分析触发器（C 修复：前台进入时强制检查双阈值，触发基础画像快照生成，
+    // 否则 BasicProfileTrigger 无调用方 → 快照表恒空 → UserProfileWorker 永远 no_snapshot 短路 → 第2/3/4层全断链）
+    @Inject
+    lateinit var basicProfileTrigger: BasicProfileTrigger
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -111,6 +117,9 @@ class MainActivity : ComponentActivity() {
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onResume(owner: LifecycleOwner) {
                 sessionManager.onResume(screen = "MainActivity")
+                // #146 C 修复：前台进入强制检查基础分析双阈值（事件计数/时间），
+                // 达阈值则生成快照，打通"捕获→基础分析→LLM 画像"链路
+                basicProfileTrigger.forceCheckOnForeground()
             }
 
             override fun onPause(owner: LifecycleOwner) {

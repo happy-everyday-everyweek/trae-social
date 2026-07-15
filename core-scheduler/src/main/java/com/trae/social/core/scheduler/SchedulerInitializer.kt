@@ -360,10 +360,11 @@ object SchedulerInitializer {
     }
 
     /**
-     * 入队周期任务：PendingInteractionWorker + PersonaUpdateWorker + UserProfileWorker。
+     * 入队周期任务：PendingInteractionWorker + PersonaUpdateWorker + UserProfileWorker + EventCleanupWorker。
      *
      * IMPL-47：PersonaUpdateWorker 周期按 [level] 缩放。
      * #146：UserProfileWorker 周期按 [level] 缩放（LOW=96h / MEDIUM=48h / HIGH=24h）。
+     * #146 G 修复：EventCleanupWorker 24h 周期清理过期用户行为事件，防止 user_action_events 无限增长。
      */
     private fun enqueueRoutineWork(workManager: WorkManager, level: AiActivityLevel) {
         workManager.enqueueUniquePeriodicWork(
@@ -380,6 +381,11 @@ object SchedulerInitializer {
             WorkerTags.USER_PROFILE,
             ExistingPeriodicWorkPolicy.KEEP,
             WorkerPolicies.userProfilePeriodicRequest(level),
+        )
+        workManager.enqueueUniquePeriodicWork(
+            WorkerTags.EVENT_CLEANUP,
+            ExistingPeriodicWorkPolicy.KEEP,
+            WorkerPolicies.eventCleanupPeriodicRequest(),
         )
     }
 

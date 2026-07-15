@@ -56,12 +56,15 @@ interface UserActionDao {
      * 计算指定场景 driven/control 两组的反馈差异（A/B 回测）。
      *
      * extra JSON 中标记了 drivenByProfile / scenarioId / group。
-     * 由于 SQLite JSON 操作跨版本兼容性差，这里先按 scenarioId 过滤全部相关事件，
+     * 由于 SQLite JSON 操作跨版本兼容性差，这里先按 scenarioPattern 过滤全部相关事件，
      * 再由调用方解析 extra 做分组统计；返回原始事件供 [ScenarioEffectStats] 计算。
+     *
+     * 注意：scenarioId 已内插到 scenarioPattern（如 %"scenarioId":1%），无需单独绑定，
+     * 否则 Room KSP 会因"未使用绑定参数"报错。
      */
     @Query(
         "SELECT * FROM user_action_events WHERE occurredAt >= :since AND " +
             "(extra LIKE :scenarioPattern) ORDER BY occurredAt ASC"
     )
-    suspend fun queryScenarioEventsSince(scenarioId: Int, since: Long, scenarioPattern: String): List<UserActionEventEntity>
+    suspend fun queryScenarioEventsSince(since: Long, scenarioPattern: String): List<UserActionEventEntity>
 }
