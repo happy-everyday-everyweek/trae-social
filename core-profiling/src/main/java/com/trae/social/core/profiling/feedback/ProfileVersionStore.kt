@@ -64,21 +64,19 @@ class ProfileVersionStore @Inject constructor(
      * - 全部为空：当前激活版本的上一个版本（"回到上个版本"语义）。
      */
     suspend fun locate(action: FeedbackAction.RollbackProfileVersion): UserProfileVersion? {
-        return when {
-            action.versionId != null -> versionDao.versionById(action.versionId)?.toDomain()
-            action.aroundTimestamp != null -> versionDao.versionsBeforeTime(action.aroundTimestamp, 1)
-                .firstOrNull()?.toDomain()
-            action.narrativeKeyword != null -> versionDao.versionsByNarrativeKeyword(
-                "%${action.narrativeKeyword}%", 1
-            ).firstOrNull()?.toDomain()
-            else -> {
-                // 全部为空 → 取当前激活版本的上一个版本
-                val active = versionDao.activeVersion() ?: versionDao.latestVersion() ?: return null
-                val recent = versionDao.recentVersions(2)
-                // recent 按 createdAt DESC 返回，第一项是最新（或激活），第二项是上一个
-                recent.firstOrNull { it.id != active.id }?.toDomain()
-            }
+        // 跨模块 public API property 无法 smart cast，用 ?.let 捕获非空局部变量。
+        action.versionId?.let { id -> return versionDao.versionById(id)?.toDomain() }
+        action.aroundTimestamp?.let { ts ->
+            return versionDao.versionsBeforeTime(ts, 1).firstOrNull()?.toDomain()
         }
+        action.narrativeKeyword?.let { kw ->
+            return versionDao.versionsByNarrativeKeyword("%$kw%", 1).firstOrNull()?.toDomain()
+        }
+        // 全部为空 → 取当前激活版本的上一个版本
+        val active = versionDao.activeVersion() ?: versionDao.latestVersion() ?: return null
+        val recent = versionDao.recentVersions(2)
+        // recent 按 createdAt DESC 返回，第一项是最新（或激活），第二项是上一个
+        return recent.firstOrNull { it.id != active.id }?.toDomain()
     }
 
     /**

@@ -19,3 +19,7 @@ keystore.properties
 
 # Logs
 *.log
+
+# CI 调试日志下载（本地临时产物，不应入库）
+ci_logs/
+ci_logs.zip

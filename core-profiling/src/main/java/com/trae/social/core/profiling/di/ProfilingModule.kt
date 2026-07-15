@@ -81,7 +81,7 @@ private class ConfigProfilingGate(
         // 注意：runBlocking 在 IO 线程上短暂使用，避免阻塞 UI；
         // Tracker 调用方已在 IO 上下文，此处仅作为容错兜底，主路径仍由调用方应启用缓存读取。
         cacheAt = now
-        kotlinx.coroutines.runCatching {
+        runCatching {
             kotlinx.coroutines.runBlocking {
                 enabledCache = configRepository.isProfilingEnabled()
             }

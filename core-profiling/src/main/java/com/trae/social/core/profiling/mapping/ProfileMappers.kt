@@ -55,11 +55,14 @@ object ProfileMappers {
 
     fun UserActionEventEntity.toDomain(): UserActionEvent? {
         val type = UserActionType.fromName(this.type) ?: return null
-        val extraMap: Map<String, JsonElement> = if (extra.isNullOrBlank()) {
+        // extra 是跨模块 public API property（String?），isNullOrBlank 后无法 smart cast，
+        // 先捕获到局部 val，局部 val 可被 smart cast 为非空。
+        val rawExtra = extra
+        val extraMap: Map<String, JsonElement> = if (rawExtra.isNullOrBlank()) {
             emptyMap()
         } else {
             runCatching {
-                json.decodeFromString(JsonObject.serializer(), extra).toMap()
+                json.decodeFromString(JsonObject.serializer(), rawExtra).toMap()
             }.getOrDefault(emptyMap())
         }
         return UserActionEvent(
