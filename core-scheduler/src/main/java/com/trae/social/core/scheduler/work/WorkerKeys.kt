@@ -36,6 +36,7 @@ object WorkerTags {
     const val INTERACTION = "interaction"
     const val PENDING_INTERACTION = "pending_interaction"
     const val PERSONA_UPDATE = "persona_update"
+    const val USER_PROFILE = "user_profile"
     const val BOOT_INIT = "boot_init"
 }
 
@@ -125,6 +126,26 @@ object WorkerPolicies {
             .setConstraints(networkConstraints)
             .setBackoffCriteria(backoffPolicy, BACKOFF_INITIAL_SECONDS, TimeUnit.SECONDS)
             .addTag(WorkerTags.PERSONA_UPDATE)
+            .build()
+    }
+
+    /**
+     * 构建 UserProfileWorker 周期请求（#146 第三层）。
+     *
+     * 周期按 [level] 缩放：LOW=96h / MEDIUM=48h / HIGH=24h。
+     */
+    fun userProfilePeriodicRequest(level: AiActivityLevel): androidx.work.PeriodicWorkRequest {
+        val periodHours = when (level) {
+            AiActivityLevel.LOW -> 96L
+            AiActivityLevel.MEDIUM -> 48L
+            AiActivityLevel.HIGH -> 24L
+        }
+        return PeriodicWorkRequestBuilder<UserProfileWorker>(
+            periodHours, TimeUnit.HOURS,
+        )
+            .setConstraints(networkConstraints)
+            .setBackoffCriteria(backoffPolicy, BACKOFF_INITIAL_SECONDS, TimeUnit.SECONDS)
+            .addTag(WorkerTags.USER_PROFILE)
             .build()
     }
 }

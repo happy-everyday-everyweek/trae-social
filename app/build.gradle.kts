@@ -115,6 +115,7 @@ dependencies {
     implementation(project(":core-designsystem"))
     implementation(project(":core-data"))
     implementation(project(":core-llm"))
+    implementation(project(":core-profiling"))
     implementation(project(":core-scheduler"))
     implementation(project(":feature-feed"))
     implementation(project(":feature-timeline"))

@@ -4,7 +4,9 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -162,6 +164,61 @@ class ConfigRepository @Inject constructor(
         dataStore.edit { it[KEY_NOT_INTERESTED_TWEET_IDS] = ids }
     }
 
+    // ------------------------------------------------------------------
+    // 用户行为建模配置（#146）
+    // ------------------------------------------------------------------
+
+    /** 用户画像采集与个性化总开关（默认开启），关闭后 Tracker 停库 + 反哺降级 */
+    suspend fun isProfilingEnabled(): Boolean =
+        dataStore.data.map { it[KEY_PROFILING_ENABLED] ?: true }.first()
+
+    suspend fun setProfilingEnabled(enabled: Boolean) {
+        dataStore.edit { it[KEY_PROFILING_ENABLED] = enabled }
+    }
+
+    /** 反哺全局灰度比例（默认 1.0，全量生效） */
+    suspend fun getFeedbackGrayRatio(): Double =
+        dataStore.data.map { it[KEY_FEEDBACK_GRAY_RATIO] ?: DEFAULT_FEEDBACK_GRAY_RATIO }.first()
+
+    suspend fun setFeedbackGrayRatio(ratio: Double) {
+        dataStore.edit { it[KEY_FEEDBACK_GRAY_RATIO] = ratio.coerceIn(0.0, 1.0) }
+    }
+
+    /** 各反哺场景独立开关（默认全 true，可被用户覆盖强制关闭） */
+    suspend fun isScenarioEnabled(scenarioId: Int): Boolean =
+        dataStore.data.map { it[scenarioEnabledKey(scenarioId)] ?: true }.first()
+
+    suspend fun setScenarioEnabled(scenarioId: Int, enabled: Boolean) {
+        dataStore.edit { it[scenarioEnabledKey(scenarioId)] = enabled }
+    }
+
+    /** 原始事件保留天数（默认 14） */
+    suspend fun getEventTtlDays(): Int =
+        dataStore.data.map { it[KEY_EVENT_TTL_DAYS] ?: DEFAULT_EVENT_TTL_DAYS }.first()
+
+    suspend fun setEventTtlDays(days: Int) {
+        dataStore.edit { it[KEY_EVENT_TTL_DAYS] = days.coerceAtLeast(1) }
+    }
+
+    /** LLM 画像周期（小时，默认 48，被 AiActivityLevel 覆盖） */
+    suspend fun getProfilePeriodHours(): Int =
+        dataStore.data.map { it[KEY_PROFILE_PERIOD_HOURS] ?: DEFAULT_PROFILE_PERIOD_HOURS }.first()
+
+    suspend fun setProfilePeriodHours(hours: Int) {
+        dataStore.edit { it[KEY_PROFILE_PERIOD_HOURS] = hours.coerceAtLeast(1) }
+    }
+
+    /** 用户反馈智能体开关（默认开启） */
+    suspend fun isFeedbackAgentEnabled(): Boolean =
+        dataStore.data.map { it[KEY_FEEDBACK_AGENT_ENABLED] ?: true }.first()
+
+    suspend fun setFeedbackAgentEnabled(enabled: Boolean) {
+        dataStore.edit { it[KEY_FEEDBACK_AGENT_ENABLED] = enabled }
+    }
+
+    private fun scenarioEnabledKey(scenarioId: Int) =
+        booleanPreferencesKey("scenario_enabled_$scenarioId")
+
     companion object {
         private val KEY_DEFAULT_PROVIDER = stringPreferencesKey("default_provider")
         private val KEY_ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
@@ -169,5 +226,24 @@ class ConfigRepository @Inject constructor(
         private val KEY_AI_ACTIVITY_LEVEL = stringPreferencesKey("ai_activity_level")
         private val KEY_BOOKMARKED_TWEET_IDS = stringSetPreferencesKey("bookmarked_tweet_ids")
         private val KEY_NOT_INTERESTED_TWEET_IDS = stringSetPreferencesKey("not_interested_tweet_ids")
+
+        // #146 用户行为建模配置
+        private val KEY_PROFILING_ENABLED = booleanPreferencesKey("profiling_enabled")
+        private val KEY_FEEDBACK_GRAY_RATIO = doublePreferencesKey("feedback_gray_ratio")
+        private val KEY_EVENT_TTL_DAYS = intPreferencesKey("event_ttl_days")
+        private val KEY_PROFILE_PERIOD_HOURS = intPreferencesKey("profile_period_hours")
+        private val KEY_FEEDBACK_AGENT_ENABLED = booleanPreferencesKey("feedback_agent_enabled")
+
+        const val DEFAULT_FEEDBACK_GRAY_RATIO = 1.0
+        const val DEFAULT_EVENT_TTL_DAYS = 14
+        const val DEFAULT_PROFILE_PERIOD_HOURS = 48
+        /** 冷启动事件数阈值（常量） */
+        const val COLD_START_THRESHOLD = 50
+        /** 智能体调用限流（次/小时，常量） */
+        const val FEEDBACK_AGENT_RATE_LIMIT_PER_HOUR = 10
+        /** 读缓存 TTL（ms，常量） */
+        const val PROFILE_CACHE_TTL_MS = 30_000L
+        /** 版本库上限（超限删最旧非激活版本，常量） */
+        const val MAX_PROFILE_VERSIONS = 100
     }
 }

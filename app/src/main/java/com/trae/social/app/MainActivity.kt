@@ -33,6 +33,8 @@ import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -43,6 +45,7 @@ import androidx.navigation.compose.rememberNavController
 import com.trae.social.app.ui.AppRoutes
 import com.trae.social.app.ui.SocialBottomBar
 import com.trae.social.core.data.repository.ConfigRepository
+import com.trae.social.core.profiling.capture.SessionManager
 import com.trae.social.core.scheduler.SchedulerInitializer
 import com.trae.social.designsystem.components.GlassBlurTier
 import com.trae.social.designsystem.components.provideIsScrolling
@@ -55,6 +58,7 @@ import com.trae.social.profile.ApiKeyManagementScreen
 import com.trae.social.profile.DevOptionsScreen
 import com.trae.social.profile.FollowListScreen
 import com.trae.social.profile.FollowListType
+import com.trae.social.profile.ProfileChatScreen
 import com.trae.social.profile.ProfileScreen
 import com.trae.social.profile.SettingsScreen
 import com.trae.social.publish.PublishScreen
@@ -77,6 +81,10 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var configRepository: ConfigRepository
 
+    // #146：会话管理（onResume/onPause 触发 SESSION_START/END 埋点，30s 超时合并）
+    @Inject
+    lateinit var sessionManager: SessionManager
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -87,6 +95,19 @@ class MainActivity : ComponentActivity() {
         // 从后台启动前台服务抛 ForegroundServiceStartNotAllowedException 导致启动即崩。
         // SchedulerInitializer 内部有幂等守卫，Activity 重建时不会重复初始化。
         SchedulerInitializer.initialize(this)
+        // #146：通过生命周期观察者驱动 SessionManager，
+        // - onResume → 复用 30s 内旧会话或开新会话，发 SESSION_START
+        // - onPause → 记录暂停时间戳，不立即结束会话
+        // - onStop 触发后 Activity 真正不可见，等下次 onResume 判定是否合并
+        lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onResume(owner: LifecycleOwner) {
+                sessionManager.onResume(screen = "MainActivity")
+            }
+
+            override fun onPause(owner: LifecycleOwner) {
+                sessionManager.onPause()
+            }
+        })
         setContent {
             // #12：读取主题偏好覆写系统深色模式；偏好变更时此处会重组
             val darkTheme = ThemePreferences.isDarkTheme(isSystemInDarkTheme())
@@ -341,6 +362,20 @@ private fun MainScaffold() {
                     popExitTransition = { fadeOut() },
                 ) {
                     DevOptionsScreen(
+                        onBack = { navController.popBackStack() },
+                        onNavigateToProfileChat = { navController.navigate(AppRoutes.OPEN_PROFILE_CHAT) },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                composable(
+                    route = AppRoutes.OPEN_PROFILE_CHAT,
+                    enterTransition = { slideInVertically(initialOffsetY = { it }) },
+                    exitTransition = { fadeOut() },
+                    popEnterTransition = { fadeIn() },
+                    popExitTransition = { slideOutVertically(targetOffsetY = { it }) },
+                ) {
+                    // #146：画像对话页（用户反馈智能体）
+                    ProfileChatScreen(
                         onBack = { navController.popBackStack() },
                         modifier = Modifier.fillMaxSize(),
                     )

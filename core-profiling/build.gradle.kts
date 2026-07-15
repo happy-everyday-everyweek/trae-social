@@ -1,13 +1,14 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
 }
 
 android {
-    namespace = "com.trae.social.feature.onboarding"
+    namespace = "com.trae.social.core.profiling"
+
     compileSdk = 34
 
     defaultConfig {
@@ -35,45 +36,37 @@ android {
         jvmTarget = "17"
     }
 
-    buildFeatures {
-        compose = true
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+            isIncludeAndroidResources = true
+        }
     }
 }
 
 dependencies {
-    implementation(project(":core-designsystem"))
+    // 项目内模块：core-data 提供 Entity/DAO/Config/domain model；
+    // core-llm 提供 LlmClient 与 PromptBuilder（FeedbackAgent 依赖）。
     implementation(project(":core-data"))
     implementation(project(":core-llm"))
-    implementation(project(":core-profiling"))
 
     implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.lifecycle.runtime.ktx)
-    implementation(libs.androidx.lifecycle.viewmodel.compose)
-    implementation(libs.androidx.lifecycle.runtime.compose)
 
-    implementation(platform(libs.androidx.compose.bom))
-    implementation(libs.androidx.compose.ui)
-    implementation(libs.androidx.compose.ui.tooling.preview)
-    implementation(libs.androidx.compose.material3)
-    implementation(libs.androidx.compose.material.icons.extended)
-    implementation(libs.androidx.compose.foundation)
-    implementation(libs.androidx.activity.compose)
-    implementation(libs.androidx.navigation.compose)
+    // 协程
+    implementation(libs.kotlinx.coroutines.android)
 
-    // Accompanist 权限（引导期申请通知等权限）
-    implementation(libs.accompanist.permissions)
+    // 序列化
+    implementation(libs.kotlinx.serialization.json)
 
+    // Hilt
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
-    implementation(libs.hilt.navigation.compose)
 
-    implementation(libs.kotlinx.coroutines.android)
+    // 日志
     implementation(libs.timber)
 
-    debugImplementation(libs.androidx.compose.ui.tooling)
-
+    // 测试
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockk)
-    testImplementation(libs.turbine)
 }

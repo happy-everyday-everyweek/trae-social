@@ -40,7 +40,9 @@ import kotlinx.coroutines.launch
  *    为错过的活跃窗补发推文（每窗最多补 1 条，避免轰炸）；
  * 3. 入队下一批 TweetGenerationWorker（基于 [ScheduleRuleResolver.nextTriggerTime]）；
  * 4. 入队 PendingInteractionWorker（PeriodicWorkRequest，15 分钟周期）；
- * 5. 入队 PersonaUpdateWorker（PeriodicWorkRequest，周期按 AI 活跃度档位缩放）。
+ * 5. 入队 PersonaUpdateWorker（PeriodicWorkRequest，周期按 AI 活跃度档位缩放）；
+ * 6. #146：入队 UserProfileWorker（PeriodicWorkRequest，周期按 AI 活跃度档位缩放，
+ *    LOW=96h / MEDIUM=48h / HIGH=24h）。
  *
  * IMPL-48：观察 [ConfigRepository.activityLevelChanges]，
  * 档位切换后以 REPLACE 策略重新入队 PersonaUpdateWorker，使新周期立即生效。
@@ -358,9 +360,10 @@ object SchedulerInitializer {
     }
 
     /**
-     * 入队周期任务：PendingInteractionWorker + PersonaUpdateWorker。
+     * 入队周期任务：PendingInteractionWorker + PersonaUpdateWorker + UserProfileWorker。
      *
      * IMPL-47：PersonaUpdateWorker 周期按 [level] 缩放。
+     * #146：UserProfileWorker 周期按 [level] 缩放（LOW=96h / MEDIUM=48h / HIGH=24h）。
      */
     private fun enqueueRoutineWork(workManager: WorkManager, level: AiActivityLevel) {
         workManager.enqueueUniquePeriodicWork(
@@ -373,13 +376,18 @@ object SchedulerInitializer {
             ExistingPeriodicWorkPolicy.KEEP,
             WorkerPolicies.personaUpdatePeriodicRequest(level),
         )
+        workManager.enqueueUniquePeriodicWork(
+            WorkerTags.USER_PROFILE,
+            ExistingPeriodicWorkPolicy.KEEP,
+            WorkerPolicies.userProfilePeriodicRequest(level),
+        )
     }
 
     /**
      * IMPL-48：观察 AI 活跃度档位变更，重新入队周期 Worker。
      *
      * 使用 [ExistingPeriodicWorkPolicy.REPLACE] 替换现有排程，
-     * 使新档位的周期（PersonaUpdateWorker）立即生效。
+     * 使新档位的周期（PersonaUpdateWorker + UserProfileWorker）立即生效。
      *
      * P2 修复：同时调用 [SchedulerRateLimiter.reconfigure] 使限流器容量立即同步，
      * 不必等待下一个 TweetGenerationWorker 触发。
@@ -393,11 +401,17 @@ object SchedulerInitializer {
             configRepository.activityLevelChanges.collect { level ->
                 // #81：包裹处理逻辑，避免单次异常导致 collector 终止后不再观察档位变更
                 runCatching {
-                    Timber.i("AI 活跃度档位变更: %s，重新入队 PersonaUpdateWorker 并重配限流器", level.id)
+                    Timber.i("AI 活跃度档位变更: %s，重新入队周期 Worker 并重配限流器", level.id)
                     workManager.enqueueUniquePeriodicWork(
                         WorkerTags.PERSONA_UPDATE,
                         ExistingPeriodicWorkPolicy.REPLACE,
                         WorkerPolicies.personaUpdatePeriodicRequest(level),
+                    )
+                    // #146：UserProfileWorker 同步替换为新档位周期
+                    workManager.enqueueUniquePeriodicWork(
+                        WorkerTags.USER_PROFILE,
+                        ExistingPeriodicWorkPolicy.REPLACE,
+                        WorkerPolicies.userProfilePeriodicRequest(level),
                     )
                     // P2 修复：档位切换后立即重新配置限流器，避免限流器容量滞后
                     rateLimiter.reconfigure(level)

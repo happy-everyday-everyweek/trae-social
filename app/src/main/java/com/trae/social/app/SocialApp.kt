@@ -3,8 +3,12 @@ package com.trae.social.app
 import android.app.Application
 import android.util.Log
 import androidx.hilt.work.HiltWorkerFactory
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.work.Configuration
 import com.trae.social.core.data.seed.PersonaSeeder
+import com.trae.social.core.profiling.capture.SessionManager
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,6 +25,7 @@ import javax.inject.Inject
  * 2. 注册全局未捕获异常处理器，记录崩溃信息。
  * 3. 实现 [Configuration.Provider] 接入 [HiltWorkerFactory]，使 @HiltWorker 可注入依赖。
  * 4. IMPL-1：触发 [PersonaSeeder.seedIfNeeded] 导入虚拟账号与历史推文。
+ * 5. #146：进程退出时调用 [SessionManager.endSession] 发出最后一个 SESSION_END 埋点。
  *
  * 注意：调度器初始化（[com.trae.social.core.scheduler.SchedulerInitializer.initialize]）
  * 已移至 [MainActivity.onCreate] 执行——Application.onCreate 运行于后台上下文，
@@ -36,6 +41,10 @@ class SocialApp : Application(), Configuration.Provider {
     @Inject
     lateinit var personaSeeder: PersonaSeeder
 
+    // #146：进程级生命周期结束时调用 endSession，保证最后一个会话发出 SESSION_END。
+    @Inject
+    lateinit var sessionManager: SessionManager
+
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
@@ -49,6 +58,17 @@ class SocialApp : Application(), Configuration.Provider {
             runCatching { personaSeeder.seedIfNeeded().collect { /* 进度可通过 StateFlow 暴露给 UI */ } }
                 .onFailure { Timber.e(it, "种子数据导入失败") }
         }
+
+        // #146：监听进程级生命周期 ON_STOP，进程退到后台时触发 endSession 发出 SESSION_END。
+        // 用户回到前台时 MainActivity.onResume 会开新会话；30s 内 ON_STOP→ON_RESUME 不会重复
+        // 开会话（endSession 已清理 currentSessionId，但 SessionManager.onResume 走的是
+        // pausedAt 30s 合并逻辑——此处主动 endSession 确保后台即结束会话，简化语义）。
+        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStop(owner: LifecycleOwner) {
+                runCatching { sessionManager.endSession() }
+                    .onFailure { Timber.w(it, "endSession 失败") }
+            }
+        })
 
         // 调度器初始化已移至 MainActivity.onCreate，避免在后台上下文启动前台服务导致崩溃。
     }
