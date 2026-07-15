@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
 }
@@ -65,6 +66,8 @@ dependencies {
 
     // 协程
     implementation(libs.kotlinx.coroutines.android)
+    // #146 A：反哺层打标用 JsonPrimitive（scenarioId/drivenByProfile/group extra 字段）
+    implementation(libs.kotlinx.serialization.json)
 
     // 日志
     implementation(libs.timber)

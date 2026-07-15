@@ -13,6 +13,12 @@ import com.trae.social.core.data.entity.TweetEntity
 import com.trae.social.core.data.repository.AccountRepository
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.data.repository.TweetRepository
+import com.trae.social.core.data.model.UserActionEvent
+import com.trae.social.core.data.model.UserActionType
+import com.trae.social.core.profiling.capture.SessionManager
+import com.trae.social.core.profiling.capture.UserActionTracker
+import com.trae.social.core.profiling.feedback.FeedbackController
+import com.trae.social.core.profiling.feedback.UserProfileReadAccess
 import com.trae.social.core.scheduler.ratelimit.DailyQuotaChecker
 import com.trae.social.core.scheduler.ratelimit.SchedulerRateLimiter
 import com.trae.social.core.scheduler.rule.DeduplicationKeys
@@ -64,6 +70,11 @@ class TweetGenerationWorker @AssistedInject constructor(
     private val rateLimiter: SchedulerRateLimiter,
     private val quotaChecker: DailyQuotaChecker,
     private val logDao: com.trae.social.core.data.dao.SchedulerLogDao,
+    // #146 A/E：反哺层场景 1（topicBias）—— AI 推文主题贴近用户兴趣
+    private val feedbackController: FeedbackController,
+    private val readAccess: UserProfileReadAccess,
+    private val userActionTracker: UserActionTracker,
+    private val sessionManager: SessionManager,
 ) : CoroutineWorker(appContext, params) {
 
     private val promptBuilder = TweetPromptBuilder()
@@ -126,6 +137,25 @@ class TweetGenerationWorker @AssistedInject constructor(
                 .take(RECENT_TWEETS_FOR_DEDUP)
                 .map { it.text }
 
+            // #146 A/E 场景 1（topicBias）：判断本次是否 driven（画像驱动推文主题）。
+            // driven 组把用户兴趣向量 top 主题作为"近期关注话题"提示注入 prompt 上下文，
+            // 引导 AI 账号产出更贴近用户兴趣的内容；control 组不注入，供 computeFeedbackEffect 回测。
+            val sessionId = sessionManager.currentSessionId() ?: accountId
+            val drivenScenario1 = feedbackController.shouldApply(1, sessionId)
+            val promptContext = if (drivenScenario1) {
+                val topInterests = readAccess.interestVector()
+                    .entries.sortedByDescending { it.value }.take(5).joinToString("、") { it.key }
+                if (topInterests.isNotBlank()) {
+                    // 作为额外上下文条目插入 recentTweets 前部，buildUserPrompt 会将其作为近期上下文呈现；
+                    // 不影响去重（去重是精确文本匹配，提示串不会匹配真实推文）
+                    listOf("【用户近期关注话题】$topInterests") + recentTweets
+                } else {
+                    recentTweets
+                }
+            } else {
+                recentTweets
+            }
+
             // ------------------------------------------------------------------
             // 3. 构建 PersonaInput，调用 TweetPromptBuilder.build()
             // ------------------------------------------------------------------
@@ -144,7 +174,7 @@ class TweetGenerationWorker @AssistedInject constructor(
             )
             // #80：传入 activeWindows 以计算活跃窗实际结束小时
             val timeSlotDescription = describeTimeWindow(windowStart, accountZone, account.activeWindows)
-            val messages = promptBuilder.build(personaInput, timeSlotDescription, recentTweets)
+            val messages = promptBuilder.build(personaInput, timeSlotDescription, promptContext)
 
             // ------------------------------------------------------------------
             // 4. 调用 LLM（非流式）
@@ -279,6 +309,29 @@ class TweetGenerationWorker @AssistedInject constructor(
                 logSchedulerEvent(accountId, started, resultStatus, "deduplication conflict")
                 return Result.success(workDataOf(WorkerKeys.KEY_RESULT to resultStatus))
             }
+
+            // #146 A：反哺层打标——为本次推文生成发 scenario 1 事件，供 computeFeedbackEffect 做 A/B 回测。
+            // drivenByProfile 标记本次生成是否受画像驱动（注入了用户兴趣话题）；
+            // control 组同样落事件以便后续计算 driven/control 两组的内容触达率与互动率 delta。
+            runCatching {
+                userActionTracker.trackNow(
+                    UserActionEvent(
+                        id = UUID.randomUUID().toString(),
+                        type = UserActionType.PUBLISH_TWEET,
+                        screen = "tweet_generation",
+                        targetId = tweet.id,
+                        targetKind = "tweet",
+                        extra = mapOf(
+                            "scenarioId" to kotlinx.serialization.json.JsonPrimitive(1),
+                            "drivenByProfile" to kotlinx.serialization.json.JsonPrimitive(drivenScenario1),
+                            "group" to kotlinx.serialization.json.JsonPrimitive(if (drivenScenario1) "driven" else "control"),
+                            "authorId" to kotlinx.serialization.json.JsonPrimitive(accountId),
+                        ),
+                        occurredAt = now,
+                        session = sessionId,
+                    )
+                )
+            }.onFailure { Timber.w(it, "#146 场景 1 打标失败") }
 
             // P1 修复：AI 推文入库后触发 InteractionWorker 排程互动，
             // 使 AI 生成内容也能获得点赞/评论/转发，避免信息流"死气沉沉"。

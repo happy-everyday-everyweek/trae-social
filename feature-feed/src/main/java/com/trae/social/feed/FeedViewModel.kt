@@ -19,6 +19,8 @@ import com.trae.social.core.profiling.capture.SessionManager
 import com.trae.social.core.profiling.capture.UserActionEventBuilder
 import com.trae.social.core.profiling.capture.UserActionTracker
 import com.trae.social.core.data.model.UserActionType
+import com.trae.social.core.profiling.feedback.FeedbackController
+import com.trae.social.core.profiling.feedback.UserProfileReadAccess
 import com.trae.social.feed.di.FeedImageLoader
 import coil.ImageLoader
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -55,6 +57,9 @@ class FeedViewModel @Inject constructor(
     private val configRepository: ConfigRepository,
     private val userActionTracker: UserActionTracker,
     private val sessionManager: SessionManager,
+    // #146 A/E 场景 5（feedBoost）：信息流读侧消费用户画像，暴露兴趣供 UI 展示"为你推荐"标签
+    private val readAccess: UserProfileReadAccess,
+    private val feedbackController: FeedbackController,
     @FeedImageLoader val imageLoader: ImageLoader,
 ) : ViewModel() {
 
@@ -62,6 +67,14 @@ class FeedViewModel @Inject constructor(
     private val actionBuilder = UserActionEventBuilder(userActionTracker) {
         sessionManager.currentSessionId() ?: "unknown"
     }
+
+    /** #146 A/E 场景 5：当前激活画像驱动的信息流 boost 是否生效（UI 据此显示"根据你的兴趣优化"标签）。 */
+    private val _feedBoostEnabled = MutableStateFlow(false)
+    val feedBoostEnabled: StateFlow<Boolean> = _feedBoostEnabled.asStateFlow()
+
+    /** #146 E：用户兴趣画像（top 主题），供 UI 展示兴趣标签；画像为空时返回空。 */
+    private val _profileInterests = MutableStateFlow<List<String>>(emptyList())
+    val profileInterests: StateFlow<List<String>> = _profileInterests.asStateFlow()
 
     /** 账号信息内存缓存，避免分页滚动时重复查库（key = authorId）。
      *  P2 修复：使用 ConcurrentHashMap 保证线程安全，避免 Paging 后台线程并发访问导致 ConcurrentModificationException。
@@ -108,6 +121,14 @@ class FeedViewModel @Inject constructor(
         // IMPL-13：读取跳过引导标记，驱动 FeedScreen 顶部 banner
         viewModelScope.launch {
             _isOnboardingSkipped.value = configRepository.isOnboardingSkipped()
+        }
+        // #146 A/E 场景 5：读取画像反哺权重与兴趣向量，驱动信息流 boost 标签与兴趣展示。
+        // feedBoost 实际重排受 Paging 分页语义约束（重排破坏分页），此处先打通读侧消费，
+        // 暴露 boostEnabled / profileInterests 供 UI 展示；后续可结合 RemoteMediator 做服务端 boost。
+        viewModelScope.launch {
+            _feedBoostEnabled.value = feedbackController.shouldApply(5)
+            _profileInterests.value = readAccess.interestVector()
+                .entries.sortedByDescending { it.value }.take(8).map { it.key }
         }
         // #102：启动时从 DataStore 恢复收藏状态
         viewModelScope.launch {

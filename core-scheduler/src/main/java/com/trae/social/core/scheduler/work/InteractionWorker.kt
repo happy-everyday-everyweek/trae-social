@@ -11,6 +11,12 @@ import com.trae.social.core.data.entity.SchedulerLogEntity
 import com.trae.social.core.data.repository.AccountRepository
 import com.trae.social.core.data.repository.InteractionRepository
 import com.trae.social.core.data.repository.TweetRepository
+import com.trae.social.core.data.model.UserActionEvent
+import com.trae.social.core.data.model.UserActionType
+import com.trae.social.core.profiling.capture.SessionManager
+import com.trae.social.core.profiling.capture.UserActionTracker
+import com.trae.social.core.profiling.feedback.FeedbackController
+import com.trae.social.core.profiling.feedback.UserProfileReadAccess
 import com.trae.social.core.scheduler.ratelimit.SchedulerRateLimiter
 import com.trae.social.llm.ChatConfig
 import com.trae.social.llm.LlmProviderRegistry
@@ -51,6 +57,11 @@ class InteractionWorker @AssistedInject constructor(
     private val llmRegistry: LlmProviderRegistry,
     private val rateLimiter: SchedulerRateLimiter,
     private val logDao: com.trae.social.core.data.dao.SchedulerLogDao,
+    // #146 A/E：反哺层场景 3（interactionAffinity）+ 场景 8（interactionTiming）
+    private val feedbackController: FeedbackController,
+    private val readAccess: UserProfileReadAccess,
+    private val userActionTracker: UserActionTracker,
+    private val sessionManager: SessionManager,
 ) : CoroutineWorker(appContext, params) {
 
     private val commentBuilder = CommentPromptBuilder()
@@ -81,7 +92,13 @@ class InteractionWorker @AssistedInject constructor(
             }
 
             // 2. 选评论者：从虚拟账号中按相似度筛选
-            val candidates = selectCommenters(tweet.authorId, author.profession, author.bio)
+            // #146 A/E 场景 3：判断本次是否 driven（画像驱动互动账号选择）
+            val sessionId = sessionManager.currentSessionId() ?: tweet.id
+            val drivenScenario3 = feedbackController.shouldApply(3, sessionId)
+            val interestVector = if (drivenScenario3) readAccess.interestVector() else emptyMap()
+            val candidates = selectCommenters(
+                tweet.authorId, author.profession, author.bio, drivenScenario3, interestVector,
+            )
             if (candidates.isEmpty()) {
                 status = "skipped_no_commenters"
                 logSchedulerEvent(tweet.authorId, started, status, null)
@@ -93,9 +110,12 @@ class InteractionWorker @AssistedInject constructor(
             // #116：使用 nanoTime + accountId.hashCode() 作为种子，
             // 避免毫秒级种子在并发时产生相同互动模式
             val random = Random(System.nanoTime() xor tweet.authorId.hashCode().toLong())
+            // #146 A/E 场景 8：判断互动时机是否 driven（画像驱动排程时段）
+            val drivenScenario8 = feedbackController.shouldApply(8, sessionId)
+            val userActiveHours = if (drivenScenario8) readAccess.activeHours() else emptyList()
             val assignments = candidates.map { account ->
                 val type = assignInteractionType(random)
-                val delayMillis = scheduleDelayFor(type, random)
+                val delayMillis = scheduleDelayFor(type, random, drivenScenario8, userActiveHours)
                 InteractionAssignment(
                     accountId = account.id,
                     type = type,
@@ -126,6 +146,30 @@ class InteractionWorker @AssistedInject constructor(
                 )
             }
             interactionRepository.scheduleInteractions(interactions)
+
+            // #146 A：反哺层打标——为本次互动排程发 scenario 事件，供 computeFeedbackEffect 做 A/B 回测。
+            // 场景 3/8 共用一次排程，以场景 3 为主标记（互动账号选择），场景 8（时段）作为同次排程的附属维度。
+            // drivenByProfile 标记本次排程是否受画像驱动；control 组同样落事件以便计算互动率 delta。
+            val driven3 = drivenScenario3 || drivenScenario8
+            runCatching {
+                userActionTracker.trackNow(
+                    UserActionEvent(
+                        id = UUID.randomUUID().toString(),
+                        type = UserActionType.TWEET_LIKE,
+                        screen = "interaction_schedule",
+                        targetId = tweet.id,
+                        targetKind = "tweet",
+                        extra = mapOf(
+                            "scenarioId" to kotlinx.serialization.json.JsonPrimitive(3),
+                            "drivenByProfile" to kotlinx.serialization.json.JsonPrimitive(driven3),
+                            "group" to kotlinx.serialization.json.JsonPrimitive(if (driven3) "driven" else "control"),
+                            "interactionCount" to kotlinx.serialization.json.JsonPrimitive(interactions.size),
+                        ),
+                        occurredAt = now,
+                        session = sessionId,
+                    )
+                )
+            }.onFailure { Timber.w(it, "#146 场景 3/8 打标失败") }
 
             // #78：短延迟的 LIKE/FOLLOW/COMMENT/RETWEET 用 OneTimeWorkRequest + setInitialDelay
             // 直接调度，避免受 PendingInteractionWorker 15 分钟周期限制，使互动更像真人即时反应
@@ -182,6 +226,8 @@ class InteractionWorker @AssistedInject constructor(
         authorId: String,
         authorProfession: String,
         authorBio: String,
+        drivenByProfile: Boolean,
+        interestVector: Map<String, Double>,
     ): List<com.trae.social.core.data.entity.AccountEntity> {
         // #106：移除 MAX_ACCOUNT_PAGES 硬编码上限，循环直到无更多数据
         val all = mutableListOf<com.trae.social.core.data.entity.AccountEntity>()
@@ -195,10 +241,18 @@ class InteractionWorker @AssistedInject constructor(
         if (all.isEmpty()) return emptyList()
 
         val authorKeywords = extractKeywords(authorBio + " " + authorProfession)
+        // #146 A/E 场景 3：driven 组在原相似度评分基础上，叠加用户兴趣向量匹配加分，
+        // 使选出的评论者更贴近用户关注领域（画像驱动互动账号选择）；
+        // control 组不加 interestVector 项，保留原始相似度排序，供 computeFeedbackEffect 做 A/B 回测。
         val scored = all.map { account ->
             val overlap = countOverlap(authorKeywords, extractKeywords(account.bio + " " + account.profession))
             val professionMatch = if (account.profession == authorProfession) 2 else 0
-            account to (overlap + professionMatch)
+            // driven 组：评论者 bio/profession 命中用户兴趣关键词则按兴趣权重加分
+            val interestBoost = if (drivenByProfile) {
+                val accountKw = extractKeywords(account.bio + " " + account.profession)
+                accountKw.sumOf { kw -> (interestVector[kw] ?: 0.0) } * 3.0
+            } else 0.0
+            account to (overlap + professionMatch + interestBoost)
         }
         // #82：按相似度分数降序选取。targetCount = min(MAX, max(MIN, 全量 30%))，
         // 即受 MIN/MAX 约束的相似度 Top targetCount 个。
@@ -245,7 +299,12 @@ class InteractionWorker @AssistedInject constructor(
      * - RETWEET：5min - 30min
      * - FOLLOW：1min - 10min
      */
-    private fun scheduleDelayFor(type: InteractionType, random: Random): Long {
+    private fun scheduleDelayFor(
+        type: InteractionType,
+        random: Random,
+        drivenByProfile: Boolean,
+        userActiveHours: List<Int>,
+    ): Long {
         val (minMs, maxMs) = when (type) {
             InteractionType.LIKE -> 30_000L to 5 * 60_000L
             InteractionType.COMMENT -> 2 * 60_000L to 15 * 60_000L
@@ -266,6 +325,33 @@ class InteractionWorker @AssistedInject constructor(
         var raw = exp(logValue).toLong()
         if (raw < minMs) raw = minMs
         if (raw > maxMs) raw = maxMs
+        // #146 A/E 场景 8：driven 组若当前不在用户活跃时段，则将互动延迟到下一个活跃时段，
+        // 使 AI 互动在用户更可能在线的时段触达（画像驱动互动时机）；
+        // control 组保持原始对数正态延迟，供 computeFeedbackEffect 回测时段匹配度差异。
+        if (drivenByProfile && userActiveHours.isNotEmpty()) {
+            val now = System.currentTimeMillis()
+            val cal = java.util.Calendar.getInstance()
+            cal.timeInMillis = now + raw
+            val hour = cal.get(java.util.Calendar.HOUR_OF_DAY)
+            if (hour !in userActiveHours) {
+                // 找下一个活跃小时（最多向前看 24 小时），将延迟延伸到该小时整点
+                var nextHour = (hour + 1) % 24
+                var steps = 0
+                while (nextHour !in userActiveHours && steps < 24) {
+                    nextHour = (nextHour + 1) % 24
+                    steps++
+                }
+                if (nextHour in userActiveHours) {
+                    cal.add(java.util.Calendar.HOUR_OF_DAY, (nextHour - hour + 24) % 24)
+                    cal.set(java.util.Calendar.MINUTE, 0)
+                    cal.set(java.util.Calendar.SECOND, 0)
+                    cal.set(java.util.Calendar.MILLISECOND, 0)
+                    val shifted = cal.timeInMillis - now
+                    // 仅在合理范围内（不超过 maxMs 的 24 倍即约 12h）应用时段偏移，避免异常长延迟
+                    if (shifted in minMs..(maxMs * 24)) raw = shifted
+                }
+            }
+        }
         return raw
     }
 
