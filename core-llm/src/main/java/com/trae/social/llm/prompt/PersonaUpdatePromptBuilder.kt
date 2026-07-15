@@ -49,14 +49,18 @@ class PersonaUpdatePromptBuilder {
      *
      * @param current 当前动态字段。
      * @param recentEvents 最近一周该账号的推文与互动事件描述列表。
+     * @param userInterests 用户兴趣 Top 主题（#146 A/E 场景 7 personaCoEvolve）；
+     *   非空时在 user prompt 追加 【用户兴趣画像】 段，引导人设演进向用户兴趣方向共演化，
+     *   提升虚拟账号与用户的话题共鸣度；为空时走 control 路径（不注入）。
      * @return system + user 两条消息。
      */
     fun build(
         current: PersonaDynamicInput,
         recentEvents: List<String>,
+        userInterests: List<String> = emptyList(),
     ): List<ChatMessage> {
         val system = buildSystemPrompt()
-        val user = buildUserPrompt(current, recentEvents)
+        val user = buildUserPrompt(current, recentEvents, userInterests)
         return listOf(
             ChatMessage(ChatMessage.Role.SYSTEM, system),
             ChatMessage(ChatMessage.Role.USER, user),
@@ -74,6 +78,7 @@ class PersonaUpdatePromptBuilder {
     private fun buildUserPrompt(
         current: PersonaDynamicInput,
         recentEvents: List<String>,
+        userInterests: List<String>,
     ): String {
         return buildString {
             appendLine("【当前动态字段】")
@@ -87,6 +92,17 @@ class PersonaUpdatePromptBuilder {
                 appendLine("（暂无近期事件）")
             } else {
                 recentEvents.forEachIndexed { i, e -> appendLine("${i + 1}. $e") }
+            }
+            // #146 A/E 场景 7 personaCoEvolve：driven 组注入用户兴趣画像，
+            // 引导虚拟账号人设向用户兴趣方向自然共演化，提升话题共鸣度
+            if (userInterests.isNotEmpty()) {
+                appendLine()
+                appendLine("【用户兴趣画像】")
+                appendLine("用户近期关注主题：${userInterests.joinToString("、")}")
+                appendLine("在人设一致性前提下，可适度让角色的经历/工作/兴趣向上述用户关注主题靠拢，")
+                appendLine("使角色与用户有更多共同话题，提升互动自然度与共鸣感。")
+                appendLine("注意：不要生硬堆砌关键词，仅在角色背景合理时自然融入；")
+                appendLine("若角色定位与用户兴趣完全无关，保持角色原有人设不变。")
             }
             appendLine()
             appendLine("请输出 JSON：{\"lifeStory\": \"...\", \"workInfo\": \"...\", \"mood\": \"...\", \"relationshipNetwork\": [\"...\"]}。")

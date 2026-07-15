@@ -113,6 +113,8 @@ class InteractionWorker @AssistedInject constructor(
             // #146 A/E 场景 8：判断互动时机是否 driven（画像驱动排程时段）
             val drivenScenario8 = feedbackController.shouldApply(8, sessionId)
             val userActiveHours = if (drivenScenario8) readAccess.activeHours() else emptyList()
+            // #146 A/E 场景 4：判断评论文本是否 driven（画像驱动评论内容）
+            val drivenScenario4 = feedbackController.shouldApply(4, sessionId)
             val assignments = candidates.map { account ->
                 val type = assignInteractionType(random)
                 val delayMillis = scheduleDelayFor(type, random, drivenScenario8, userActiveHours)
@@ -127,7 +129,7 @@ class InteractionWorker @AssistedInject constructor(
             // 4. 评论批量化：收集需评论者，一次调用 LLM
             val commentAssignments = assignments.filter { it.type == InteractionType.COMMENT }
             val commentTextsByAccount: Map<String, String> = if (commentAssignments.isNotEmpty()) {
-                generateComments(tweet, author, commentAssignments, random)
+                generateComments(tweet, author, commentAssignments, random, drivenScenario4)
             } else {
                 emptyMap()
             }
@@ -170,6 +172,31 @@ class InteractionWorker @AssistedInject constructor(
                     )
                 )
             }.onFailure { Timber.w(it, "#146 场景 3/8 打标失败") }
+
+            // #146 A/E 场景 4 commentPersona：评论文本 driven 单独打标（与场景 3/8 解耦，
+            // 因为评论内容是否受画像驱动独立于账号选择/时段）。仅当本次排程含评论任务时落事件，
+            // 供 computeFeedbackEffect 回测评论文本质量与互动率 delta。
+            if (commentAssignments.isNotEmpty()) {
+                runCatching {
+                    userActionTracker.trackNow(
+                        UserActionEvent(
+                            id = UUID.randomUUID().toString(),
+                            type = UserActionType.TWEET_COMMENT,
+                            screen = "interaction_schedule_comment",
+                            targetId = tweet.id,
+                            targetKind = "tweet",
+                            extra = mapOf(
+                                "scenarioId" to kotlinx.serialization.json.JsonPrimitive(4),
+                                "drivenByProfile" to kotlinx.serialization.json.JsonPrimitive(drivenScenario4),
+                                "group" to kotlinx.serialization.json.JsonPrimitive(if (drivenScenario4) "driven" else "control"),
+                                "commentCount" to kotlinx.serialization.json.JsonPrimitive(commentAssignments.size),
+                            ),
+                            occurredAt = now,
+                            session = sessionId,
+                        )
+                    )
+                }.onFailure { Timber.w(it, "#146 场景 4 打标失败") }
+            }
 
             // #78：短延迟的 LIKE/FOLLOW/COMMENT/RETWEET 用 OneTimeWorkRequest + setInitialDelay
             // 直接调度，避免受 PendingInteractionWorker 15 分钟周期限制，使互动更像真人即时反应
@@ -357,17 +384,24 @@ class InteractionWorker @AssistedInject constructor(
 
     /**
      * 批量生成评论：一次 LLM 调用为所有评论者生成评论文本。
+     *
+     * #146 A/E 场景 4 commentPersona：当 [drivenScenario4] 为 true 时，注入用户兴趣 Top 主题
+     * 到评论 prompt（[CommentPromptBuilder.UserTasteHint]），使评论文本在主题与措辞上贴近
+     * 用户口味；control 组不注入，保留原始评论风格供 A/B 回测。
      */
     private suspend fun generateComments(
         tweet: com.trae.social.core.data.entity.TweetEntity,
         author: com.trae.social.core.data.entity.AccountEntity,
         commenters: List<InteractionAssignment>,
         random: Random,
+        drivenScenario4: Boolean,
     ): Map<String, String> {
         if (commenters.isEmpty()) return emptyMap()
         rateLimiter.acquire()
 
         val personas = commenters.map { it.persona }
+        // #146 场景 4：driven 组收集用户口味提示（兴趣 Top 主题 + 高权重映射 + 叙事摘要）
+        val userTaste = if (drivenScenario4) collectUserTasteHint() else null
         val messages = commentBuilder.build(
             tweet = CommentPromptBuilder.TweetInput(
                 text = tweet.text,
@@ -375,6 +409,7 @@ class InteractionWorker @AssistedInject constructor(
                 authorProfession = author.profession,
             ),
             commenters = personas,
+            userTaste = userTaste,
         )
         val raw = try {
             llmRegistry.getDefaultClient().chatSync(
@@ -397,6 +432,48 @@ class InteractionWorker @AssistedInject constructor(
             }
         }
         return mapping
+    }
+
+    /**
+     * 收集用户口味提示（#146 场景 4）。
+     *
+     * 合并来源：
+     * - interestVector：用户兴趣向量（已合并 theme overrides）；
+     * - latestSnapshot.evidence.topThemes：观察到的 Top 主题（带 weight）；
+     * - activeVersion.narrative：画像叙事摘要（前 120 字）。
+     *
+     * 任一来源缺失时仅降级，不阻断评论生成。
+     */
+    private fun collectUserTasteHint(): CommentPromptBuilder.UserTasteHint {
+        val interestVector = runCatching { readAccess.interestVector() }.getOrDefault(emptyMap())
+        val snapshot = runCatching { readAccess.latestSnapshot() }.getOrNull()
+        val version = runCatching { readAccess.activeVersion() }.getOrNull()
+        val topThemesFromSnapshot = snapshot?.evidence?.topThemes
+            ?.sortedByDescending { it.weight }
+            ?.take(8)
+            ?.map { it.theme }
+            ?: emptyList()
+        val topThemes = (topThemesFromSnapshot + interestVector.keys)
+            .distinct()
+            .take(10)
+        // 高权重映射：interestVector 为权威（已合并 overrides 并归一化），
+        // snapshotWeights 仅补齐 interestVector 中缺失的主题；Kotlin Map + 右操作数覆盖左操作数，
+        // 故 interestVector 放右侧。取 Top 8 用于 prompt 提示。
+        val snapshotWeights = snapshot?.evidence?.topThemes
+            ?.associate { it.theme to it.weight }
+            ?: emptyMap()
+        val mergedWeights = (snapshotWeights + interestVector)
+            .filterValues { it > 0.0 }
+            .entries
+            .sortedByDescending { it.value }
+            .take(8)
+            .associate { it.key to it.value }
+        val narrative = version?.narrative?.takeIf { it.isNotBlank() }
+        return CommentPromptBuilder.UserTasteHint(
+            topThemes = topThemes,
+            topInterestWeights = mergedWeights,
+            narrative = narrative,
+        )
     }
 
     private fun toPersonaInput(
