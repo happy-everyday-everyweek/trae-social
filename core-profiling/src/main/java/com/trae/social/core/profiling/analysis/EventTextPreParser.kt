@@ -12,6 +12,7 @@ import com.trae.social.llm.ChatConfig
 import com.trae.social.llm.ChatMessage
 import com.trae.social.llm.LlmProviderRegistry
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -95,6 +96,9 @@ class EventTextPreParser @Inject constructor(
         return events.map { event ->
             val signals = enriched[event.id] ?: return@map event
             val updatedExtra = event.extra.toMutableMap().apply {
+                // textParsed 标记：无论 LLM 返回的信号是否为空，都标记为已解析，
+                // 避免下次分析窗口内重复调用 LLM（即使 LLM 未能提取 topic 也不重试）
+                put(KEY_TEXT_PARSED, JsonPrimitive(true))
                 signals.topic?.let { put(KEY_TEXT_TOPIC, JsonPrimitive(it)) }
                 if (signals.topics.isNotEmpty()) {
                     put(KEY_TEXT_TOPICS, JsonArray(signals.topics.map { JsonPrimitive(it) }))
@@ -113,8 +117,9 @@ class EventTextPreParser @Inject constructor(
             event.type != UserActionType.TWEET_COMMENT
         ) return false
         if (event.targetId.isNullOrBlank()) return false
-        // 已解析过则跳过（缓存命中）
-        return ProfileMappers.readExtraString(event.extra, KEY_TEXT_TOPIC) == null
+        // 已解析过则跳过（缓存命中）：检查 textParsed 标记，
+        // 而非检查 textTopic（LLM 可能返回 topic=null 但 sentiment/intent 非空）
+        return !ProfileMappers.readExtraBoolean(event.extra, KEY_TEXT_PARSED)
     }
 
     /**
@@ -215,7 +220,7 @@ class EventTextPreParser @Inject constructor(
     }
 
     /** 将 enriched extra 编码为 JSON 字符串并持久化到数据库。 */
-    private suspend fun persistExtra(eventId: String, extra: Map<String, kotlinx.serialization.json.JsonElement>) {
+    private suspend fun persistExtra(eventId: String, extra: Map<String, JsonElement>) {
         val extraStr = if (extra.isEmpty()) {
             ""
         } else {
@@ -243,6 +248,7 @@ class EventTextPreParser @Inject constructor(
     )
 
     internal companion object {
+        internal const val KEY_TEXT_PARSED = "textParsed"
         internal const val KEY_TEXT_TOPIC = "textTopic"
         internal const val KEY_TEXT_TOPICS = "textTopics"
         internal const val KEY_TEXT_SENTIMENT = "textSentiment"

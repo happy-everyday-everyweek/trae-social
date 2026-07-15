@@ -72,6 +72,7 @@ class EventTextPreParserTest {
         assertEquals("摄影", enriched.extra["textTopic"]?.let { (it as JsonPrimitive).content })
         assertEquals("positive", enriched.extra["textSentiment"]?.let { (it as JsonPrimitive).content })
         assertEquals("share", enriched.extra["textIntent"]?.let { (it as JsonPrimitive).content })
+        assertEquals(true, enriched.extra["textParsed"]?.let { (it as JsonPrimitive).content.toBooleanStrict() })
         coVerify { userActionDao.updateExtra("e1", any()) }
     }
 
@@ -104,19 +105,52 @@ class EventTextPreParserTest {
     }
 
     @Test
-    fun `已解析事件（extra 含 textTopic）跳过 LLM 调用`() = runTest {
+    fun `已解析事件（extra 含 textParsed=true）跳过 LLM 调用`() = runTest {
         val event = mkEvent(
             id = "e3",
             type = UserActionType.PUBLISH_TWEET,
             targetId = "tweet-3",
             occurredAt = now,
-            extra = mapOf("textTopic" to JsonPrimitive("旅行")),
+            extra = mapOf(
+                "textParsed" to JsonPrimitive(true),
+                "textTopic" to JsonPrimitive("旅行"),
+            ),
         )
         val result = parser.enrichWithTextSignals(listOf(event))
         assertEquals(1, result.size)
         assertEquals("旅行", result[0].extra["textTopic"]?.let { (it as JsonPrimitive).content })
         coVerify(exactly = 0) { llmRegistry.getClient(any()) }
         coVerify(exactly = 0) { tweetRepository.getById(any()) }
+    }
+
+    @Test
+    fun `textParsed 标记写入 extra 且 LLM 返回 topic=null 时不重复解析`() = runTest {
+        // 第一轮：LLM 返回 topic=null 但 sentiment=positive
+        val event = mkEvent(
+            id = "e3b",
+            type = UserActionType.PUBLISH_TWEET,
+            targetId = "tweet-3b",
+            occurredAt = now,
+        )
+        coEvery { tweetRepository.getById("tweet-3b") } returns mkTweet("tweet-3b", "some text")
+        coEvery { configRepository.getDefaultProvider() } returns LlmProvider.OPENAI
+        coEvery { llmRegistry.getClient(LlmProvider.OPENAI) } returns mkLlmClient(
+            """[{"index":0,"textTopic":null,"textTopics":[],"textSentiment":"positive","textIntent":"share"}]"""
+        )
+
+        val result = parser.enrichWithTextSignals(listOf(event))
+        assertEquals(1, result.size)
+        // textParsed 标记应写入
+        assertEquals(true, result[0].extra["textParsed"]?.let { (it as JsonPrimitive).content.toBooleanStrict() })
+        // topic 为 null，不应写入 textTopic
+        assertNull(result[0].extra["textTopic"])
+        // sentiment 应写入
+        assertEquals("positive", result[0].extra["textSentiment"]?.let { (it as JsonPrimitive).content })
+
+        // 第二轮：同一事件不应再调用 LLM（textParsed=true 缓存命中）
+        val result2 = parser.enrichWithTextSignals(listOf(result[0]))
+        assertEquals(1, result2.size)
+        coVerify(exactly = 1) { llmRegistry.getClient(any()) }
     }
 
     @Test

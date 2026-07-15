@@ -38,7 +38,7 @@ object BasicProfileAnalyzer {
     /** textTopics 次要主题权重系数（辅助信号，降权）。 */
     private const val TEXT_TOPICS_WEIGHT = 0.5
 
-    /** 互动事件权重（view=1, like=3, comment=5, retweet=4, bookmark=6, dwell>5s +2）。 */
+    /** 互动事件权重（view=1, like=3, comment=5, retweet=4, bookmark=6, dwell>5s +2, publish=6）。 */
     private val themeWeights = mapOf(
         UserActionType.TWEET_VIEW to 1.0,
         UserActionType.TWEET_LIKE to 3.0,
@@ -46,6 +46,7 @@ object BasicProfileAnalyzer {
         UserActionType.TWEET_RETWEET to 4.0,
         UserActionType.TWEET_BOOKMARK to 6.0,
         UserActionType.TWEET_DWELL to 2.0,
+        UserActionType.PUBLISH_TWEET to 6.0,
     )
 
     /**
