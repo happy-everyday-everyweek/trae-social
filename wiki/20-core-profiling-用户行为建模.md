@@ -16,8 +16,9 @@
                                      v
 +--------------------------------------------------------------------------------------+
 | 第 4 层  画像反哺层（FeedbackController / ProfileAdjuster / UserProfileReadAccess）    |
-|   8 个反哺场景驱动的 effectiveWeight 计算；override 软删除（superseded）+ 审计链         |
-|   ProfileVersionStore 版本激活/回滚；ProfileCache TTL 30s；灰度 sessionId 哈希稳定分组     |
+|   8 个反哺场景编号（5 完整闭环 1/3/4/6/7，3 部分/预留 2/5/8）驱动 effectiveWeight 计算  |
+|   override 软删除（superseded）+ 审计链；ProfileVersionStore 版本激活/回滚              |
+|   ProfileCache TTL 30s；灰度 sessionId 哈希稳定分组                                    |
 +------------------------------------+-------------------------------------------------+
                                      | 读取基础画像 + override
                                      v
@@ -55,7 +56,7 @@
 | `ProfilingGate`（接口） | `isEnabled()` / `isDebug()`；生产实现 `ConfigProfilingGate` 读 `ConfigRepository.isProfilingEnabled`，`@Volatile enabledCache` + 5s 周期后台刷新（第二轮 review Major 5：避免主线程 `runBlocking` 读 DataStore 触发 ANR） |
 | `SessionManager` | `sessionGapMs=30_000L`，30 秒内 `onResume` 复用同一 `sessionId`；`onResume`/`onPause`/`endSession`，并自动 track `SESSION_START`/`SESSION_END` |
 
-`UserActionTrackerImpl` 批写策略：到达 `BATCH_WINDOW_MS` 或积压 `BATCH_MAX` 条触发一次 `sink.insertAll`；同一 `(type, targetId)` 在 `DEDUP_WINDOW_MS` 内重复事件被去重，避免快速连点造成噪声。
+`UserActionTrackerImpl` 批写策略：到达 `BATCH_WINDOW_MS` 或积压 `BATCH_MAX` 条触发一次 `sink.insertAll`；去重 key 为 4 元组 `type|targetId|session|occurredAt`（`occurredAt` 为毫秒时间戳），同一 key 在 `DEDUP_WINDOW_MS`（1s）内重复事件被丢弃，避免 Compose 重组与快速连点造成噪声。注意：因 `occurredAt` 参与去重，仅同毫秒事件才被去重，跨毫秒的连点仍会各自入库。
 
 ### 第 2 层 基础分析层
 
@@ -74,7 +75,7 @@
 | `TEXT_TOPIC_BOOST` | `1.5` | LLM 预解析出的文本主题加成 |
 | `TEXT_TOPICS_WEIGHT` | `0.5` | 文本主题权重 |
 
-`actionWeights`（事件权重）：
+`actionWeights`（事件权重，单一表供 `computeInterestVector` 与 `baseWeight` 共用）：
 
 | UserActionType | 权重 |
 | --- | --- |
@@ -86,6 +87,9 @@
 | `TWEET_DWELL` | 2.0 |
 | `PUBLISH_TWEET` | 6.0 |
 | `FOLLOW` | 3.0 |
+| `SESSION_START` / `SESSION_END` | 1.0 |
+| `SCREEN_ENTER` / `SCREEN_LEAVE` | 1.0 |
+| 其他（含 `TWEET_UNLIKE` / `TWEET_UNBOOKMARK` / `UNFOLLOW` / `IMAGE_FULLSCREEN` / `CAPTURE_PHOTO` / `APPLY_FILTER` / `PUBLISH_MODE_SWITCH` / `TAB_SWITCH` / `OPEN_*` / `ONBOARDING_*` / `FEEDBACK_*`） | `FALLBACK_WEIGHT=0.5` |
 
 核心方法：
 
@@ -100,7 +104,7 @@
 
 | 关键类（跨模块） | 模块 | 职责 |
 | --- | --- | --- |
-| `UserProfileWorker` | core-scheduler | 周期 LOW=96h / MEDIUM=48h / HIGH=24h；指纹缓存短路 + MIN_NEW_EVENTS=20 短路；429 跳过；narrative 突变（`jaccardSimilarity < 0.4`）保留旧版本 |
+| `UserProfileWorker` | core-scheduler | 周期 LOW=96h / MEDIUM=48h / HIGH=24h（定义在 `WorkerKeys.kt` 的 `WorkerPolicies.userProfilePeriodicRequest`，非本 Worker 内）；指纹缓存短路 + MIN_NEW_EVENTS=20 短路；429 跳过；narrative 突变（`jaccardSimilarity < 0.4`，阈值定义在 `UserProfilePromptBuilder.NARRATIVE_ROLLBACK_THRESHOLD`）保留旧版本 |
 | `UserProfilePromptBuilder` | core-llm | 构造 system / user prompt；`NARRATIVE_ROLLBACK_THRESHOLD=0.4`；约束 narrative 100-300 字、低置信度保守权重 |
 | `ProfileVersionStore` | core-profiling | `insertAndActivate` 原子事务（避免双 active）；`applyRollback` 激活旧版本不删除新版本；`locate` 三种定位方式（versionId / aroundTimestamp / narrativeKeyword） |
 
@@ -110,7 +114,7 @@
 
 | 关键类 | 职责 |
 | --- | --- |
-| `FeedbackController` | `effectiveWeights()` 计算场景级反哺权重；`shouldApply(scenarioId)` / `shouldApply(scenarioId, sessionId)` 灰度判定；`selectDriven()` 场景级配额 + 主题多样性 |
+| `FeedbackController` | `effectiveWeights()` 为薄包装：采集关返回 ZERO，否则直接委托 `UserProfileReadAccessImpl.feedbackWeights()`（真正 clamp/置信度降权/灰度 在 `UserProfileReadAccessImpl` 内完成）；`shouldApply(scenarioId)` 非挂起版仅做场景开关 + 权重>0 判定（不做灰度分流），`shouldApply(scenarioId, sessionId)` 挂起版叠加 sessionId 哈希稳定分组灰度；`selectDriven()` 场景级配额 + 主题多样性 |
 | `ProfileAdjuster` | `applyAll()` 应用 `FeedbackAction`；`markSupersededAndInsert` 原子事务（旧 override 软删除 + 新 override 插入）；`resetAll()` 物理删除全部 override；`SOURCE_FEEDBACK_AGENT` |
 | `UserProfileReadAccess`（接口 + `UserProfileReadAccessImpl`） | 业务侧统一读入口：`clampWeights [0, 0.8]`；`applyConfidence`（`effectiveWeight = feedbackWeight × confidence`，低置信度自动降权）；`applyGrayRatio` 全局灰度 |
 | `ProfileVersionStore` | 见第 3 层 |
@@ -255,7 +259,7 @@ private class ConfigProfilingGate(
 
 ## 事件类型枚举（UserActionType）
 
-`UserActionType` 定义在 `core-data` 模块（`com.trae.social.core.data.model.UserActionType`），按 `category` 分 7 组，共 25 个枚举值。持久化时以 `name` 存入 `user_action_events.type` 列。
+`UserActionType` 定义在 `core-data` 模块（`com.trae.social.core.data.model.UserActionType`），按 `category` 分 8 组，共 34 个枚举值。持久化时以 `name` 存入 `user_action_events.type` 列。
 
 | category | 枚举值 | 说明 |
 | --- | --- | --- |
@@ -292,8 +296,9 @@ private class ConfigProfilingGate(
 - **IQR 异常剔除**：剔除 1.5×IQR 外的极端停留时长等噪声，避免单次长停留污染画像。
 - **指纹缓存复用**：输入指纹命中且无新反馈时跳过 LLM 调用，节省成本。
 - **narrative 突变校验**：`jaccardSimilarity < 0.4` 回滚到旧版本，防止 LLM 偶发幻觉生成与历史割裂的画像叙事。
-- **A/B 反哺效果回测**：`UserProfileAggregator.computeFeedbackEffect()` 对 driven / control 两组计算 8 个场景的 delta，闭环反馈反哺有效性。
+- **A/B 反哺效果回测**：`UserProfileAggregator.computeFeedbackEffect()` 遍历 1..8 调用 `queryScenarioEventsSince`，对带 `scenarioId` 打标的事件按 driven / control 两组计算 delta，闭环反馈反哺有效性。注意：只有接入 driven 路径并打标 `scenarioId` 的场景才会有非零 delta，见下方"反哺场景闭环状态"。
 - **8 个反哺场景编号固定**：`topicBias` / `accountPriority` / `interactionAffinity` / `commentPersona` / `feedBoost` / `followRecommend` / `personaCoEvolve` / `interactionTiming`，编号 1-8，详见 [11 AI 调度系统详解](./11-AI-调度系统详解.md)。
+- **反哺场景闭环状态**：issue #146 验收标准仅要求"至少落地场景 1/3/5"，本 PR 实际已闭环 5 个（1/3/4/6/7）超出验收要求；场景 2/5/8 状态见 [11 AI 调度系统详解 - 反哺场景闭环状态](./11-AI-调度系统详解.md#反哺场景闭环状态)，`computeFeedbackEffect` 对这 3 个场景恒得 delta=0（无 scenarioId 事件），不阻塞回测链路。
 - **灰度稳定分组**：sessionId 哈希取模 100，同一 sessionId 多次会话分组不变，保证 A/B 一致性。
 - **override 软删除 + 审计链**：新 override 写入时旧 override 标记 `superseded=1` 不删除，可追溯覆盖历史；`resetAll()` 才物理删除。
 - **版本回滚不删除**：`applyRollback` 激活旧版本但不删除新版本，保留完整版本时间线，支持反复回滚。
