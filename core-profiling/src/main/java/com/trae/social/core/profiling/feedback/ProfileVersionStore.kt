@@ -70,7 +70,15 @@ class ProfileVersionStore @Inject constructor(
             return versionDao.versionsBeforeTime(ts, 1).firstOrNull()?.toDomain()
         }
         action.narrativeKeyword?.let { kw ->
-            return versionDao.versionsByNarrativeKeyword("%$kw%", 1).firstOrNull()?.toDomain()
+            // 第五轮 review N3 修复:转义 LIKE 通配符(%) / (_) / 反斜杠(\),
+            // 避免用户消息含这些字符时被 SQLite 当作模式匹配符,导致回滚定位命中非预期版本。
+            // 例如"回滚到 100% 那个版本" → 未转义的 pattern `%100%%` 会命中任意包含 100 的 narrative。
+            // DAO 侧已添加 `ESCAPE '\'` 子句与此处配合。
+            val escaped = kw
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_")
+            return versionDao.versionsByNarrativeKeyword("%$escaped%", 1).firstOrNull()?.toDomain()
         }
         // 全部为空 → 取当前激活版本的上一个版本("回到上个版本"语义)
         // 第二轮 review Major 3 修复:旧实现 `recentVersions(2).firstOrNull { it.id != active.id }`
@@ -168,16 +176,22 @@ class ProfileVersionStore @Inject constructor(
      * 若 Worker 在两步之间被系统杀死,双 active 状态永久残留,
      * 后续 `activeVersion()` (`SELECT ... WHERE isActive=1 LIMIT 1`) 返回哪个版本不可预期。
      *
-     * 此实现:insert(isActive=false) → `database.withTransaction { setActive(newId) + trimExcessVersions }`,
+     * 此实现:`database.withTransaction { insertVersion(isActive=false) + setActive(newId) + trimExcessVersions }`,
      * insert 与激活在同一 Room 事务内,任何中途失败整体回滚,不会留下双 active。
+     *
+     * 第五轮 review N4 修复:旧实现 insertVersion 在 withTransaction 之外执行,与注释描述的
+     * "insert 与激活在同一 Room 事务内"不符。虽因 isActive=false 功能上仍安全(中途失败只会留下
+     * 一条未激活的孤儿版本,由 trim 清理),但注释与实现不一致。现将 insertVersion 移入事务,
+     * 真正实现单事务原子性。
      */
     suspend fun insertAndActivate(version: UserProfileVersion): Long = activationMutex.withLock {
-        // 强制 isActive=false 后插入,激活由事务内的 setActive 原子完成
+        // 强制 isActive=false 后插入,insert 与激活由同一 Room 事务原子完成
         val entity = ProfileMappers.run { version.toEntity() }.copy(isActive = false)
-        val newId = versionDao.insertVersion(entity)
-        database.withTransaction {
-            versionDao.setActive(newId)
+        val newId = database.withTransaction {
+            val id = versionDao.insertVersion(entity)
+            versionDao.setActive(id)
             runCatching { trimExcessVersions() }
+            id
         }
         cache.invalidate()
         loader.refresh()

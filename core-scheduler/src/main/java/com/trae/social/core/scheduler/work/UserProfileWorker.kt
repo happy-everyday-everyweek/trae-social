@@ -38,7 +38,7 @@ import java.security.MessageDigest
  *
  * 解析失败：保留旧版本（不产生新版本） + 写 SchedulerLogEntity。
  *
- * 产生新版本：设 isActive=true，自动取消其他版本 active（由 [ProfileVersionStore.activateNewVersion]）。
+ * 产生新版本：由 [ProfileVersionStore.insertAndActivate] 在单事务内 insert(isActive=false) + 激活,自动取消其他版本 active。
  * narrative 突变（jaccardSimilarity < 0.4）：保留旧版本 + 写日志。
  */
 @HiltWorker
@@ -151,6 +151,7 @@ class UserProfileWorker @AssistedInject constructor(
             // 第二轮 review Major 2 修复:不再走 insertVersion(isActive=true) + activateNewVersion 两步,
             // 改用 versionStore.insertAndActivate 在单事务内完成 insert(isActive=false) + setActive,
             // 避免中途进程被杀导致 DB 残留两个 isActive=1 记录。
+            // 第五轮 review N4 修复:insertVersion 已移入 withTransaction 内,真正实现单事务原子性。
             val now = System.currentTimeMillis()
             val version = com.trae.social.core.data.model.UserProfileVersion(
                 id = 0,

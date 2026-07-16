@@ -66,8 +66,13 @@ interface UserProfileDao {
     @Query("SELECT * FROM user_profile_versions WHERE createdAt < :ts ORDER BY createdAt DESC LIMIT :limit")
     suspend fun versionsStrictlyBeforeTime(ts: Long, limit: Int): List<UserProfileVersionEntity>
 
-    /** 回滚定位：narrative 含关键词的最近版本。 */
-    @Query("SELECT * FROM user_profile_versions WHERE narrative LIKE :keywordPattern ORDER BY createdAt DESC LIMIT :limit")
+    /**
+     * 回滚定位：narrative 含关键词的最近版本。
+     *
+     * 第五轮 review N3 修复:添加 `ESCAPE '\'` 子句,配合调用侧对 `%` / `_` / `\` 的转义,
+     * 避免用户消息中含 LIKE 通配符时被 SQLite 当作模式匹配符,导致回滚定位命中非预期版本。
+     */
+    @Query("SELECT * FROM user_profile_versions WHERE narrative LIKE :keywordPattern ESCAPE '\\' ORDER BY createdAt DESC LIMIT :limit")
     suspend fun versionsByNarrativeKeyword(keywordPattern: String, limit: Int): List<UserProfileVersionEntity>
 
     /** 删除最旧的非激活版本（超 maxProfileVersions 上限时调用）。 */

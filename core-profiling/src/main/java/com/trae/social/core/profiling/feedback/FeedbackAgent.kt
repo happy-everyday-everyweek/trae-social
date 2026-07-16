@@ -11,6 +11,7 @@ import com.trae.social.core.data.model.UserActionEvent
 import com.trae.social.core.data.model.UserActionType
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.profiling.capture.ProfilingGate
+import com.trae.social.core.profiling.capture.SessionManager
 import com.trae.social.core.profiling.capture.UserActionTracker
 import com.trae.social.core.profiling.mapping.ProfileMappers
 import com.trae.social.llm.ChatConfig
@@ -48,6 +49,7 @@ class FeedbackAgent @Inject constructor(
     private val readAccess: UserProfileReadAccess,
     private val configRepository: ConfigRepository,
     private val gate: ProfilingGate,
+    private val sessionManager: SessionManager,
 ) {
 
     // F3 修复：与其余 4 个 PromptBuilder 约定一致，直接实例化（无状态、无需 DI）。
@@ -132,7 +134,12 @@ class FeedbackAgent @Inject constructor(
             )
         } catch (t: Throwable) {
             Timber.w(t, "FeedbackAgent LLM 调用失败，降级")
-            return degradedReply("智能体暂时不可用，请稍后再试或使用快捷调整菜单")
+            // 第五轮 review N1 修复:LLM 失败时 USER 消息已入库,若降级回复不落盘,
+            // 历史里会出现"用户发言无回复"的断档。其余出口(parse 失败 / needsClarification /
+            // 正常路径)均已 persistAssistantReply,此处补齐,保证每条 USER 消息都有对应 ASSISTANT 回复。
+            val reply = degradedReply("智能体暂时不可用，请稍后再试或使用快捷调整菜单")
+            persistAssistantReply(reply)
+            return reply
         }
 
         val parsed = FeedbackAgentPromptBuilder.parse(raw) ?: run {
@@ -247,6 +254,12 @@ class FeedbackAgent @Inject constructor(
             val merged = LinkedHashMap<String, JsonElement>()
             merged["messageLen"] = JsonPrimitive(message.length)
             merged.putAll(extra)
+            // 第五轮 review N2 修复:复用 SessionManager.currentSessionId(),与全仓其余埋点
+            // (经 UserActionEventBuilder.emit 走 sessionProvider())一致。旧实现每条反馈事件
+            // 各用一个随机 UUID 作为 session,会被按 session 聚合的分析层当作独立会话,污染会话级指标。
+            // currentSessionId() 为 null(进程刚启动未 onResume)时回退到新 UUID,与 SessionManager
+            // 首次未 resume 的语义一致。
+            val session = sessionManager.currentSessionId() ?: UUID.randomUUID().toString()
             tracker.trackNow(
                 UserActionEvent(
                     id = UUID.randomUUID().toString(),
@@ -257,7 +270,7 @@ class FeedbackAgent @Inject constructor(
                     extra = merged,
                     durationMs = null,
                     occurredAt = occurredAt,
-                    session = UUID.randomUUID().toString(),
+                    session = session,
                 )
             )
         }.onFailure { Timber.w(it, "track feedback event failed") }
