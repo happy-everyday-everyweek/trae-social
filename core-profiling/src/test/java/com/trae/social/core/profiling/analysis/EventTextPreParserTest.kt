@@ -239,6 +239,64 @@ class EventTextPreParserTest {
         assertNotNull(result[2].extra["textTopic"])
     }
 
+    /**
+     * #150 review Q1：LLM 漏返回某 index 时，该事件仍应标记 textParsed=true，
+     * 避免下个分析窗口重复送 LLM 消耗配额。
+     */
+    @Test
+    fun `LLM 漏返回某 index 时仍标记 textParsed 避免重复解析`() = runTest {
+        val event1 = mkEvent("e9a", UserActionType.PUBLISH_TWEET, "tweet-9a", now)
+        val event2 = mkEvent("e9b", UserActionType.PUBLISH_TWEET, "tweet-9b", now)
+        // LLM 只返回了 index=0，漏掉了 index=1
+        coEvery { tweetRepository.getById("tweet-9a") } returns mkTweet("tweet-9a", "摄影分享")
+        coEvery { tweetRepository.getById("tweet-9b") } returns mkTweet("tweet-9b", "美食探店")
+        coEvery { configRepository.getDefaultProvider() } returns LlmProvider.OPENAI
+        coEvery { llmRegistry.getClient(LlmProvider.OPENAI) } returns mkLlmClient(
+            """[{"index":0,"textTopic":"摄影","textTopics":[],"textSentiment":"positive","textIntent":"share"}]"""
+        )
+
+        val result = parser.enrichWithTextSignals(listOf(event1, event2))
+        assertEquals(2, result.size)
+        // event1（index=0）正常解析
+        assertEquals("摄影", result[0].extra["textTopic"]?.let { (it as JsonPrimitive).content })
+        assertEquals(true, result[0].extra["textParsed"]?.let { (it as JsonPrimitive).content.toBooleanStrict() })
+        // event2（index=1 被 LLM 漏掉）仍应标记 textParsed=true，但不写 textTopic
+        assertNull(result[1].extra["textTopic"])
+        assertEquals(true, result[1].extra["textParsed"]?.let { (it as JsonPrimitive).content.toBooleanStrict() })
+
+        // 第二轮：两个事件都应跳过 LLM（textParsed=true 缓存命中）
+        parser.enrichWithTextSignals(result)
+        coVerify(exactly = 1) { llmRegistry.getClient(any()) }
+    }
+
+    /**
+     * #150 review Q3：TWEET_COMMENT 事件携带 commentId 时，按 id 精确回查评论原文，
+     * 不再按时间最近原则匹配（避免多条评论错配）。
+     */
+    @Test
+    fun `TWEET_COMMENT 携带 commentId 时按 id 精确回查评论`() = runTest {
+        val commentId = "comment-precise-id"
+        val event = mkEvent(
+            id = "e10",
+            type = UserActionType.TWEET_COMMENT,
+            targetId = "tweet-10",
+            occurredAt = now,
+            extra = mapOf("commentId" to JsonPrimitive(commentId)),
+        )
+        coEvery { commentRepository.getById(commentId) } returns
+            mkComment(commentId, "tweet-10", "按 id 精确匹配的评论内容", now)
+        coEvery { configRepository.getDefaultProvider() } returns LlmProvider.OPENAI
+        coEvery { llmRegistry.getClient(LlmProvider.OPENAI) } returns mkLlmClient(
+            """[{"index":0,"textTopic":"科技","textTopics":[],"textSentiment":"neutral","textIntent":"opinion"}]"""
+        )
+
+        val result = parser.enrichWithTextSignals(listOf(event))
+        assertEquals(1, result.size)
+        assertEquals("科技", result[0].extra["textTopic"]?.let { (it as JsonPrimitive).content })
+        // 应按 id 精确查询，不应调用 getByTweetAndAuthor
+        coVerify(exactly = 0) { commentRepository.getByTweetAndAuthor(any(), any()) }
+    }
+
     // ---- helpers ----
 
     private fun mkEvent(

@@ -7,10 +7,12 @@ import com.trae.social.core.data.model.UserActionType
 import com.trae.social.core.data.repository.CommentRepository
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.data.repository.TweetRepository
+import com.trae.social.core.data.seed.PersonaSeeder
 import com.trae.social.core.profiling.mapping.ProfileMappers
 import com.trae.social.llm.ChatConfig
 import com.trae.social.llm.ChatMessage
 import com.trae.social.llm.LlmProviderRegistry
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -54,8 +56,11 @@ class EventTextPreParser @Inject constructor(
     private val configRepository: ConfigRepository,
 ) {
 
-    /** 当前用户账号 ID，与 FeedViewModel.USER_SELF_ID 一致。 */
-    private val userSelfId = "user-self"
+    /**
+     * 当前用户账号 ID，单点引用 [PersonaSeeder.USER_SELF_ID]，避免多处硬编码同一字符串
+     * 未来改动漏同步（见 PR #150 review Q3）。
+     */
+    private val userSelfId = PersonaSeeder.USER_SELF_ID
 
     /**
      * 对事件列表中携带文本的事件进行 LLM 预解析，提取文本信号写回 extra。
@@ -83,18 +88,30 @@ class EventTextPreParser @Inject constructor(
 
         // 4. 批量 LLM 解析（分批避免单次 token 超限）
         val enriched = mutableMapOf<String, TextSignals>()
+        // Q1 修复：仅收集"批次成功"的候选事件 ID。批次成功（batchParse 未抛异常）时，
+        // 无论 LLM 是否返回某 index 的条目，都标记 textParsed=true，避免下个分析窗口
+        // 重复送 LLM 消耗配额。批次失败（超时 / 网络异常）时不标记，允许后续重试。
+        val parsedIds = mutableSetOf<String>()
         withText.chunked(MAX_BATCH_SIZE).forEach { batch ->
             runCatching {
-                batchParse(batch, provider).forEach { (eventId, signals) ->
-                    enriched[eventId] = signals
-                }
+                val result = batchParse(batch, provider)
+                // 批次成功：所有该批事件都标记为已解析（即使 LLM 漏返回某 index）
+                batch.forEach { parsedIds.add(it.event.id) }
+                result.forEach { (eventId, signals) -> enriched[eventId] = signals }
             }.onFailure { Timber.w(it, "EventTextPreParser: 批量解析失败 batch.size=%d", batch.size) }
         }
-        if (enriched.isEmpty()) return events
+        if (parsedIds.isEmpty()) return events
 
         // 5. 写回 extra 并持久化
         return events.map { event ->
-            val signals = enriched[event.id] ?: return@map event
+            if (event.id !in parsedIds) return@map event
+            // LLM 未返回该条目时使用空信号，但仍写 textParsed=true
+            val signals = enriched[event.id] ?: TextSignals(
+                topic = null,
+                topics = emptyList(),
+                sentiment = null,
+                intent = null,
+            )
             val updatedExtra = event.extra.toMutableMap().apply {
                 // textParsed 标记：无论 LLM 返回的信号是否为空，都标记为已解析，
                 // 避免下次分析窗口内重复调用 LLM（即使 LLM 未能提取 topic 也不重试）
@@ -126,8 +143,8 @@ class EventTextPreParser @Inject constructor(
      * 按 targetId 回查事件关联的原文。
      *
      * - PUBLISH_TWEET：targetId 为推文 ID，从 tweets 表取 text 字段。
-     * - TWEET_COMMENT：targetId 为被评论推文 ID，从 comments 表取 user-self
-     *   作者的评论，按时间最近原则匹配。
+     * - TWEET_COMMENT：优先按 extra 中的 commentId 精确查询（埋点完整性方案），
+     *   缺失 commentId 时回退到按推文 + 作者 + 时间最近原则匹配（兼容历史数据）。
      */
     private suspend fun retrieveText(event: UserActionEvent): String? {
         val targetId = event.targetId ?: return null
@@ -136,8 +153,15 @@ class EventTextPreParser @Inject constructor(
                 tweetRepository.getById(targetId)?.text
             }
             UserActionType.TWEET_COMMENT -> {
-                val comments = commentRepository.getByTweetAndAuthor(targetId, userSelfId)
-                comments.minByOrNull { abs(it.createdAt - event.occurredAt) }?.content
+                // review 修复：优先用埋点写入的 commentId 精确回查，避免多条评论错配
+                val commentId = ProfileMappers.readExtraString(event.extra, KEY_COMMENT_ID)
+                if (commentId != null) {
+                    commentRepository.getById(commentId)?.content
+                } else {
+                    // 兼容未携带 commentId 的历史事件
+                    val comments = commentRepository.getByTweetAndAuthor(targetId, userSelfId)
+                    comments.minByOrNull { abs(it.createdAt - event.occurredAt) }?.content
+                }
             }
             else -> null
         }?.takeIf { it.isNotBlank() }
@@ -149,10 +173,14 @@ class EventTextPreParser @Inject constructor(
         provider: LlmProvider,
     ): Map<String, TextSignals> {
         val messages = buildPrompt(batch)
-        val raw = llmRegistry.getClient(provider).chatSync(
-            messages = messages,
-            config = ChatConfig(temperature = 0.2f, maxTokens = 768, jsonMode = true),
-        )
+        // review 修复：chatSync 是同步阻塞调用，若 LLM hang 住会卡死 BasicProfileTrigger.compute
+        // 主路径。包 withTimeout 超时后抛 TimeoutCancellationException，由外层 runCatching 降级。
+        val raw = withTimeout(LLM_TIMEOUT_MS) {
+            llmRegistry.getClient(provider).chatSync(
+                messages = messages,
+                config = ChatConfig(temperature = 0.2f, maxTokens = 768, jsonMode = true),
+            )
+        }
         return parseResponse(raw, batch)
     }
 
@@ -253,7 +281,11 @@ class EventTextPreParser @Inject constructor(
         internal const val KEY_TEXT_TOPICS = "textTopics"
         internal const val KEY_TEXT_SENTIMENT = "textSentiment"
         internal const val KEY_TEXT_INTENT = "textIntent"
+        /** 评论埋点写入 extra 的评论 ID 键（capture 层写入，预解析层回查）。 */
+        internal const val KEY_COMMENT_ID = "commentId"
         private const val MAX_BATCH_SIZE = 20
+        /** review 修复：单批 LLM 调用超时上限，超时由 runCatching 降级返回原 events。 */
+        private const val LLM_TIMEOUT_MS = 30_000L
 
         private const val SYSTEM_PROMPT =
             "你是一个社交媒体文本分析助手。从用户发布的文本中提取主题、情感和意图。" +

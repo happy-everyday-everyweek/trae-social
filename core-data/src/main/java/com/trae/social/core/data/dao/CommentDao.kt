@@ -41,4 +41,13 @@ interface CommentDao {
      */
     @Query("SELECT * FROM comments WHERE tweetId = :tweetId AND authorId = :authorId ORDER BY createdAt ASC")
     suspend fun getByTweetAndAuthor(tweetId: String, authorId: String): List<CommentEntity>
+
+    /**
+     * #146 review：按评论 ID 精确查询单条评论原文。
+     *
+     * 供 EventTextPreParser 按 extra 中记录的 commentId 回查，替代按时间最近原则匹配
+     * （后者在用户对同一推文短时间内发多条评论时会错配）。
+     */
+    @Query("SELECT * FROM comments WHERE id = :commentId LIMIT 1")
+    suspend fun getById(commentId: String): CommentEntity?
 }

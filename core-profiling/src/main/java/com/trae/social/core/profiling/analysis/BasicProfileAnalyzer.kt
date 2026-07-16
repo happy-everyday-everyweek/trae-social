@@ -38,8 +38,13 @@ object BasicProfileAnalyzer {
     /** textTopics 次要主题权重系数（辅助信号，降权）。 */
     private const val TEXT_TOPICS_WEIGHT = 0.5
 
-    /** 互动事件权重（view=1, like=3, comment=5, retweet=4, bookmark=6, dwell>5s +2, publish=6）。 */
-    private val themeWeights = mapOf(
+    /**
+     * 互动事件权重（view=1, like=3, comment=5, retweet=4, bookmark=6, dwell>5s +2, publish=6）。
+     *
+     * 单一权重表：兴趣向量计算（[computeInterestVector]）与时间衰减基数（[baseWeight]）
+     * 共用同一份数值，避免两张表手改漏同步导致语义分歧（见 PR #150 review Q2）。
+     */
+    private val actionWeights = mapOf(
         UserActionType.TWEET_VIEW to 1.0,
         UserActionType.TWEET_LIKE to 3.0,
         UserActionType.TWEET_COMMENT to 5.0,
@@ -47,7 +52,15 @@ object BasicProfileAnalyzer {
         UserActionType.TWEET_BOOKMARK to 6.0,
         UserActionType.TWEET_DWELL to 2.0,
         UserActionType.PUBLISH_TWEET to 6.0,
+        UserActionType.FOLLOW to 3.0,
+        UserActionType.SESSION_START to 1.0,
+        UserActionType.SESSION_END to 1.0,
+        UserActionType.SCREEN_ENTER to 1.0,
+        UserActionType.SCREEN_LEAVE to 1.0,
     )
+
+    /** 回退权重：未在 [actionWeights] 中显式列出的动作类型。 */
+    private const val FALLBACK_WEIGHT = 0.5
 
     /**
      * 全量分析：对 [events]（按 occurredAt 排序）计算画像快照。
@@ -154,19 +167,8 @@ object BasicProfileAnalyzer {
         return base * 0.5.pow(ageDays / HALF_LIFE_DAYS)
     }
 
-    private fun baseWeight(type: UserActionType): Double = when (type) {
-        UserActionType.TWEET_VIEW -> 1.0
-        UserActionType.TWEET_LIKE -> 3.0
-        UserActionType.TWEET_COMMENT -> 5.0
-        UserActionType.TWEET_RETWEET -> 4.0
-        UserActionType.TWEET_BOOKMARK -> 6.0
-        UserActionType.TWEET_DWELL -> 2.0
-        UserActionType.FOLLOW -> 3.0
-        UserActionType.PUBLISH_TWEET -> 5.0
-        UserActionType.SESSION_START, UserActionType.SESSION_END,
-        UserActionType.SCREEN_ENTER, UserActionType.SCREEN_LEAVE -> 1.0
-        else -> 0.5
-    }
+    private fun baseWeight(type: UserActionType): Double =
+        actionWeights[type] ?: FALLBACK_WEIGHT
 
     // ---- 活跃时段 ----
 
@@ -199,7 +201,7 @@ object BasicProfileAnalyzer {
     private fun computeInterestVector(weighted: List<Pair<UserActionEvent, Double>>): Map<String, Double> {
         val raw = HashMap<String, Double>()
         weighted.forEach { (e, w) ->
-            val typeWeight = themeWeights[e.type] ?: 0.5
+            val typeWeight = actionWeights[e.type] ?: FALLBACK_WEIGHT
             // 1. imageTheme（预打标主题，被动消费信号）
             ProfileMappers.readExtraString(e.extra, "imageTheme")?.let { theme ->
                 raw[theme] = (raw[theme] ?: 0.0) + w * typeWeight

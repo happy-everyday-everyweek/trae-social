@@ -81,7 +81,7 @@ class FeedbackAgent @Inject constructor(
 
         // 1. 持久化用户消息
         val now = System.currentTimeMillis()
-        runCatching {
+        val persisted = runCatching {
             feedbackDao.insert(
                 UserProfileFeedbackEntity(
                     role = ROLE_USER,
@@ -91,10 +91,13 @@ class FeedbackAgent @Inject constructor(
                     createdAt = now,
                 )
             )
-        }.onFailure { Timber.w(it, "持久化用户消息失败") }
-        // M-反馈4 修复：用户消息已落盘（或持久化失败），DB 计数接管，释放 in-flight 预留占位。
-        // 后续调 LLM：配额已由 DB 行持有，LLM 失败亦不退还（符合 reserve 语义）。
-        inFlight.decrementAndGet()
+        }.onFailure { Timber.w(it, "持久化用户消息失败") }.isSuccess
+        // review 修复：仅在持久化成功时释放 in-flight 预留占位（DB 计数接管）。
+        // 持久化失败时保留占位，避免 count 与 inFlight 双双漏掉本次调用而绕过限流；
+        // 持续失败会令 inFlight 累积并触发限流，符合"DB 抖动时保守降级"的安全语义。
+        if (persisted) {
+            inFlight.decrementAndGet()
+        }
         trackFeedbackEvent(UserActionType.FEEDBACK_MESSAGE_SENT, userMessage, now)
 
         // 2. 构造 prompt 上下文
@@ -196,12 +199,13 @@ class FeedbackAgent @Inject constructor(
     private suspend fun tryAcquireRate(): Boolean = rateMutex.withLock {
         val now = System.currentTimeMillis()
         val since = now - 60 * 60 * 1000L
-        val count = runCatching { feedbackDao.countSince(since) }.getOrDefault(0)
-        // 用户消息 + 智能体回复共享配额，count 翻倍近似（每轮 2 条消息）
-        // M-反馈4 修复：reserve 语义——计入 in-flight 未落盘的并发调用，关闭 check-then-act 竞争窗口；
+        // review 修复：精确统计 USER 消息数作为 round 计数，移除 count/2 近似。
+        // 每轮对话恰为 1 条 USER 消息，ASSISTANT 回复持久化失败不影响 USER 计数准确性。
+        val userCount = runCatching { feedbackDao.countByRoleSince(since, ROLE_USER) }.getOrDefault(0)
+        // reserve 语义：计入 in-flight 未落盘的并发调用，关闭 check-then-act 竞争窗口；
         // 预留本调用配额（+1）在调用 LLM 前即扣除，LLM 失败不退还
-        // （用户消息落盘后由 DB 计数接管，随后释放 in-flight 占位）。
-        val reservedRounds = count / 2 + inFlight.get()
+        // （用户消息落盘后由 DB 计数接管，随后释放 in-flight 占位；持久化失败则保留占位）。
+        val reservedRounds = userCount + inFlight.get()
         if (reservedRounds + 1 > ConfigRepository.FEEDBACK_AGENT_RATE_LIMIT_PER_HOUR) {
             return@withLock false
         }

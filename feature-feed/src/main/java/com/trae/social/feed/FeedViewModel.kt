@@ -211,12 +211,18 @@ class FeedViewModel @Inject constructor(
      */
     fun commentTweet(tweetId: String, text: String) {
         // #146 B：评论埋点（extra 带评论字数，供画像分析评论偏好）
+        // #146 review：提前生成 commentId 写入 extra，供 EventTextPreParser 按 id 精确回查原文，
+        // 避免按时间最近原则匹配在多条评论场景下错配。
+        val commentId = UUID.randomUUID().toString()
         actionBuilder.emit(
             type = UserActionType.TWEET_COMMENT,
             screen = "feed",
             targetId = tweetId,
             targetKind = "tweet",
-            extra = mapOf("commentLen" to kotlinx.serialization.json.JsonPrimitive(text.length)),
+            extra = mapOf(
+                "commentLen" to kotlinx.serialization.json.JsonPrimitive(text.length),
+                "commentId" to kotlinx.serialization.json.JsonPrimitive(commentId),
+            ),
         )
         viewModelScope.launch {
             var interactionInserted = false
@@ -239,7 +245,7 @@ class FeedViewModel @Inject constructor(
                 interactionInserted = true
                 commentRepository.addComment(
                     CommentEntity(
-                        id = UUID.randomUUID().toString(),
+                        id = commentId,
                         tweetId = tweetId,
                         // #133：评论作者为当前用户，与 CommentSheet 乐观展示的"我"一致
                         authorId = USER_SELF_ID,

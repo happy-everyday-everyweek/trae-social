@@ -1,11 +1,9 @@
 package com.trae.social.core.profiling.feedback
 
-import com.trae.social.core.data.dao.UserProfileOverrideDao
 import com.trae.social.core.data.model.FeedbackWeights
 import com.trae.social.core.data.model.OverrideType
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.profiling.capture.ProfilingGate
-import com.trae.social.core.profiling.mapping.ProfileMappers
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -22,7 +20,6 @@ import javax.inject.Singleton
 @Singleton
 class FeedbackController @Inject constructor(
     private val readAccess: UserProfileReadAccess,
-    private val overrideDao: UserProfileOverrideDao,
     private val configRepository: ConfigRepository,
     private val cache: ProfileCache,
     private val gate: ProfilingGate,
@@ -84,7 +81,9 @@ class FeedbackController @Inject constructor(
         // 主题多样性：避免全是 Top-1 主题，按 diversityKey 分组轮取
         // toMutableMap：groupBy 返回不可变 Map，下方需逐组消费候选（set/remove），故转可变
         val grouped = pool.groupBy { diversityKey(it) ?: "unknown" }.toMutableMap()
-        val keys = grouped.keys.shuffled()
+        // review 修复：用 sessionId.hashCode() 作为种子做确定性洗牌，保证同 session 同 pool
+        // 始终选出相同 driven 子集，使 A/B 灰度回测的 delta 可复现（非确定性 shuffled 会让噪声放大）。
+        val keys = grouped.keys.toList().shuffled(kotlin.random.Random(sessionId.hashCode()))
         val result = ArrayList<T>(quotaCount)
         var ki = 0
         while (result.size < quotaCount && grouped.isNotEmpty()) {
@@ -118,10 +117,5 @@ class FeedbackController @Inject constructor(
     private fun kotlin.Int.absoluteMod(mod: Int): Int {
         val r = this % mod
         return if (r < 0) r + mod else r
-    }
-
-    @Suppress("UNUSED")
-    private fun unusedOverrideDaoRef(): UserProfileOverrideDao = overrideDao.also {
-        ProfileMappers.run { /* 保持 import 使用，避免编译器移除依赖 */ }
     }
 }

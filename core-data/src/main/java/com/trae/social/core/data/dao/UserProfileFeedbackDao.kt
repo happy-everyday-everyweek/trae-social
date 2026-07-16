@@ -26,4 +26,13 @@ interface UserProfileFeedbackDao {
 
     @Query("SELECT COUNT(*) FROM user_profile_feedback WHERE createdAt >= :ts")
     suspend fun countSince(ts: Long): Int
+
+    /**
+     * #146 review：按角色统计指定时间后的消息数。
+     *
+     * 用于 FeedbackAgent 限流精确计数 USER 消息（每轮对话 = 1 条 USER 消息），
+     * 替代 countSince/2 的近似（后者在 ASSISTANT 回复持久化失败时持续低估 round 数）。
+     */
+    @Query("SELECT COUNT(*) FROM user_profile_feedback WHERE createdAt >= :ts AND role = :role")
+    suspend fun countByRoleSince(ts: Long, role: String): Int
 }
