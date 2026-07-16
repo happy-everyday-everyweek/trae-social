@@ -54,24 +54,34 @@ class ProfileAdjuster @Inject constructor(
             // EnableScenario 仅软删 SCENARIO_DISABLE 覆盖（无新记录，applyOne 返回 null），
             // 但读侧 shouldApply / disabled_scenarios 缓存必须失效，否则拿不到刚启用的场景。
             var mutated = false
-            for (action in actions) {
-                if (action is FeedbackAction.RollbackProfileVersion) continue
-                val sanitized = action.sanitize() ?: continue
-                val record = applyOne(sanitized, reason)
-                if (record != null) {
-                    applied.add(record)
-                    mutated = true
-                } else if (sanitized is FeedbackAction.EnableScenario) {
-                    // EnableScenario 无新记录但已软删 SCENARIO_DISABLE，需失效缓存
-                    mutated = true
+            try {
+                for (action in actions) {
+                    if (action is FeedbackAction.RollbackProfileVersion) continue
+                    val sanitized = action.sanitize() ?: continue
+                    val record = applyOne(sanitized, reason)
+                    if (record != null) {
+                        applied.add(record)
+                        mutated = true
+                    } else if (sanitized is FeedbackAction.EnableScenario) {
+                        // EnableScenario 无新记录但已软删 SCENARIO_DISABLE，需失效缓存
+                        mutated = true
+                    }
+                }
+                applied
+            } finally {
+                // 第二轮 review Major 4 修复:applyAll 整个循环不在事务内,applyOne 内部
+                // `markSupersededAndInsert` 虽是 @Transaction,但循环本身不是。
+                // 若第 N 个 action 的 applyOne 抛 SQLiteException:前 N-1 个已落盘,异常传出
+                // FeedbackAgent.handle → ProfileChatViewModel.send 的 runCatching,用户看到
+                // "智能体暂时不可用";但原实现 `cache.invalidate()` 被跳过,读侧最长 30s
+                // 返回不含已应用覆盖的旧缓存值。改为 try/finally 确保 mutated=true 时
+                // 缓存总被失效,读侧下次读取合并已应用覆盖。
+                if (mutated) {
+                    cache.invalidate()
+                    loader.refresh()
+                    Timber.i("ProfileAdjuster 应用 %d 条覆盖", applied.size)
                 }
             }
-            if (mutated) {
-                cache.invalidate()
-                loader.refresh()
-                Timber.i("ProfileAdjuster 应用 %d 条覆盖", applied.size)
-            }
-            applied
         }
 
     /**

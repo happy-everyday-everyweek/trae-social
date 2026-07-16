@@ -64,17 +64,29 @@ class BasicProfileTrigger @Inject constructor(
     }
 
     private suspend fun scheduleCompute(now: Long, force: Boolean = false) {
-        // debounce 30s
-        if (!force && pending && now - lastTriggerAt < DEBOUNCE_MS) return
+        // 第二轮 review Major 1 修复：原判断 `pending && now - lastTriggerAt < DEBOUNCE_MS`
+        // 用 AND 合并两条件,而 lastTriggerAt 仅在 compute 完成后才更新,
+        // 当 lastTriggerAt 是旧值时第二条件恒 false,pending=true 仍可绕过 → 并发执行多次 compute。
+        // 修正为 OR 语义:pending(已正在 compute) 阻断并发,时间窗口阻断 compute 刚结束即重算。
+        // 同时在 mutex 内同步更新 lastTriggerAt 标记 debounce 窗口起点,关闭 check-then-act 竞争窗口。
         mutex.withLock {
-            if (!force && pending && System.currentTimeMillis() - lastTriggerAt < DEBOUNCE_MS) return
+            if (!force) {
+                if (pending) return
+                if (System.currentTimeMillis() - lastTriggerAt < DEBOUNCE_MS) return
+                // 标记 debounce 窗口起点,使并发的 scheduleCompute 调用在此窗口内被拦截
+                lastTriggerAt = System.currentTimeMillis()
+            }
             pending = true
         }
         delay(DEBOUNCE_MS)
         runCatching { compute(now) }
             .onFailure { Timber.w(it, "基础分析计算失败") }
-        pending = false
-        lastTriggerAt = System.currentTimeMillis()
+        mutex.withLock {
+            pending = false
+            // compute 完成后再次刷新 lastTriggerAt,使"刚结束的 compute"在 DEBOUNCE_MS 内
+            // 不会被紧随其后的触发立即重算
+            lastTriggerAt = System.currentTimeMillis()
+        }
     }
 
     private suspend fun compute(now: Long) {

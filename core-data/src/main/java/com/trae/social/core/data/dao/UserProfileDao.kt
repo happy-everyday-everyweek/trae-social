@@ -55,6 +55,17 @@ interface UserProfileDao {
     @Query("SELECT * FROM user_profile_versions WHERE createdAt <= :ts ORDER BY createdAt DESC LIMIT :limit")
     suspend fun versionsBeforeTime(ts: Long, limit: Int): List<UserProfileVersionEntity>
 
+    /**
+     * 第二轮 review Major 3 修复:查询比指定 createdAt 严格更早的最近版本。
+     *
+     * 用于 `ProfileVersionStore.locate` 的"回到上个版本"语义——
+     * 旧实现 `recentVersions(2).firstOrNull { it.id != active.id }` 在回滚态下
+     * (active 是旧版本,如 V2 active 而 V5 最新)会返回 V5 而非 V2 的上一个版本,
+     * 违反"回到上个版本"语义。改为按 active.createdAt 严格向前查询。
+     */
+    @Query("SELECT * FROM user_profile_versions WHERE createdAt < :ts ORDER BY createdAt DESC LIMIT :limit")
+    suspend fun versionsStrictlyBeforeTime(ts: Long, limit: Int): List<UserProfileVersionEntity>
+
     /** 回滚定位：narrative 含关键词的最近版本。 */
     @Query("SELECT * FROM user_profile_versions WHERE narrative LIKE :keywordPattern ORDER BY createdAt DESC LIMIT :limit")
     suspend fun versionsByNarrativeKeyword(keywordPattern: String, limit: Int): List<UserProfileVersionEntity>

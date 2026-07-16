@@ -5,7 +5,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.util.UUID
@@ -145,8 +144,10 @@ class UserActionTrackerImpl @Inject constructor(
             }
             flush(batch)
             batch.clear()
-            // 避免空转
-            if (batch.isEmpty()) delay(10)
+            // 第二轮 review Nit 修复:原 `if (batch.isEmpty()) delay(10)` 在 clear 之后执行,
+            // batch.isEmpty() 恒为 true,delay 每次 flush 后都执行,注释"避免空转"与实际不符
+            // (非空转时也在 delay)。channel.receive() 已是 suspending 调用,无事件时挂起,
+            // 不会 busy loop,无需额外 delay 防空转,直接删除避免拖慢批写。
         }
     }
 

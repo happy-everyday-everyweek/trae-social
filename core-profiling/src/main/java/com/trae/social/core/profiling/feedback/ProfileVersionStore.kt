@@ -72,11 +72,13 @@ class ProfileVersionStore @Inject constructor(
         action.narrativeKeyword?.let { kw ->
             return versionDao.versionsByNarrativeKeyword("%$kw%", 1).firstOrNull()?.toDomain()
         }
-        // 全部为空 → 取当前激活版本的上一个版本
+        // 全部为空 → 取当前激活版本的上一个版本("回到上个版本"语义)
+        // 第二轮 review Major 3 修复:旧实现 `recentVersions(2).firstOrNull { it.id != active.id }`
+        // 在回滚态下会返回更新版本——如 V2 active 而 V5 是最新时,`recentVersions(2)` 返回 [V5, V4],
+        // `firstOrNull { it.id != active.id }` = V5(比 active 更新),违反"回到上个版本"语义。
+        // 改为查询比 active.createdAt 严格更早的最近版本,正确表达"上一个版本"。
         val active = versionDao.activeVersion() ?: versionDao.latestVersion() ?: return null
-        val recent = versionDao.recentVersions(2)
-        // recent 按 createdAt DESC 返回，第一项是最新（或激活），第二项是上一个
-        return recent.firstOrNull { it.id != active.id }?.toDomain()
+        return versionDao.versionsStrictlyBeforeTime(active.createdAt, 1).firstOrNull()?.toDomain()
     }
 
     /**
@@ -155,6 +157,31 @@ class ProfileVersionStore @Inject constructor(
         runCatching { trimExcessVersions() }
         cache.invalidate()
         loader.refresh()
+    }
+
+    /**
+     * 第二轮 review Major 2 修复:原子插入并激活新版本。
+     *
+     * 旧实现(Worker 内两步):
+     * 1. `insertVersion(isActive=true)` → DB 中暂时存在旧 active 与新版本两条 isActive=1
+     * 2. `activateNewVersion(newId)` → 才清除旧 active
+     * 若 Worker 在两步之间被系统杀死,双 active 状态永久残留,
+     * 后续 `activeVersion()` (`SELECT ... WHERE isActive=1 LIMIT 1`) 返回哪个版本不可预期。
+     *
+     * 此实现:insert(isActive=false) → `database.withTransaction { setActive(newId) + trimExcessVersions }`,
+     * insert 与激活在同一 Room 事务内,任何中途失败整体回滚,不会留下双 active。
+     */
+    suspend fun insertAndActivate(version: UserProfileVersion): Long = activationMutex.withLock {
+        // 强制 isActive=false 后插入,激活由事务内的 setActive 原子完成
+        val entity = ProfileMappers.run { version.toEntity() }.copy(isActive = false)
+        val newId = versionDao.insertVersion(entity)
+        database.withTransaction {
+            versionDao.setActive(newId)
+            runCatching { trimExcessVersions() }
+        }
+        cache.invalidate()
+        loader.refresh()
+        newId
     }
 
     // ---- 内部 ----

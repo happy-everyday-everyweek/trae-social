@@ -194,9 +194,21 @@ class ProfileChatViewModel @Inject constructor(
         viewModelScope.launch {
             val history = runCatching { feedbackDao.recent(HISTORY_LIMIT) }
                 .getOrDefault(emptyList())
-            _messages.value = history
                 .sortedBy { it.createdAt }
                 .map { it.toChatMessage() }
+            // 第二轮 review Minor 8 修复:loadHistory 异步从 DB 读取并整体替换 _messages,
+            // 若 loadHistory 完成于 send 乐观追加之后、feedbackAgent.handle 持久化之前,
+            // 历史替换会覆盖乐观追加的消息。改为合并:用历史做基底,叠加当前 _messages 中
+            // 尚未持久化的乐观追加消息(以 history 末尾 timestamp 为界,时间戳大于该值的
+            // 视为乐观追加且尚未落盘的消息,避免被历史覆盖丢失)。
+            val current = _messages.value
+            if (current.isEmpty()) {
+                _messages.value = history
+            } else {
+                val maxHistoryTs = history.lastOrNull()?.timestamp ?: 0L
+                val pending = current.filter { it.timestamp > maxHistoryTs }
+                _messages.value = history + pending
+            }
         }
     }
 
@@ -252,17 +264,19 @@ data class ChatMessage(
     enum class Role { USER, ASSISTANT }
 
     companion object {
-        private var seq: Long = 0L
+        // 第二轮 review Nit 修复:seq 当前仅在 viewModelScope(Main.immediate) 单线程调用所以安全,
+        // 但跨 ViewModel 实例共享且无并发保护,改用 AtomicLong 防御并发递增场景。
+        private val seq = java.util.concurrent.atomic.AtomicLong(0L)
 
         fun user(text: String, timestamp: Long): ChatMessage = ChatMessage(
-            id = seq++,
+            id = seq.getAndIncrement(),
             role = Role.USER,
             text = text,
             timestamp = timestamp,
         )
 
         fun assistant(reply: AgentReply): ChatMessage = ChatMessage(
-            id = seq++,
+            id = seq.getAndIncrement(),
             role = Role.ASSISTANT,
             text = reply.text,
             timestamp = System.currentTimeMillis(),

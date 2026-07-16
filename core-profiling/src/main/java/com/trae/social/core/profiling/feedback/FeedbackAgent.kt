@@ -22,7 +22,6 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import timber.log.Timber
 import java.util.UUID
-import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -56,12 +55,19 @@ class FeedbackAgent @Inject constructor(
     private val rateMutex = Mutex()
 
     /**
-     * M-反馈4 修复：已通过限流闸门、但用户消息尚未落盘的并发调用计数（reserve 占位）。
+     * M-反馈4 修复：已通过限流闸门、但用户消息尚未落盘的并发调用占位（reserve 时间戳队列）。
      *
      * 用于补足纯 DB 计数（[UserProfileFeedbackDao.countSince]）的 check-then-act 竞争窗口：
      * 闸门放行后到用户消息落盘前，并发调用不会增加 DB 计数，需以此计数预留配额。
+     *
+     * 第二轮 review Minor 7 修复:旧实现用 `AtomicInteger` 无时间窗口,持久化持续失败时
+     * 占位永不释放,连续 10 次失败后 `inFlight=10`,限流永久阻塞直到应用重启。
+     * 改为 `ConcurrentLinkedQueue<Long>` 存占位时间戳:
+     * - 持久化成功时 poll() 移除一个占位(DB 计数接管)
+     * - 持久化失败时保留占位(保守降级,符合上轮 review)
+     * - `tryAcquireRate` 每次先清理超过 1h(与限流窗口一致)的过期占位,避免永久锁死
      */
-    private val inFlight = AtomicInteger(0)
+    private val inFlightTimestamps = java.util.concurrent.ConcurrentLinkedQueue<Long>()
 
     /**
      * 处理用户消息：解析意图 → 应用非回滚 Action → 生成回滚预览 → 持久化回复。
@@ -94,9 +100,11 @@ class FeedbackAgent @Inject constructor(
         }.onFailure { Timber.w(it, "持久化用户消息失败") }.isSuccess
         // review 修复：仅在持久化成功时释放 in-flight 预留占位（DB 计数接管）。
         // 持久化失败时保留占位，避免 count 与 inFlight 双双漏掉本次调用而绕过限流；
-        // 持续失败会令 inFlight 累积并触发限流，符合"DB 抖动时保守降级"的安全语义。
+        // 持续失败会令占位累积并触发限流，符合"DB 抖动时保守降级"的安全语义。
+        // 第二轮 review Minor 7 修复:占位带时间戳,超过 1h(限流窗口)后由 tryAcquireRate
+        // 自动清理,避免持续失败导致限流永久锁死。
         if (persisted) {
-            inFlight.decrementAndGet()
+            inFlightTimestamps.poll()
         }
         trackFeedbackEvent(UserActionType.FEEDBACK_MESSAGE_SENT, userMessage, now)
 
@@ -199,17 +207,29 @@ class FeedbackAgent @Inject constructor(
     private suspend fun tryAcquireRate(): Boolean = rateMutex.withLock {
         val now = System.currentTimeMillis()
         val since = now - 60 * 60 * 1000L
+        // 第二轮 review Minor 7 修复:先清理 in-flight 中超过 1h(限流窗口)的过期占位,
+        // 避免持久化持续失败时占位累积触发限流永久锁死。FIFO 队列按时间戳升序,
+        // peek/poll 即可清理最早过期项。
+        while (true) {
+            val oldest = inFlightTimestamps.peek() ?: break
+            if (oldest < since) {
+                inFlightTimestamps.poll()
+            } else {
+                break
+            }
+        }
         // review 修复：精确统计 USER 消息数作为 round 计数，移除 count/2 近似。
         // 每轮对话恰为 1 条 USER 消息，ASSISTANT 回复持久化失败不影响 USER 计数准确性。
         val userCount = runCatching { feedbackDao.countByRoleSince(since, ROLE_USER) }.getOrDefault(0)
         // reserve 语义：计入 in-flight 未落盘的并发调用，关闭 check-then-act 竞争窗口；
         // 预留本调用配额（+1）在调用 LLM 前即扣除，LLM 失败不退还
-        // （用户消息落盘后由 DB 计数接管，随后释放 in-flight 占位；持久化失败则保留占位）。
-        val reservedRounds = userCount + inFlight.get()
+        // （用户消息落盘后由 DB 计数接管，随后释放 in-flight 占位；持久化失败则保留占位,
+        //   但 1h 后会被 tryAcquireRate 自动清理）。
+        val reservedRounds = userCount + inFlightTimestamps.size
         if (reservedRounds + 1 > ConfigRepository.FEEDBACK_AGENT_RATE_LIMIT_PER_HOUR) {
             return@withLock false
         }
-        inFlight.incrementAndGet() // 预留本调用配额
+        inFlightTimestamps.add(now) // 预留本调用配额(带时间戳)
         true
     }
 

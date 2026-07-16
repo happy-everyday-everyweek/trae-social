@@ -147,8 +147,10 @@ class UserProfileWorker @AssistedInject constructor(
                 return Result.success(workDataOf(WorkerKeys.KEY_RESULT to "narrative_rollback"))
             }
 
-            // 6. 落库新版本（isActive=true，自动取消其他）
-            // M2：provider 已在 LLM 调用前获取并判空，此处直接复用（移除冗余 runCatching 兜底）
+            // 6. 落库新版本（原子插入并激活，避免双 active 窗口）
+            // 第二轮 review Major 2 修复:不再走 insertVersion(isActive=true) + activateNewVersion 两步,
+            // 改用 versionStore.insertAndActivate 在单事务内完成 insert(isActive=false) + setActive,
+            // 避免中途进程被杀导致 DB 残留两个 isActive=1 记录。
             val now = System.currentTimeMillis()
             val version = com.trae.social.core.data.model.UserProfileVersion(
                 id = 0,
@@ -166,11 +168,11 @@ class UserProfileWorker @AssistedInject constructor(
                 inputFingerprint = fingerprint,
                 snapshotId = null,
                 rollbackFrom = null,
-                isActive = true,
+                // 由 versionStore.insertAndActivate 在事务内统一激活,此处保持 false
+                isActive = false,
                 createdAt = now,
             )
-            val newId = userProfileDao.insertVersion(ProfileMappers.run { version.toEntity() })
-            versionStore.activateNewVersion(newId)
+            val newId = versionStore.insertAndActivate(version)
             logEvent(started, "success", "versionId=$newId")
             return Result.success(workDataOf(WorkerKeys.KEY_RESULT to "success", "versionId" to newId))
         } catch (t: Throwable) {

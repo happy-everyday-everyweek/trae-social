@@ -197,22 +197,26 @@ object BasicProfileAnalyzer {
      *
      * textTopic 权重提升 [TEXT_TOPIC_BOOST] 倍（用户主动写出的主题比被动浏览
      * 的图片主题更能反映真实兴趣），textTopics 次要主题权重降为 [TEXT_TOPICS_WEIGHT]。
+     *
+     * 第二轮 review Minor 6 修复:Q2 合并两表后,w 已含 `actionWeights[type] * timeDecay`,
+     * 再乘 `actionWeights[type]` 会让权重平方化(PUBLISH_TWEET 实际贡献为 6.0² * decay = 36 * decay,
+     * FOLLOW 跃升至 9 * decay)。直接用 w 作为基础贡献,避免类型权重被应用两次;
+     * TEXT_TOPIC_BOOST / TEXT_TOPICS_WEIGHT 是对文本信号的额外提升/降权,保留。
      */
     private fun computeInterestVector(weighted: List<Pair<UserActionEvent, Double>>): Map<String, Double> {
         val raw = HashMap<String, Double>()
         weighted.forEach { (e, w) ->
-            val typeWeight = actionWeights[e.type] ?: FALLBACK_WEIGHT
             // 1. imageTheme（预打标主题，被动消费信号）
             ProfileMappers.readExtraString(e.extra, "imageTheme")?.let { theme ->
-                raw[theme] = (raw[theme] ?: 0.0) + w * typeWeight
+                raw[theme] = (raw[theme] ?: 0.0) + w
             }
             // 2. textTopic（LLM 预解析主主题，主动表达信号，权重提升）
             ProfileMappers.readExtraString(e.extra, "textTopic")?.let { topic ->
-                raw[topic] = (raw[topic] ?: 0.0) + w * typeWeight * TEXT_TOPIC_BOOST
+                raw[topic] = (raw[topic] ?: 0.0) + w * TEXT_TOPIC_BOOST
             }
             // 3. textTopics（LLM 预解析次要主题，辅助信号）
             ProfileMappers.readExtraStringList(e.extra, "textTopics").forEach { topic ->
-                raw[topic] = (raw[topic] ?: 0.0) + w * typeWeight * TEXT_TOPICS_WEIGHT
+                raw[topic] = (raw[topic] ?: 0.0) + w * TEXT_TOPICS_WEIGHT
             }
         }
         return normalize(raw)

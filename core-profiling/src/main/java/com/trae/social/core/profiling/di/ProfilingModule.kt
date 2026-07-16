@@ -14,6 +14,12 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import timber.log.Timber
 
 /**
  * core-profiling 模块 Hilt 装配（#146）。
@@ -64,6 +70,11 @@ private class DaoUserActionSink(
 /**
  * [ProfilingGate] 的实现：从 [ConfigRepository] 读取采集开关；
  * 调试旁路读取 profiling_debug DataStore key（此处复用 isProfilingEnabled，简化）。
+ *
+ * 第二轮 review Major 5 修复:原实现 `isEnabled()` 在缓存过期时 `runBlocking` 读取 DataStore,
+ * 而 `UserActionTracker.trackNow` 被 `FeedViewModel` / `PublishViewModel` 等 UI 事件处理器
+ * 直接调用(运行在主线程),runBlocking + DataStore IO 会触发 ANR。
+ * 改为后台协程周期性刷新 `@Volatile enabledCache`,`isEnabled()` 仅读缓存,永不阻塞调用线程。
  */
 private class ConfigProfilingGate(
     private val configRepository: ConfigRepository,
@@ -71,27 +82,26 @@ private class ConfigProfilingGate(
 
     @Volatile
     private var enabledCache: Boolean = true
-    @Volatile
-    private var cacheAt: Long = 0L
 
-    override fun isEnabled(): Boolean {
-        val now = System.currentTimeMillis()
-        if (now - cacheAt < GATE_CACHE_TTL_MS) return enabledCache
-        // 同步返回缓存值，后台异步刷新（ConfigRepository 为 suspend）
-        // 注意：runBlocking 在 IO 线程上短暂使用，避免阻塞 UI；
-        // Tracker 调用方已在 IO 上下文，此处仅作为容错兜底，主路径仍由调用方应启用缓存读取。
-        cacheAt = now
-        runCatching {
-            kotlinx.coroutines.runBlocking {
-                enabledCache = configRepository.isProfilingEnabled()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    init {
+        // 后台协程周期性刷新缓存:首次立即读取一次,之后按 REFRESH_INTERVAL_MS 周期刷新。
+        // 失败时仅 Timber.w 警告并沿用上次缓存值,不抛出。
+        scope.launch {
+            while (true) {
+                runCatching { enabledCache = configRepository.isProfilingEnabled() }
+                    .onFailure { Timber.w(it, "刷新 profiling 开关失败,沿用上次缓存值") }
+                delay(REFRESH_INTERVAL_MS)
             }
         }
-        return enabledCache
     }
+
+    override fun isEnabled(): Boolean = enabledCache
 
     override fun isDebug(): Boolean = false
 
     private companion object {
-        const val GATE_CACHE_TTL_MS = 5_000L
+        const val REFRESH_INTERVAL_MS = 5_000L
     }
 }
