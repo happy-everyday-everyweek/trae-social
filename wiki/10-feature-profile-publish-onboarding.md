@@ -4,7 +4,7 @@
 
 ## feature-profile
 
-namespace `com.trae.social.feature.profile`。依赖 `core-scheduler` / `work-runtime-ktx` / `coil-compose` / `coil-svg` / `material-icons-extended`。
+namespace `com.trae.social.feature.profile`。依赖 `core-scheduler` / `core-profiling`（#146 ProfileChat / DevOptions 画像调试）/ `work-runtime-ktx` / `coil-compose` / `coil-svg` / `material-icons-extended`。
 
 ### ProfileScreen
 
@@ -48,7 +48,18 @@ namespace `com.trae.social.feature.profile`。依赖 `core-scheduler` / `work-ru
 
 ### DevOptionsScreen
 
-参数 `onBack`。当前活跃度档位（name + rpmLimit + dailyPostsPerAccount）。手动触发调度（推文生成 / 互动处理 / 人设处理 / 人设更新 `OutlinedButton` + `Button`）。LLM 调用统计（总调用 / 成功 / 失败 / 限流429 / 成功率 + 按类型分布）。调度日志（`LogRow` action·result + durationMs + timestamp·accountId + errorMessage）。`LaunchedEffect(triggerResult)` -> `Snackbar`。
+参数 `onBack` / `onNavigateToProfileChat`。`@HiltViewModel` 注入 `DevOptionsViewModel` 与 `ProfileInspectViewModel`（#146 B7 修复：接入 `ProfileInspectViewModel` 让"我的画像"展示与回滚入口落地，原为孤立死代码）。
+
+页面区块（按 `LazyColumn` 顺序）：
+
+1. **我的画像**（#146 B7 落地）：激活版本叙事（`version.narrative.take(200)`）+ "生成画像" `OutlinedButton`（调 `profileViewModel.triggerUserProfileUpdate()`）+ "调校对话" `Button`（`onNavigateToProfileChat`）+ 版本时间线（`profileRecentVersions.take(5)`，每行 `#id [当前] narrativePreview.take(30)` + 非激活版本"回滚"按钮调 `profileViewModel.rollbackTo(v.id)`）。
+2. 当前活跃度档位：name + rpmLimit + dailyPostsPerAccount。
+3. **画像调试开关**（#146 F1）：行为采集 `Switch`（`profilingEnabled` / `setProfilingEnabled`，描述"关闭后停止记录用户行为、反哺降级"）+ 反馈智能体 `Switch`（`feedbackAgentEnabled` / `setFeedbackAgentEnabled`，描述"画像调校对话页的 LLM 智能体"）+ 反哺灰度比例 `Slider`（`feedbackGrayRatio` / `setFeedbackGrayRatio`，`valueRange = 0f..1f`，`steps = 9`，0%–100% 步进 10%，描述"0% 灰度=完全不反哺，100% 灰度=全量反哺"）。
+4. 手动触发调度：推文生成 / 互动处理 / 人设处理 / 人设更新 `OutlinedButton` + `Button`。
+5. LLM 调用统计：总调用 / 成功 / 失败 / 限流429 / 成功率 + 按类型分布。
+6. 调度日志：`LogRow` action·result + durationMs + timestamp·accountId + errorMessage。
+
+`LaunchedEffect(triggerResult)` / `LaunchedEffect(profileTriggerResult)` -> `Snackbar`（画像操作与手动触发结果均通过 Snackbar 反馈）。
 
 `DevOptionsViewModel`：`@HiltViewModel` 注入 `appContext` / `SchedulerLogDao` / `ConfigRepository` / `AccountRepository`。`logsFlow = observeRecent(200).stateIn(WhileSubscribed(5000))`。手动触发均 `enqueueUniqueWork(..., REPLACE)`：
 
@@ -56,7 +67,56 @@ namespace `com.trae.social.feature.profile`。依赖 `core-scheduler` / `work-ru
 - `triggerPendingInteractions`（`OneTimeWorkRequestBuilder<PendingInteractionWorker>`）
 - `triggerPersonaUpdate`（`OneTimeWorkRequestBuilder<PersonaUpdateWorker>`）
 
+#146 F1 新增画像调试开关状态（三个 `StateFlow`，init 时从 `ConfigRepository` 读取，失败回退默认值）：
+
+- `profilingEnabled`（默认 `true`）/ `setProfilingEnabled(enabled)` -> `configRepository.setProfilingEnabled`
+- `feedbackGrayRatio`（默认 `DEFAULT_FEEDBACK_GRAY_RATIO=1.0`）/ `setFeedbackGrayRatio(ratio)` -> `configRepository.setFeedbackGrayRatio`
+- `feedbackAgentEnabled`（默认 `true`）/ `setFeedbackAgentEnabled(enabled)` -> `configRepository.setFeedbackAgentEnabled`
+
 常量 `LOG_LIMIT = 200`。
+
+### ProfileChatScreen（#146 画像调校对话页）
+
+参数 `onBack`。`TopAppBar`（标题"画像调校"）+ `ProfileSummaryCard`（顶部画像摘要：激活版本 + 最新快照 + 覆盖数量 + 版本时间线入口）+ `LazyColumn` 消息流（`MessageBubble` USER / ASSISTANT 交替）+ `RollbackPreviewCard`（待确认回滚预览，"确认回滚" / "取消"按钮）+ 底部输入区（`TextField` + 发送按钮，`sending` 时禁用）。`LaunchedEffect(toast)` -> `Snackbar`。
+
+`ProfileChatViewModel`：`@HiltViewModel` 注入 `FeedbackAgent` / `UserProfileReadAccess` / `ProfileVersionStore` / `UserProfileFeedbackDao` / `ConfigRepository`。状态：
+
+- `messages: StateFlow<List<ChatMessage>>`（对话历史，按 `createdAt` 升序，跨会话持久化来自 `UserProfileFeedbackDao`）
+- `activeVersion: StateFlow<UserProfileVersion?>` / `snapshot: StateFlow<UserProfileSnapshot?>` / `activeOverrides: StateFlow<List<OverrideRecord>>` / `recentVersions: StateFlow<List<VersionSummary>>`（顶部摘要卡片展示）
+- `sending: StateFlow<Boolean>`（是否正在等待智能体回复，控制发送按钮禁用与 loading 态）
+- `pendingPreviews: StateFlow<List<RollbackPreview>>`（待确认的回滚预览列表）
+- `toast: StateFlow<String?>`（一次性 Snackbar 消费）
+
+方法：
+
+- `send(text)`：先乐观追加用户消息（即时 UI 反馈），调 `FeedbackAgent.handle()` -> 追加 ASSISTANT 回复 + 携带的 `rollbackPreviews` 加入 `pendingPreviews` -> `refreshProfile()` 刷新画像状态。`trimmed.isEmpty() || _sending.value` 时直接返回。
+- `confirmRollback(preview)`：调 `FeedbackAgent.confirmRollback(preview)` -> 移除该预览 -> 追加 ASSISTANT 系统消息"已回滚到版本 #X" -> `refreshProfile()`。
+- `dismissPreview(preview)`：用户忽略该预览，从 `pendingPreviews` 移除。
+- `resetAllOverrides()`：调 `ProfileAdjuster.resetAll()` 清空 `pendingPreviews` + 追加 ASSISTANT 系统消息。
+
+常量 `HISTORY_LIMIT = 50` / `RECENT_VERSIONS_LIMIT = 20`。
+
+`ChatMessage` data class：`id` / `role`（USER / ASSISTANT）/ `text` / `timestamp` / `appliedActions`（ASSISTANT 应用的 Action 摘要）。companion `user(text, ts)` / `assistant(reply)` 工厂方法。
+
+### ProfileInspectViewModel（#146 DevOptions "我的画像"区块 ViewModel）
+
+`@HiltViewModel` 注入 `appContext` / `UserProfileReadAccess` / `ProfileVersionStore`。状态：
+
+- `activeVersion: StateFlow<UserProfileVersion?>`（narrative + feedbackWeights + overrideAcknowledgment）
+- `snapshot: StateFlow<UserProfileSnapshot?>`（evidence + confidence）
+- `activeOverrides: StateFlow<List<OverrideRecord>>`
+- `recentVersions: StateFlow<List<VersionSummary>>`（历史版本时间线，含 `isActive` 标记，可点击回滚）
+- `rollbackHistory: StateFlow<List<RollbackRecord>>`（回滚历史审计）
+- `triggerResult: StateFlow<String?>`（手动触发 / 回滚反馈）
+
+方法：
+
+- `triggerUserProfileUpdate()`：`OneTimeWorkRequestBuilder<UserProfileWorker>().addTag(WorkerTags.USER_PROFILE)` + `enqueueUniqueWork(UNIQUE_WORK_USER_PROFILE, REPLACE)` -> `triggerResult = "已触发：用户画像更新"`。
+- `rollbackTo(versionId)`：调 `versionStore.applyRollback(versionId, reason = "DevOptions 手动回滚")` -> `triggerResult = "已回滚到版本 #X"` -> `refresh()`。
+- `clearTriggerResult()`：清空一次性反馈。
+- `refresh()`：刷新所有状态。
+
+常量 `RECENT_LIMIT = 20` / `UNIQUE_WORK_USER_PROFILE = "manual_user_profile"`。
 
 ### di/ProfileImageLoaderModule
 
