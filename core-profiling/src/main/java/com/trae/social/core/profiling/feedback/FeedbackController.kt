@@ -10,9 +10,11 @@ import javax.inject.Singleton
 /**
  * 反哺力度控制 + 安全边界 + 灰度（#146 第四层）。
  *
- * 职责：
- * 1. [effectiveWeights]：clamp [0,0.8] → 场景级用户覆盖（DisableScenario→0）→ 置信度降权 → 全局灰度 → 采集关闭 ZERO。
- * 2. [shouldApply]：含场景覆盖 + 灰度分流。
+ * 职责拆分：
+ * 1. [effectiveWeights]：仅返回读侧已计算好的权重。读侧（[UserProfileReadAccessImpl.feedbackWeights]）
+ *    内部依次做 clamp [0,0.8] → 置信度降权 → 全局灰度（比例缩小）；采集关闭时返回 ZERO。
+ *    注意：场景级用户覆盖（DisableScenario→0）不在权重计算里，而在 [shouldApply] 中直接 return false。
+ * 2. [shouldApply]：场景开关（[isScenarioDisabledByUser]）+ 灰度分流（仅带 sessionId 的挂起重载做概率分组）。
  * 3. [selectDriven]：场景级配额 + 主题多样性 + 账号多样性约束辅助。
  *
  * 读激活版本（含回滚激活的旧版本），经 [ProfileCache] 缓存。
@@ -36,10 +38,15 @@ class FeedbackController @Inject constructor(
     }
 
     /**
-     * 判断某场景是否应应用反哺（含场景开关 + 灰度分流）。
+     * 判断某场景是否应应用反哺（非挂起版，不做灰度分流）。
      *
+     * - 采集关闭 → false。
      * - 用户 DisableScenario 覆盖 → 强制 false（回退当前行为）。
-     * - 灰度比例 < 1.0 → 按比例概率分流（基于 sessionId 哈希稳定分组）。
+     * - 该场景权重 <= 0 → false。
+     *
+     * 注意：此重载**不做灰度分流**。灰度比例 < 1.0 时需按 sessionId 哈希稳定分组，
+     * 应改用带 sessionId 的挂起重载 [shouldApply] [shouldApply]。
+     * FeedViewModel 场景 5 当前调用本非挂起版，即 feed boost 不走灰度分流。
      */
     fun shouldApply(scenarioId: Int): Boolean {
         if (!gate.isEnabled()) return false
@@ -50,7 +57,12 @@ class FeedbackController @Inject constructor(
         return true
     }
 
-    /** 带 sessionId 的灰度分流（稳定分组，同会话始终同组）。 */
+    /**
+     * 带 sessionId 的灰度分流（稳定分组，同会话始终同组）。
+     *
+     * 在非挂起版 [shouldApply] 通过后，按 [ConfigRepository.getFeedbackGrayRatio]
+     * 对 sessionId 哈希取模做概率分组：ratio >= 1.0 全量，否则 bucket < ratio 才放行。
+     */
     // B4 修复：getFeedbackGrayRatio() 为 suspend，本函数须声明 suspend；runCatching 无法在非 suspend 上下文调用 suspend 函数
     suspend fun shouldApply(scenarioId: Int, sessionId: String): Boolean {
         if (!shouldApply(scenarioId)) return false

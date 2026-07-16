@@ -23,8 +23,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -78,6 +80,10 @@ fun DevOptionsScreen(
     val profileVersion by profileViewModel.activeVersion.collectAsStateWithLifecycle()
     val profileRecentVersions by profileViewModel.recentVersions.collectAsStateWithLifecycle()
     val profileTriggerResult by profileViewModel.triggerResult.collectAsStateWithLifecycle()
+    // #146 F1：画像采集 / 反哺灰度 / 反馈智能体调试开关
+    val profilingEnabled by viewModel.profilingEnabled.collectAsStateWithLifecycle()
+    val feedbackGrayRatio by viewModel.feedbackGrayRatio.collectAsStateWithLifecycle()
+    val feedbackAgentEnabled by viewModel.feedbackAgentEnabled.collectAsStateWithLifecycle()
     val colors = socialColors()
     val typography = LocalSocialTypography.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -195,6 +201,68 @@ fun DevOptionsScreen(
                         color = colors.secondaryLabel,
                         modifier = Modifier.padding(16.dp),
                     )
+                    SocialDivider()
+                }
+
+                // #146 F1：画像调试开关（采集 / 灰度 / 反馈智能体）
+                item {
+                    Text(
+                        "画像调试开关",
+                        style = typography.subheadline,
+                        color = colors.secondaryLabel,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                    SocialCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                        Column(Modifier.padding(16.dp)) {
+                            // 采集总开关
+                            SettingToggleRow(
+                                label = "行为采集",
+                                description = "关闭后停止记录用户行为、反哺降级",
+                                checked = profilingEnabled,
+                                onCheckedChange = { viewModel.setProfilingEnabled(it) },
+                            )
+                            SocialDivider(thickness = 0.5.dp)
+                            // 反馈智能体开关
+                            SettingToggleRow(
+                                label = "反馈智能体",
+                                description = "画像调校对话页的 LLM 智能体",
+                                checked = feedbackAgentEnabled,
+                                onCheckedChange = { viewModel.setFeedbackAgentEnabled(it) },
+                            )
+                            SocialDivider(thickness = 0.5.dp)
+                            // 灰度比例滑块
+                            Spacer(Modifier.height(8.dp))
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    "反哺灰度比例",
+                                    color = colors.label,
+                                    style = typography.callout,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                Text(
+                                    "${"%.0f".format(feedbackGrayRatio * 100)}%",
+                                    color = colors.secondaryLabel,
+                                    style = typography.callout,
+                                )
+                            }
+                            Slider(
+                                value = feedbackGrayRatio.toFloat(),
+                                onValueChange = { viewModel.setFeedbackGrayRatio(it.toDouble()) },
+                                valueRange = 0f..1f,
+                                steps = 9,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Text(
+                                "0% 灰度=完全不反哺，100% 灰度=全量反哺",
+                                color = colors.tertiaryLabel,
+                                style = typography.caption2,
+                            )
+                        }
+                    }
                     SocialDivider()
                 }
 
@@ -358,6 +426,43 @@ private fun StatRow(label: String, count: Int? = null, suffix: String? = null) {
             color = colors.label,
             style = typography.callout,
             fontWeight = FontWeight.Medium,
+        )
+    }
+}
+
+/**
+ * F1：通用设置开关行（标签 + 描述 + Switch）。
+ */
+@Composable
+private fun SettingToggleRow(
+    label: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    val colors = socialColors()
+    val typography = LocalSocialTypography.current
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                label,
+                color = colors.label,
+                style = typography.callout,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                description,
+                color = colors.tertiaryLabel,
+                style = typography.caption2,
+            )
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
         )
     }
 }

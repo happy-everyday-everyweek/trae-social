@@ -41,7 +41,6 @@ import javax.inject.Singleton
 @Singleton
 class FeedbackAgent @Inject constructor(
     private val llmRegistry: LlmProviderRegistry,
-    private val promptBuilder: FeedbackAgentPromptBuilder,
     private val adjuster: ProfileAdjuster,
     private val versionStore: ProfileVersionStore,
     private val feedbackDao: UserProfileFeedbackDao,
@@ -50,6 +49,11 @@ class FeedbackAgent @Inject constructor(
     private val configRepository: ConfigRepository,
     private val gate: ProfilingGate,
 ) {
+
+    // F3 修复：与其余 4 个 PromptBuilder 约定一致，直接实例化（无状态、无需 DI）。
+    // TweetPromptBuilder / CommentPromptBuilder / PersonaUpdatePromptBuilder / UserProfilePromptBuilder
+    // 均为普通 class 在各自 Worker 内直接 new，唯独此处曾走构造注入，与既有约定不一致且存在歧义。
+    private val promptBuilder = FeedbackAgentPromptBuilder()
 
     /** 限流串行化：避免并发请求绕过计数。 */
     private val rateMutex = Mutex()
