@@ -1,0 +1,65 @@
+name: Sync Wiki
+
+# 触发条件：PR 合并到 main 时，将仓库内的 wiki/ 目录同步到项目的 Wiki 仓库
+# GitHub Wiki 本质是一个独立 git 仓库（{repo}.wiki.git），需要先在网页端创建首页后才能克隆
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write   # 推送内容到 Wiki 仓库需要写权限
+
+jobs:
+  sync-wiki:
+    # 仅在 PR 被合并（而非直接关闭）时执行
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Clone wiki repository
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          WIKI_URL="https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.wiki.git"
+          if git clone "${WIKI_URL}" wiki-repo; then
+            echo "Wiki 仓库克隆成功。"
+          else
+            echo "::error::Wiki 仓库克隆失败，请先在 GitHub 网页端创建 Wiki 首页以初始化 Wiki 仓库。"
+            exit 1
+          fi
+
+      - name: Sync wiki content
+        run: |
+          # 清空 Wiki 仓库中除 .git 外的现有文件，保证删除操作能同步
+          find wiki-repo -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+          # 将仓库 wiki/ 目录下的所有内容复制到 Wiki 仓库
+          if [ -d wiki ] && [ "$(ls -A wiki)" ]; then
+            cp -r wiki/. wiki-repo/
+            echo "Wiki 内容已同步。"
+          else
+            echo "::error::仓库中不存在 wiki/ 目录或目录为空。"
+            exit 1
+          fi
+
+      - name: Commit and push changes
+        run: |
+          cd wiki-repo
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Wiki 内容无变化，跳过推送。"
+          else
+            git commit -m "docs(wiki): sync wiki from ${{ github.repository }}@${{ github.sha }}
+
+            PR #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }}"
+            git push origin HEAD:master
+            echo "Wiki 已成功推送。"
+          fi
