@@ -133,6 +133,10 @@ class FeedbackAgent @Inject constructor(
                 config = ChatConfig(temperature = 0.3f, maxTokens = 512, jsonMode = true),
             )
         } catch (t: Throwable) {
+            // M3 修复：CancellationException 必须重抛。中途退出屏幕时 viewModelScope 取消会令
+            // chatSync 抛 CancellationException，若被此处吞掉当"LLM 失败"处理，会尝试
+            // persistAssistantReply（其本身在第一个 suspend 点重新抛出），破坏协程取消语义。
+            if (t is kotlinx.coroutines.CancellationException) throw t
             Timber.w(t, "FeedbackAgent LLM 调用失败，降级")
             // 第五轮 review N1 修复:LLM 失败时 USER 消息已入库,若降级回复不落盘,
             // 历史里会出现"用户发言无回复"的断档。其余出口(parse 失败 / needsClarification /

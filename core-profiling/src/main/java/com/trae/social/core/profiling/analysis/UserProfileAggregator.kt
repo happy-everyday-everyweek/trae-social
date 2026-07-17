@@ -7,6 +7,7 @@ import com.trae.social.core.data.dao.UserProfileOverrideDao
 import com.trae.social.core.data.model.EventSummary
 import com.trae.social.core.data.model.FeedbackEffect
 import com.trae.social.core.data.model.FeedbackMessageSummary
+import com.trae.social.core.data.model.UserActionType
 import com.trae.social.core.data.model.UserFeedbackSummary
 import com.trae.social.core.data.model.UserProfileSnapshot
 import com.trae.social.core.data.repository.ConfigRepository
@@ -93,15 +94,44 @@ class UserProfileAggregator @Inject constructor(
         var control = 0
         var drivenInteract = 0
         var controlInteract = 0
+        // 第六轮 review B1 修复：A/B 反哺闭环的 delta 计算改为按事件类型分流：
+        //   - INTERACTION_SCHEDULED：调度器打标的曝光事件（driven/control 各算一次曝光配额），
+        //     仅累计 driven/control 计数，不算互动。
+        //   - SCENARIO_OUTCOME：用户对先前打标目标产生真实互动（like/comment/retweet/bookmark）
+        //     时由 FeedViewModel 发出，extra 继承 INTERACTION_SCHEDULED 的 scenarioId/drivenByProfile，
+        //     累计 drivenInteract/controlInteract。
+        // drivenRate = drivenInteract / driven（driven 组互动率），
+        // controlRate = controlInteract / control（control 组互动率），
+        // delta = drivenRate - controlRate。delta < 0 时下一轮降低该场景 feedbackWeights。
+        //
+        // 旧实现用 INTERACTION_TYPES 集合（{TWEET_LIKE, TWEET_COMMENT, TWEET_RETWEET, TWEET_BOOKMARK}）
+        // 判断是否互动，但调度器打标事件本身用了 TWEET_LIKE/TWEET_COMMENT/PUBLISH_TWEET 类型，
+        // 导致每条打标都被算作"interaction"→ drivenRate=controlRate=1.0 → delta=0 恒为 0，
+        // A/B 闭环失效，LLM 永远不会被降低某场景权重。新实现通过专用事件类型彻底解耦
+        // "调度器曝光打标"与"用户真实互动归因"。
         for (e in domains) {
             val isDriven = ProfileMappers.readExtraBoolean(e.extra, "drivenByProfile")
-            val isInteraction = e.type.name in INTERACTION_TYPES
-            if (isDriven) {
-                driven++
-                if (isInteraction) drivenInteract++
-            } else {
-                control++
-                if (isInteraction) controlInteract++
+            when (e.type) {
+                UserActionType.INTERACTION_SCHEDULED -> {
+                    if (isDriven) driven++ else control++
+                }
+                UserActionType.SCENARIO_OUTCOME -> {
+                    if (isDriven) drivenInteract++ else controlInteract++
+                }
+                else -> {
+                    // 兼容旧数据：历史打标事件可能仍是 TWEET_LIKE/PUBLISH_TWEET 等类型
+                    //（迁移前已落库的事件），按旧逻辑计入 driven/control+互动统计。
+                    // 新数据应全部走 INTERACTION_SCHEDULED + SCENARIO_OUTCOME 路径。
+                    if (e.type.name in LEGACY_INTERACTION_TYPES) {
+                        if (isDriven) {
+                            driven++
+                            drivenInteract++
+                        } else {
+                            control++
+                            controlInteract++
+                        }
+                    }
+                }
             }
         }
         val drivenRate = if (driven == 0) 0.0 else drivenInteract.toDouble() / driven
@@ -126,8 +156,12 @@ class UserProfileAggregator @Inject constructor(
 
     private companion object {
         const val FEEDBACK_LIMIT = 10
-        val INTERACTION_TYPES = setOf(
+        // B1 修复后保留的旧互动类型集合，仅用于兼容迁移前已落库的打标事件（那时打标用
+        // TWEET_LIKE/TWEET_COMMENT/PUBLISH_TWEET/FEEDBACK_OVERRIDE_APPLIED 等真实类型）。
+        // 新数据应通过 INTERACTION_SCHEDULED（曝光）+ SCENARIO_OUTCOME（互动归因）路径。
+        val LEGACY_INTERACTION_TYPES = setOf(
             "TWEET_LIKE", "TWEET_COMMENT", "TWEET_RETWEET", "TWEET_BOOKMARK",
+            "PUBLISH_TWEET", "FEEDBACK_OVERRIDE_APPLIED",
         )
     }
 }

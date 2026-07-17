@@ -12,8 +12,9 @@ import javax.inject.Singleton
  *
  * 职责拆分：
  * 1. [effectiveWeights]：仅返回读侧已计算好的权重。读侧（[UserProfileReadAccessImpl.feedbackWeights]）
- *    内部依次做 clamp [0,0.8] → 置信度降权 → 全局灰度（比例缩小）；采集关闭时返回 ZERO。
+ *    内部依次做 clamp [0,0.8] → 置信度降权；采集关闭时返回 ZERO。
  *    注意：场景级用户覆盖（DisableScenario→0）不在权重计算里，而在 [shouldApply] 中直接 return false。
+ *    灰度比例不在权重幅度上缩放（第六轮 review M2 修复），仅由 [shouldApply] 的 sessionId 桶分实现。
  * 2. [shouldApply]：场景开关（[isScenarioDisabledByUser]）+ 灰度分流（仅带 sessionId 的挂起重载做概率分组）。
  * 3. [selectDriven]：场景级配额 + 主题多样性 + 账号多样性约束辅助。
  *
@@ -30,7 +31,7 @@ class FeedbackController @Inject constructor(
     /**
      * 计算生效反哺权重。
      *
-     * 采集关闭 → ZERO；否则经 clamp + 场景覆盖 + 置信度降权 + 灰度。
+     * 采集关闭 → ZERO；否则经 clamp + 置信度降权（灰度由 [shouldApply] 桶分实现，不在权重幅度上缩放）。
      */
     fun effectiveWeights(): FeedbackWeights {
         if (!gate.isEnabled()) return FeedbackWeights.ZERO

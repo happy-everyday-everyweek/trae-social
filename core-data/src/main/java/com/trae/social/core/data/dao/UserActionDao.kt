@@ -76,4 +76,20 @@ interface UserActionDao {
             "(extra LIKE :scenarioPattern) ORDER BY occurredAt ASC"
     )
     suspend fun queryScenarioEventsSince(since: Long, scenarioPattern: String): List<UserActionEventEntity>
+
+    /**
+     * 第六轮 review B1 修复：按 targetId 查询最近的 INTERACTION_SCHEDULED 事件。
+     *
+     * 供 FeedViewModel 在用户对先前被调度器打标的目标产生真实互动（like/comment/retweet/
+     * bookmark）时，归因到对应 scenarioId 与 drivenByProfile，发出 SCENARIO_OUTCOME 事件。
+     *
+     * 仅查询 occurredAt >= :since 内的事件，避免查到陈旧打标；返回最近一条（DESC LIMIT 1）。
+     * 通常调度器在推文入库后立即打标，用户互动在数分钟到数小时后发生，所以 since 取
+     * 调用方传入的合理窗口（如 24h）即可覆盖。
+     */
+    @Query(
+        "SELECT * FROM user_action_events WHERE type = 'INTERACTION_SCHEDULED' " +
+            "AND targetId = :tweetId AND occurredAt >= :since ORDER BY occurredAt DESC LIMIT 1"
+    )
+    suspend fun queryLatestScheduledByTarget(tweetId: String, since: Long): UserActionEventEntity?
 }

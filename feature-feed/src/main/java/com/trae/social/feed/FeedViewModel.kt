@@ -6,6 +6,7 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import androidx.paging.filter
 import androidx.paging.map
+import com.trae.social.core.data.dao.UserActionDao
 import com.trae.social.core.data.entity.CommentEntity
 import com.trae.social.core.data.entity.InteractionEntity
 import com.trae.social.core.data.entity.InteractionType
@@ -21,6 +22,7 @@ import com.trae.social.core.profiling.capture.UserActionTracker
 import com.trae.social.core.data.model.UserActionType
 import com.trae.social.core.profiling.feedback.FeedbackController
 import com.trae.social.core.profiling.feedback.UserProfileReadAccess
+import com.trae.social.core.profiling.mapping.ProfileMappers
 import com.trae.social.feed.di.FeedImageLoader
 import coil.ImageLoader
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -60,6 +62,10 @@ class FeedViewModel @Inject constructor(
     // #146 A/E 场景 5（feedBoost）：信息流读侧消费用户画像，暴露兴趣供 UI 展示"为你推荐"标签
     private val readAccess: UserProfileReadAccess,
     private val feedbackController: FeedbackController,
+    // 第六轮 review B1 修复：注入 UserActionDao 用于查最近 INTERACTION_SCHEDULED 事件，
+    // 在用户对先前被调度器打标的目标产生真实互动时归因并发 SCENARIO_OUTCOME 事件，
+    // 让 computeScenarioStats 能计算 driven/control 两组的真实互动率 delta。
+    private val userActionDao: UserActionDao,
     @FeedImageLoader val imageLoader: ImageLoader,
 ) : ViewModel() {
 
@@ -191,6 +197,10 @@ class FeedViewModel @Inject constructor(
                         executedAt = System.currentTimeMillis(),
                     )
                 )
+                // 第六轮 review B1 修复：仅点赞（非取消）时归因到调度器场景发 SCENARIO_OUTCOME
+                if (!wasLiked) {
+                    recordScenarioOutcomeIfNeeded(tweetId, "LIKE")
+                }
             } catch (t: Throwable) {
                 Timber.e(t, "点赞失败，回滚本地状态")
                 // 回滚
@@ -253,6 +263,8 @@ class FeedViewModel @Inject constructor(
                         createdAt = now,
                     )
                 )
+                // 第六轮 review B1 修复：评论归因到调度器场景发 SCENARIO_OUTCOME
+                recordScenarioOutcomeIfNeeded(tweetId, "COMMENT")
             } catch (t: Throwable) {
                 Timber.e(t, "评论失败，回滚 commentCount 并清理孤儿 interaction")
                 // #139：步骤 1（updateCommentCount）已提交到 DB，若步骤 2/3 失败需回滚计数，
@@ -330,6 +342,8 @@ class FeedViewModel @Inject constructor(
                         executedAt = now,
                     )
                 )
+                // 第六轮 review B1 修复：转发归因到调度器场景发 SCENARIO_OUTCOME
+                recordScenarioOutcomeIfNeeded(original.id, "RETWEET")
             } catch (t: Throwable) {
                 Timber.e(t, "转发失败")
             }
@@ -359,6 +373,10 @@ class FeedViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { configRepository.setBookmarkedTweetIds(newSet) }
                 .onFailure { Timber.w(it, "持久化收藏状态失败") }
+            // 第六轮 review B1 修复：收藏（非取消收藏）归因到调度器场景发 SCENARIO_OUTCOME
+            if (!wasBookmarked) {
+                recordScenarioOutcomeIfNeeded(tweetId, "BOOKMARK")
+            }
         }
     }
 
@@ -418,10 +436,56 @@ class FeedViewModel @Inject constructor(
         val cachedAt: Long,
     )
 
+    /**
+     * 第六轮 review B1 修复：用户对先前被调度器打标的目标产生真实互动后，归因到对应场景
+     * 并发 SCENARIO_OUTCOME 事件，供 computeScenarioStats 计算 driven/control 互动率 delta。
+     *
+     * 流程：
+     * 1. 按 targetId 查最近 SCENARIO_OUTCOME_WINDOW_MS 内的 INTERACTION_SCHEDULED 事件
+     *    （调度器在推文入库后立即打标，用户互动在数分钟到数小时后发生，24h 窗口足够覆盖）。
+     * 2. 解析 extra 获取 scenarioId + drivenByProfile（继承调度器打标时的分组）。
+     * 3. 发 SCENARIO_OUTCOME 事件，extra 携带 scenarioId/drivenByProfile/group/outcomeType，
+     *    occurredAt 为当前时间（用户互动发生时刻）。
+     *
+     * 任一步失败均静默降级（runCatching + Timber.w），不阻塞用户互动主流程。
+     *
+     * @param tweetId 被互动的推文 ID（与 INTERACTION_SCHEDULED 事件的 targetId 对应）。
+     * @param outcomeType 互动类型字符串（LIKE/COMMENT/RETWEET/BOOKMARK），写入 extra 供审计。
+     */
+    private suspend fun recordScenarioOutcomeIfNeeded(tweetId: String, outcomeType: String) {
+        runCatching {
+            val now = System.currentTimeMillis()
+            val since = now - SCENARIO_OUTCOME_WINDOW_MS
+            val scheduled = userActionDao.queryLatestScheduledByTarget(tweetId, since) ?: return@runCatching
+            val domain = ProfileMappers.run { scheduled.toDomain() } ?: return@runCatching
+            val scenarioId = ProfileMappers.readExtraInt(domain.extra, "scenarioId") ?: return@runCatching
+            val driven = ProfileMappers.readExtraBoolean(domain.extra, "drivenByProfile")
+            actionBuilder.emit(
+                type = UserActionType.SCENARIO_OUTCOME,
+                screen = "feed",
+                targetId = tweetId,
+                targetKind = "tweet",
+                extra = mapOf(
+                    "scenarioId" to kotlinx.serialization.json.JsonPrimitive(scenarioId),
+                    "drivenByProfile" to kotlinx.serialization.json.JsonPrimitive(driven),
+                    "group" to kotlinx.serialization.json.JsonPrimitive(if (driven) "driven" else "control"),
+                    "outcomeType" to kotlinx.serialization.json.JsonPrimitive(outcomeType),
+                ),
+                occurredAt = now,
+            )
+        }.onFailure { Timber.w(it, "SCENARIO_OUTCOME 归因失败 tweetId=%s outcomeType=%s", tweetId, outcomeType) }
+    }
+
     private companion object {
         /** 当前用户账号 ID，与 PersonaSeeder.USER_SELF_ID / PublishViewModel.AUTHOR_SELF 一致 */
         const val USER_SELF_ID = "user-self"
         /** #141：作者缓存 TTL（5 分钟），超时后重新查库刷新人设信息 */
         const val AUTHOR_CACHE_TTL_MS = 5 * 60 * 1000L
+        /**
+         * 第六轮 review B1 修复：SCENARIO_OUTCOME 归因窗口（24h）。
+         * 调度器在推文入库后立即打 INTERACTION_SCHEDULED 标，用户互动在数分钟到数小时后发生；
+         * 24h 窗口足以覆盖正常互动延迟，且避免查到陈旧打标（超过 1 天的推文通常已不在用户视野）。
+         */
+        const val SCENARIO_OUTCOME_WINDOW_MS = 24L * 60 * 60 * 1000L
     }
 }

@@ -73,7 +73,18 @@ object BasicProfileAnalyzer {
         previous: UserProfileSnapshot?,
         now: Long,
     ): UserProfileSnapshot {
-        val sorted = events.sortedBy { it.occurredAt }
+        // 第六轮 review B2 修复：过滤掉调度器打标事件（INTERACTION_SCHEDULED）。
+        // 这些事件由 InteractionWorker / TweetGenerationWorker / PersonaUpdateWorker 发出，
+        // 用于 A/B 反哺闭环统计 driven/control 配额，并非真实用户行为。若不过滤：
+        //   - computeInteractionTendency 把 TWEET_LIKE 打标算作用户点赞 → likeRate 虚高
+        //   - computePostingCadence 把 PUBLISH_TWEET 打标算作用户发帖 → postFrequency 虚高
+        //   - computeActiveHours 用 PUBLISH_TWEET=6.0 高权重 → AI 事件主导活跃时段
+        //   - computeConfidence 把 AI 打标算作用户互动 → 置信度虚高
+        // 220 个虚拟账号下调度器打标事件数远超真实用户事件，画像会变成 AI 活动的画像。
+        // INTERACTION_SCHEDULED 类型不参与任何画像维度计算，SCENARIO_OUTCOME 同理（仅用于
+        // 反哺闭环的 outcome 统计，不应进入用户兴趣/互动倾向等画像维度）。
+        val userEvents = events.filter { it.type != UserActionType.INTERACTION_SCHEDULED }
+        val sorted = userEvents.sortedBy { it.occurredAt }
         val windowStart = sorted.firstOrNull()?.occurredAt ?: now
         val windowEnd = sorted.lastOrNull()?.occurredAt ?: now
 
@@ -173,12 +184,17 @@ object BasicProfileAnalyzer {
     // ---- 活跃时段 ----
 
     private fun computeActiveHours(weighted: List<Pair<UserActionEvent, Double>>): Map<Int, Double> {
-        val buckets = IntArray(24)
+        // M1 修复：原 IntArray + w.toInt() 截断，权重 < 1.0 的事件被截断为 0。
+        // 一条几小时前的 TWEET_VIEW（base 1.0），w = 1.0 × 0.5^(Δt/7d) < 1.0，截断后 → 0；
+        // 只有高权重（TWEET_LIKE=3, TWEET_DWELL=2, PUBLISH_TWEET=6）的近期事件才贡献非零，
+        // 系统性偏向近期/高权重事件，丢弃所有低权重事件。改用 DoubleArray + Double 累加，
+        // 保留衰减后权重的连续值，准确反映各时段活动强度。
+        val buckets = DoubleArray(24)
         weighted.forEach { (e, w) ->
             val hour = epochToHour(e.occurredAt)
-            if (hour in 0..23) buckets[hour] += w.toInt().coerceAtLeast(0)
+            if (hour in 0..23) buckets[hour] += w.coerceAtLeast(0.0)
         }
-        return (0..23).associateWith { buckets[it].toDouble() }.filterValues { it > 0 }
+        return (0..23).associateWith { buckets[it] }.filterValues { it > 0.0 }
     }
 
     private fun hourWeights(snapshot: UserProfileSnapshot): Map<Int, Double> {

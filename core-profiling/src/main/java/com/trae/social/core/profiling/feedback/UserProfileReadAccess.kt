@@ -69,8 +69,12 @@ class UserProfileReadAccessImpl @Inject constructor(
         val version = loader.activeVersion()
         val raw = version?.feedbackWeights ?: FeedbackWeights.ZERO
         val clamped = clampWeights(raw)
-        val withConfidence = applyConfidence(clamped, loader.snapshot())
-        val result = applyGrayRatio(withConfidence)
+        val result = applyConfidence(clamped, loader.snapshot())
+        // 第六轮 review M2 修复：移除 applyGrayRatio 调用。灰度比例已由
+        // FeedbackController.shouldApply(scenarioId, sessionId) 按 sessionId 哈希做桶分
+        // （ratio 比例的会话被判为 driven），此处再按 ratio 缩放权重幅度会导致有效曝光 ≈ ratio²
+        // （0.5 比例下仅约 25% 会话 driven 且权重减半）。docstring 表明桶分是预期语义，
+        // 故 feedbackWeights() 仅做 clamp + 置信度降权，不再叠加灰度缩放。
         cache.put(KEY_WEIGHTS, result)
         return result
     }
@@ -87,7 +91,13 @@ class UserProfileReadAccessImpl @Inject constructor(
     }
 
     override fun isColdStart(): Boolean =
-        loader.snapshot() == null && (loader.snapshotEventCount() < ConfigRepository.COLD_START_THRESHOLD)
+        // 第六轮 review B3 修复：冷启动判定基于 eventCount < COLD_START_THRESHOLD（用户尚未产生
+        // 足够行为数据）。原实现额外要求 snapshot == null，但 coldStartSeeding 依赖 snapshot
+        // （已为 null），导致冷启动期 interestVector() 恒返回 emptyMap()。解耦后：冷启动期若
+        // onboarding 写入 COLD_START_SEEDING 快照（待实现），coldStartSeeding() 返回其兴趣向量；
+        // 否则返回 null → interestVector 返回 emptyMap。isColdStart() 当前无外部调用方，
+        // 调整语义安全；保留接口供未来 onboarding/UI 判定冷启动态使用。
+        loader.snapshotEventCount() < ConfigRepository.COLD_START_THRESHOLD
 
     override fun coldStartSeeding(): Map<String, Double>? = loader.coldStartSeeding()
 
@@ -135,21 +145,6 @@ class UserProfileReadAccessImpl @Inject constructor(
             followRecommend = w.followRecommend * c.socialStyle,
             personaCoEvolve = w.personaCoEvolve * c.overall,
             interactionTiming = w.interactionTiming * c.activeHours,
-        )
-    }
-
-    private fun applyGrayRatio(w: FeedbackWeights): FeedbackWeights {
-        val ratio = loader.grayRatio()
-        if (ratio >= 1.0) return w
-        return FeedbackWeights(
-            topicBias = w.topicBias * ratio,
-            accountPriority = w.accountPriority * ratio,
-            interactionAffinity = w.interactionAffinity * ratio,
-            commentPersona = w.commentPersona * ratio,
-            feedBoost = w.feedBoost * ratio,
-            followRecommend = w.followRecommend * ratio,
-            personaCoEvolve = w.personaCoEvolve * ratio,
-            interactionTiming = w.interactionTiming * ratio,
         )
     }
 

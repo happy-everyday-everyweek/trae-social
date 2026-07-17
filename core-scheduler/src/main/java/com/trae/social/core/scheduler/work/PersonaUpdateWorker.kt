@@ -107,6 +107,8 @@ class PersonaUpdateWorker @AssistedInject constructor(
                     // IMPL-19：429 限流向上抛出，由 doWork 统一捕获并跳过整个批次
                     throw e
                 } catch (t: Throwable) {
+                    // M3 修复：CancellationException 重抛，避免协程取消被吞
+                    if (t is kotlinx.coroutines.CancellationException) throw t
                     Timber.w(t, "账号 %s 人设更新失败", account.id)
                     failed++
                 }
@@ -114,11 +116,17 @@ class PersonaUpdateWorker @AssistedInject constructor(
 
             // #146 A/E 场景 7：反哺层打标——为本批次人设更新发 scenario 事件，供 computeFeedbackEffect 做 A/B 回测。
             // drivenByProfile 标记本批人设演进是否受画像驱动；control 组同样落事件以便计算共鸣度 delta。
+            //
+            // 第六轮 review B1/B2 修复：打标事件 type 从 FEEDBACK_OVERRIDE_APPLIED 改为 INTERACTION_SCHEDULED。
+            // 旧实现用 FEEDBACK_OVERRIDE_APPLIED 类型，会污染用户反馈统计（FeedbackAgent.applyAll 也会发
+            // FEEDBACK_OVERRIDE_APPLIED 事件记录真实用户覆盖应用），两者混淆无法区分"用户主动覆盖"与
+            // "调度器人设演进"。INTERACTION_SCHEDULED 是专用调度器内部类型，被 BasicProfileAnalyzer.analyze
+            // 入口过滤排除，不污染用户画像统计。
             runCatching {
                 userActionTracker.trackNow(
                     UserActionEvent(
                         id = UUID.randomUUID().toString(),
-                        type = UserActionType.FEEDBACK_OVERRIDE_APPLIED,
+                        type = UserActionType.INTERACTION_SCHEDULED,
                         screen = "persona_update_co_evolve",
                         targetId = "batch_$started",
                         targetKind = "persona_batch",
@@ -146,6 +154,8 @@ class PersonaUpdateWorker @AssistedInject constructor(
             logSchedulerEvent("system", started, "rate_limited", e.message)
             return Result.success(workDataOf(WorkerKeys.KEY_RESULT to "rate_limited"))
         } catch (t: Throwable) {
+            // M3 修复：CancellationException 必须重抛，避免 Worker 被 WorkManager 取消后仍继续执行
+            if (t is kotlinx.coroutines.CancellationException) throw t
             Timber.e(t, "PersonaUpdateWorker 执行失败")
             logSchedulerEvent("system", started, "error", t.message)
             return if (runAttemptCount >= MAX_RUN_ATTEMPTS) {
@@ -211,6 +221,8 @@ class PersonaUpdateWorker @AssistedInject constructor(
             // IMPL-19：429 限流向上抛出，由 doWork 统一捕获并跳过
             throw e
         } catch (t: Throwable) {
+            // M3 修复：CancellationException 重抛，避免协程取消被吞
+            if (t is kotlinx.coroutines.CancellationException) throw t
             Timber.w(t, "账号 %s 人设更新 LLM 调用失败", account.id)
             return UpdateResult.SKIPPED
         }

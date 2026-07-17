@@ -313,11 +313,21 @@ class TweetGenerationWorker @AssistedInject constructor(
             // #146 A：反哺层打标——为本次推文生成发 scenario 1 事件，供 computeFeedbackEffect 做 A/B 回测。
             // drivenByProfile 标记本次生成是否受画像驱动（注入了用户兴趣话题）；
             // control 组同样落事件以便后续计算 driven/control 两组的内容触达率与互动率 delta。
+            //
+            // 第六轮 review B1/B2 修复：打标事件 type 从 PUBLISH_TWEET 改为 INTERACTION_SCHEDULED。
+            // 旧实现用 PUBLISH_TWEET 类型，导致：
+            //   - B2：BasicProfileAnalyzer.computePostingCadence 把 PUBLISH_TWEET 打标算作用户发帖
+            //     → postFrequency 虚高，postingHours 偏向 AI 生成时间（通常是凌晨充电时段）；
+            //     computeActiveHours 用 PUBLISH_TWEET=6.0 高权重 → AI 事件主导活跃时段；
+            //     computeConfidence 把 AI 打标算作用户互动 → 置信度虚高。220 个虚拟账号下调度器
+            //     打标事件数远超真实用户事件，画像变成 AI 活动的画像而非用户活动的画像。
+            // INTERACTION_SCHEDULED 是专用调度器内部类型，被 BasicProfileAnalyzer.analyze 入口过滤排除。
+            // 真实用户发布推文的归因仍通过 PUBLISH_TWEET 事件（PublishViewModel 发出）实现。
             runCatching {
                 userActionTracker.trackNow(
                     UserActionEvent(
                         id = UUID.randomUUID().toString(),
-                        type = UserActionType.PUBLISH_TWEET,
+                        type = UserActionType.INTERACTION_SCHEDULED,
                         screen = "tweet_generation",
                         targetId = tweet.id,
                         targetKind = "tweet",
@@ -367,6 +377,8 @@ class TweetGenerationWorker @AssistedInject constructor(
                 )
             )
         } catch (t: Throwable) {
+            // M3 修复：CancellationException 必须重抛，避免 Worker 被 WorkManager 取消后仍继续执行
+            if (t is kotlinx.coroutines.CancellationException) throw t
             Timber.e(t, "TweetGenerationWorker 执行失败 accountId=%s", accountId)
             errorMessage = t.message ?: t.javaClass.simpleName
             resultStatus = "error"

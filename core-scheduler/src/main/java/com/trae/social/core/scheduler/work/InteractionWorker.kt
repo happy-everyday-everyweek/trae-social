@@ -152,12 +152,22 @@ class InteractionWorker @AssistedInject constructor(
             // #146 A：反哺层打标——为本次互动排程发 scenario 事件，供 computeFeedbackEffect 做 A/B 回测。
             // 场景 3/8 共用一次排程，以场景 3 为主标记（互动账号选择），场景 8（时段）作为同次排程的附属维度。
             // drivenByProfile 标记本次排程是否受画像驱动；control 组同样落事件以便计算互动率 delta。
+            //
+            // 第六轮 review B1/B2 修复：打标事件 type 从 TWEET_LIKE 改为 INTERACTION_SCHEDULED。
+            // 旧实现用 TWEET_LIKE 类型，导致：
+            //   - B1：computeScenarioStats 的 INTERACTION_TYPES 包含 TWEET_LIKE，把每条打标都算作
+            //     "interaction" → drivenRate=controlRate=1.0 → delta=0 恒为 0，A/B 闭环失效。
+            //   - B2：BasicProfileAnalyzer 读 user_action_events 时无 screen 过滤，把 TWEET_LIKE 打标
+            //     算作用户点赞 → likeRate 虚高，画像被 AI 活动污染。
+            // INTERACTION_SCHEDULED 是专用调度器内部类型，不污染 INTERACTION_TYPES，且被
+            // BasicProfileAnalyzer.analyze 入口过滤排除，不参与用户画像统计。
+            // 真实用户互动归因通过 SCENARIO_OUTCOME 事件（FeedViewModel 查本事件后发出）实现。
             val driven3 = drivenScenario3 || drivenScenario8
             runCatching {
                 userActionTracker.trackNow(
                     UserActionEvent(
                         id = UUID.randomUUID().toString(),
-                        type = UserActionType.TWEET_LIKE,
+                        type = UserActionType.INTERACTION_SCHEDULED,
                         screen = "interaction_schedule",
                         targetId = tweet.id,
                         targetKind = "tweet",
@@ -176,12 +186,13 @@ class InteractionWorker @AssistedInject constructor(
             // #146 A/E 场景 4 commentPersona：评论文本 driven 单独打标（与场景 3/8 解耦，
             // 因为评论内容是否受画像驱动独立于账号选择/时段）。仅当本次排程含评论任务时落事件，
             // 供 computeFeedbackEffect 回测评论文本质量与互动率 delta。
+            // 第六轮 review B1/B2 修复：type 从 TWEET_COMMENT 改为 INTERACTION_SCHEDULED，理由同上。
             if (commentAssignments.isNotEmpty()) {
                 runCatching {
                     userActionTracker.trackNow(
                         UserActionEvent(
                             id = UUID.randomUUID().toString(),
-                            type = UserActionType.TWEET_COMMENT,
+                            type = UserActionType.INTERACTION_SCHEDULED,
                             screen = "interaction_schedule_comment",
                             targetId = tweet.id,
                             targetKind = "tweet",
@@ -230,6 +241,9 @@ class InteractionWorker @AssistedInject constructor(
             logSchedulerEvent(tweetId, started, status, e.message)
             return Result.success(workDataOf(WorkerKeys.KEY_RESULT to status))
         } catch (t: Throwable) {
+            // M3 修复：CancellationException 必须重抛，避免 Worker 被 WorkManager 取消后
+            // 仍继续执行（落库状态、跑 LLM），破坏协程取消语义。
+            if (t is kotlinx.coroutines.CancellationException) throw t
             Timber.e(t, "InteractionWorker 执行失败 tweetId=%s", tweetId)
             error = t.message ?: t.javaClass.simpleName
             status = "error"
@@ -397,7 +411,14 @@ class InteractionWorker @AssistedInject constructor(
         drivenScenario4: Boolean,
     ): Map<String, String> {
         if (commenters.isEmpty()) return emptyMap()
-        rateLimiter.acquire()
+        // M4 修复：原裸 acquire() 无超时，限流耗尽时会在 WorkManager 的 10 分钟上限处被杀，
+        // 处于 LLM 调用或 DB 写入中途，没有干净的 Result.retry() 路径。对齐 PersonaUpdateWorker /
+        // TweetGenerationWorker 的 acquireWithTimeout(ACQUIRE_TIMEOUT_MS)，超时则返回空 map，
+        // 由 doWork 统一写日志并 Result.success，避免限流等待跨 Worker 超时。
+        if (!rateLimiter.acquireWithTimeout(ACQUIRE_TIMEOUT_MS)) {
+            Timber.i("InteractionWorker 评论生成限流等待超时，跳过 tweetId=%s", tweet.id)
+            return emptyMap()
+        }
 
         val personas = commenters.map { it.persona }
         // #146 场景 4：driven 组收集用户口味提示（兴趣 Top 主题 + 高权重映射 + 叙事摘要）
@@ -420,6 +441,8 @@ class InteractionWorker @AssistedInject constructor(
             // IMPL-19：429 限流向上抛出，由 doWork 统一捕获并跳过，不在此处吞掉
             throw e
         } catch (t: Throwable) {
+            // M3 修复：CancellationException 重抛，避免协程取消被吞
+            if (t is kotlinx.coroutines.CancellationException) throw t
             Timber.w(t, "批量生成评论失败，跳过评论内容")
             return emptyMap()
         }
@@ -560,5 +583,7 @@ class InteractionWorker @AssistedInject constructor(
         const val RETWEET_THRESHOLD = 0.15
         /** #78：短延迟阈值，覆盖 COMMENT(<=15min)/RETWEET(<=30min)，低于此值的互动用 OneTimeWorkRequest 直接调度 */
         const val SHORT_DELAY_THRESHOLD_MS = 30L * 60L * 1000L
+        /** M4 修复：限流等待超时（8 分钟，低于 WorkManager 默认 10 分钟超时），对齐 PersonaUpdateWorker */
+        const val ACQUIRE_TIMEOUT_MS = 8L * 60L * 1000L
     }
 }

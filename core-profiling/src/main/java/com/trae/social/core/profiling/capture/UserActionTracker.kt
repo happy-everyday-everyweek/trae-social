@@ -136,7 +136,12 @@ class UserActionTrackerImpl @Inject constructor(
                 if (remaining == 0L) break
                 val next = try {
                     kotlinx.coroutines.withTimeoutOrNull(remaining) { channel.receive() }
-                } catch (_: Throwable) {
+                } catch (t: Throwable) {
+                    // M3 修复：CancellationException 必须重抛。consumeLoop 运行在 scope.launch 协程内，
+                    // 若被父 scope 取消（如应用关闭），withTimeoutOrNull 的超时是 CancellationException
+                    // 的子类但已被其内部处理；此处主要防御 channel.receive() 抛出的真实取消信号。
+                    // 吞掉取消会导致 consumeLoop 在 scope 取消后继续空转。
+                    if (t is kotlinx.coroutines.CancellationException) throw t
                     null
                 }
                 if (next == null) break
