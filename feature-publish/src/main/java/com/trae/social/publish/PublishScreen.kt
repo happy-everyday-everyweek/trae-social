@@ -304,15 +304,19 @@ private fun PublishFlyInOverlay(
         // - 减弱动效：FastOutSlowInEasing 无 overshoot，但仍保留 scale 渐变以便视觉感知"出现"
         val successEasing = if (reduceMotion) FastOutSlowInEasing else EaseOutBack
 
-        // #25：缩放——阶段1/阶段2均用 EaseOutBack 弹性缓动，保持弹性质感一致
+        // #205 P2：图片缩放接入减弱动效——
+        // - 默认：阶段1/阶段2均用 EaseOutBack 弹性缓动，保持弹性质感一致（缩小飞行的弹性感）
+        // - 减弱动效：FastOutSlowInEasing 无 overshoot，但仍保留 scale 渐变以提供"消失感"反馈，
+        //   与 TweetCard 点赞 / SocialBottomBar.PublishButton 等接入点一致——
+        //   scale 不属于"位移类动画"，无需移除，仅去掉 overshoot 即可。
+        val scaleEasing = if (reduceMotion) FastOutSlowInEasing else EaseOutBack
         val scaleVal = when {
             p < PHASE_1_RATIO -> {
-                val frac = EaseOutBack.transform(p / PHASE_1_RATIO)
+                val frac = scaleEasing.transform(p / PHASE_1_RATIO)
                 lerpUnclamped(1f, 0.6f, frac)
             }
             p < PHASE_2_RATIO -> {
-                // #25：阶段2也用 EaseOutBack，缩小过程带轻微回弹
-                val frac = EaseOutBack.transform(
+                val frac = scaleEasing.transform(
                     (p - PHASE_1_RATIO) / (PHASE_2_RATIO - PHASE_1_RATIO)
                 )
                 lerpUnclamped(0.6f, 0.15f, frac)
@@ -329,7 +333,12 @@ private fun PublishFlyInOverlay(
             else -> 0f
         }
         // #25：上移使用 EaseOutBack 弹性缓动，上抛感更自然
-        val translationYVal = lerpUnclamped(400f, -200f, EaseOutBack.transform(p))
+        // #205 P2：减弱动效下完全移除位移（图片居中淡出），符合 ReduceMotion.kt doc
+        //   「移除 transform/位移类动画，仅保留 opacity 与 color 过渡」原则——
+        //   600px 纵向飞行是减弱动效要消除的前庭刺激；与 WelcomeScreen 减弱动效下
+        //   跳过 illustrationOffset.animateTo 一致。
+        val translationYVal = if (reduceMotion) 0f
+            else lerpUnclamped(400f, -200f, EaseOutBack.transform(p))
 
         // 成功提示：阶段2淡入，阶段3淡出
         val successAlpha = when {
