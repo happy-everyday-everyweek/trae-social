@@ -117,7 +117,8 @@ fun TweetCard(
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val tweet = data.tweet
-    var moreMenuExpanded by remember { mutableStateOf(false) }
+    // #212：改用 rememberSaveable，使屏幕旋转后下拉菜单展开状态可恢复
+    var moreMenuExpanded by rememberSaveable { mutableStateOf(false) }
 
     // 显示的点赞数：DB likeCount 是唯一数据源（IMPL-11）。
     // 乐观更新已通过 updateLikeCount(+1) 写入 DB，PagingSource 重发后 tweet.likeCount
