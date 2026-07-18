@@ -1,6 +1,7 @@
 package com.trae.social.onboarding
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -39,6 +40,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.trae.social.designsystem.components.ActionButton
+import com.trae.social.designsystem.theme.LocalReduceMotion
 import com.trae.social.designsystem.theme.LocalSocialColors
 import com.trae.social.designsystem.theme.LocalSocialTypography
 import kotlinx.coroutines.coroutineScope
@@ -65,18 +67,36 @@ fun WelcomeScreen(
 ) {
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
+    val reduceMotion = LocalReduceMotion.current
 
     // #35：进场动画——插画 alpha 与上移并行（500ms），内容淡入随后（400ms）
+    // #200：减弱动效下保留 alpha 渐入（无视觉位移），完全跳过 offset 防止前庭刺激；
+    //   时长压到 150ms 提高响应感（Apple："reduced motion ≠ no feedback"）。
+    // 进场动画为一次性播放：spec 与初始 offset 仅在首次组合时按 reduceMotion 计算一次，
+    // 后续运行时切换 reduce-motion 不会重跑进场动画（LaunchedEffect(Unit) 也只触发一次）。
+    // 这是 onboarding 短页面的有意设计：避免用户在引导页中途切换系统设置时插图位置
+    // 突跳。故 illustrationOffset 的 remember 不以 reduceMotion 为 key——若以 reduceMotion
+    // 为 key，切换时会重建 Animatable 并把 offset 重置为 40f，反而造成视觉跳变。
     val illustrationAlpha = remember { Animatable(0f) }
-    val illustrationOffset = remember { Animatable(40f) }
+    val illustrationOffset = remember { Animatable(if (reduceMotion) 0f else 40f) }
     val contentAlpha = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
         // Review fix #3：插画 alpha + offset 并行，完成后内容淡入
         coroutineScope {
-            launch { illustrationAlpha.animateTo(1f, tween(500)) }
-            launch { illustrationOffset.animateTo(0f, tween(500)) }
+            val illSpec = tween<Float>(
+                durationMillis = if (reduceMotion) 150 else 500,
+                easing = FastOutSlowInEasing,
+            )
+            launch { illustrationAlpha.animateTo(1f, illSpec) }
+            // 减弱动效下 offset 已为 0，跳过位移动画（直接跳过 animateTo 即可）
+            if (!reduceMotion) {
+                launch { illustrationOffset.animateTo(0f, tween(500, easing = FastOutSlowInEasing)) }
+            }
         }
-        contentAlpha.animateTo(1f, tween(400))
+        contentAlpha.animateTo(
+            1f,
+            tween(if (reduceMotion) 150 else 400, easing = FastOutSlowInEasing),
+        )
     }
 
     // #15：免责声明可折叠，首次展示后用户可收起，减少主流程中的重复提示

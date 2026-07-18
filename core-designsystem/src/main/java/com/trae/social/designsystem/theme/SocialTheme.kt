@@ -67,6 +67,8 @@ fun SocialTheme(
         LocalSocialTypography provides typography,
         LocalSocialShapes provides shapes,
         LocalSocialSpacing provides spacing,
+        // #200：减弱动效偏好下放到整个子树，所有动效点统一读取，避免散落判定
+        LocalReduceMotion provides rememberReduceMotion(),
     ) {
         MaterialTheme(
             colorScheme = materialColorScheme,

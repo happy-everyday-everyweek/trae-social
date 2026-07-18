@@ -17,6 +17,7 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -86,6 +87,7 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.trae.social.designsystem.components.ActionButton
+import com.trae.social.designsystem.theme.LocalReduceMotion
 import com.trae.social.designsystem.theme.LocalSocialColors
 import com.trae.social.designsystem.theme.LocalSocialTypography
 import timber.log.Timber
@@ -664,12 +666,26 @@ private fun ShutterButton(
 ) {
     val colors = LocalSocialColors.current
     val hapticFeedback = LocalHapticFeedback.current
+    val reduceMotion = LocalReduceMotion.current
     // #3：自建 InteractionSource 追踪按压状态，驱动缩放动效
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
+    // #200：按压弹簧——
+    // - 默认：NoBouncy + StiffnessMedium，快门是高频操作不需要 overshoot；
+    //   原 MediumBouncy 让快门每次按都晃几下，连拍时视觉抖动严重。
+    // - 减弱动效：tween(120, FastOutSlowInEasing)，按压反馈不可省（确保用户知道按下去了），
+    //   但要短而平。
+    val scaleSpec = if (reduceMotion) {
+        tween<Float>(durationMillis = 120, easing = FastOutSlowInEasing)
+    } else {
+        spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMedium,
+        )
+    }
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 0.85f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        animationSpec = scaleSpec,
         label = "shutterScale",
     )
     Box(
