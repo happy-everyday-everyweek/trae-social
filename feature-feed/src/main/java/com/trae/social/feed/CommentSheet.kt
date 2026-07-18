@@ -1,5 +1,6 @@
 package com.trae.social.feed
 
+import com.trae.social.core.data.AccountIds
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -162,9 +163,9 @@ fun CommentSheet(
                             comments.add(
                                 CommentItem(
                                     id = UUID.randomUUID().toString(),
-                                    // 与 DB 加载一致：user-self 账号 displayName="我"、avatarSeed="user-self"
+                                    // #220：与 DB 加载一致：user-self 账号 displayName="我"、avatarSeed=USER_SELF_ID
                                     authorName = "我",
-                                    authorAvatarSeed = "user-self",
+                                    authorAvatarSeed = AccountIds.USER_SELF_ID,
                                     content = text,
                                     createdAt = System.currentTimeMillis(),
                                 )

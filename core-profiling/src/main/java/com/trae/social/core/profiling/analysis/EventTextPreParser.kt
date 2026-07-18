@@ -1,12 +1,12 @@
 package com.trae.social.core.profiling.analysis
 
+import com.trae.social.core.data.AccountIds
 import com.trae.social.core.data.dao.UserActionDao
 import com.trae.social.core.data.model.UserActionEvent
 import com.trae.social.core.data.model.UserActionType
 import com.trae.social.core.data.repository.CommentRepository
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.data.repository.TweetRepository
-import com.trae.social.core.data.seed.PersonaSeeder
 import com.trae.social.core.profiling.mapping.ProfileMappers
 import com.trae.social.llm.ChatConfig
 import com.trae.social.llm.ChatMessage
@@ -56,10 +56,10 @@ class EventTextPreParser @Inject constructor(
 ) {
 
     /**
-     * 当前用户账号 ID，单点引用 [PersonaSeeder.USER_SELF_ID]，避免多处硬编码同一字符串
-     * 未来改动漏同步（见 PR #150 review Q3）。
+     * 当前用户账号 ID，单点引用 [AccountIds.USER_SELF_ID]，避免多处硬编码同一字符串
+     * 未来改动漏同步（见 PR #150 review Q3 + #220 抽取）。
      */
-    private val userSelfId = PersonaSeeder.USER_SELF_ID
+    private val userSelfId = AccountIds.USER_SELF_ID
 
     /**
      * 对事件列表中携带文本的事件进行 LLM 预解析，提取文本信号写回 extra。

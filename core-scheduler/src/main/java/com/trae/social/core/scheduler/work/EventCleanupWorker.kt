@@ -5,6 +5,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.trae.social.core.data.AccountIds
 import com.trae.social.core.data.dao.UserActionDao
 import com.trae.social.core.data.repository.ConfigRepository
 import dagger.assisted.Assisted
@@ -53,11 +54,7 @@ class EventCleanupWorker @AssistedInject constructor(
 
     // #218：logEvent 实现抽到 SchedulerLogger.log，此处保留薄包装统一 action 标识
     private suspend fun logEvent(startedAt: Long, status: String, error: String?) {
-        SchedulerLogger.log(logDao, "event_cleanup", LOG_ACCOUNT_ID, startedAt, status, error)
-    }
-
-    private companion object {
-        // 与 UserProfileWorker 一致：日志 accountId 用 user-self（真实账号，满足外键约束）
-        const val LOG_ACCOUNT_ID = "user-self"
+        // #220：统一引用 AccountIds.USER_SELF_ID，与 UserProfileWorker / PersonaSeeder 一致
+        SchedulerLogger.log(logDao, "event_cleanup", AccountIds.USER_SELF_ID, startedAt, status, error)
     }
 }

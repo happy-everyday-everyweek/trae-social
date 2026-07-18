@@ -2,6 +2,7 @@ package com.trae.social.profile
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.trae.social.core.data.AccountIds
 import com.trae.social.core.data.config.AiActivityLevel
 import com.trae.social.core.data.config.LlmProvider
 import com.trae.social.core.data.dao.FollowRelationDao
@@ -282,8 +283,9 @@ class ProfileViewModel @Inject constructor(
     }
 
     companion object {
-        /** 自身账号固定 ID（与 PersonaSeeder.USER_SELF_ID 一致）。 */
-        const val SELF_ID = "user-self"
+        // #220：自身账号 ID 已抽到 AccountIds.USER_SELF_ID，此处保留别名仅向后兼容
+        // （FollowListViewModel 等仍引用 ProfileViewModel.SELF_ID），新代码应直接引用 AccountIds
+        const val SELF_ID = AccountIds.USER_SELF_ID
     }
 }
 
