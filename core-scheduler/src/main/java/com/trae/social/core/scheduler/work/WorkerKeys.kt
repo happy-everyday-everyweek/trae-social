@@ -29,6 +29,36 @@ object WorkerKeys {
 }
 
 /**
+ * 各 Worker 共享的运行时常量（#222 抽取）。
+ *
+ * 此前 `ACQUIRE_TIMEOUT_MS` / `MAX_RUN_ATTEMPTS` / `MAX_COMMENT_LENGTH`
+ * 在 TweetGenerationWorker / PersonaUpdateWorker / InteractionWorker /
+ * PendingInteractionWorker / UserProfileWorker 各自 companion 重复定义且注释
+ * 几乎一致，任一处修改未同步会导致配置漂移（如部分 Worker 仍用旧超时被强杀）。
+ *
+ * Worker 业务专属常量（如 `POSTS_PER_WINDOW`、`RECENT_TWEETS_FOR_DEDUP`、
+ * `MAX_TWEET_LENGTH`、`MIN_COMMENTERS`、`LIKE_THRESHOLD` 等）仍保留在各 Worker
+ * companion 内。
+ */
+object WorkerConstants {
+    /**
+     * 限流等待超时：8 分钟，低于 WorkManager 默认 10 分钟超时，避免 Worker 被强杀。
+     * 用于 [com.trae.social.core.scheduler.ratelimit.SchedulerRateLimiter.acquireWithTimeout]。
+     */
+    const val ACQUIRE_TIMEOUT_MS: Long = 8L * 60L * 1000L
+
+    /**
+     * Worker 重试上限：超过此次数后不再重试，直接返回 Result.failure()。
+     */
+    const val MAX_RUN_ATTEMPTS: Int = 3
+
+    /**
+     * 评论字数上限：截断 LLM 生成的评论文本，避免超长评论。
+     */
+    const val MAX_COMMENT_LENGTH: Int = 100
+}
+
+/**
  * 各 Worker 的统一标签，便于取消/查询。
  */
 object WorkerTags {

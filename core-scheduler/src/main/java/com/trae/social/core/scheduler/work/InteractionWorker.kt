@@ -247,7 +247,7 @@ class InteractionWorker @AssistedInject constructor(
             error = t.message ?: t.javaClass.simpleName
             status = "error"
             logSchedulerEvent(tweetId, started, status, error)
-            return if (runAttemptCount >= MAX_RUN_ATTEMPTS) {
+            return if (runAttemptCount >= WorkerConstants.MAX_RUN_ATTEMPTS) {
                 Result.failure(workDataOf(WorkerKeys.KEY_ERROR to error))
             } else {
                 Result.retry()
@@ -412,7 +412,7 @@ class InteractionWorker @AssistedInject constructor(
         if (commenters.isEmpty()) return emptyMap()
         // 第六轮 review M4 修复：与 TweetGenerationWorker/PersonaUpdateWorker 一致，使用带超时的 acquire，
         // 避免限流阻塞超过 WorkManager 默认 10 分钟超时上限导致 Worker 被强制终止。
-        if (!rateLimiter.acquireWithTimeout(ACQUIRE_TIMEOUT_MS)) {
+        if (!rateLimiter.acquireWithTimeout(WorkerConstants.ACQUIRE_TIMEOUT_MS)) {
             Timber.i("InteractionWorker 生成评论限流等待超时，跳过评论内容")
             return emptyMap()
         }
@@ -446,7 +446,7 @@ class InteractionWorker @AssistedInject constructor(
         results.forEach { result ->
             val idx = result.commenterIndex
             if (idx in commenters.indices && result.text.isNotBlank()) {
-                mapping[commenters[idx].accountId] = result.text.take(MAX_COMMENT_LENGTH)
+                mapping[commenters[idx].accountId] = result.text.take(WorkerConstants.MAX_COMMENT_LENGTH)
             }
         }
         return mapping
@@ -569,16 +569,13 @@ class InteractionWorker @AssistedInject constructor(
     }
 
     private companion object {
-        const val MAX_RUN_ATTEMPTS = 3
         const val MIN_COMMENTERS = 3
         const val MAX_COMMENTERS = 8
-        const val MAX_COMMENT_LENGTH = 100
         const val LIKE_THRESHOLD = 0.50
         const val COMMENT_THRESHOLD = 0.30
         const val RETWEET_THRESHOLD = 0.15
         /** #78：短延迟阈值，覆盖 COMMENT(<=15min)/RETWEET(<=30min)，低于此值的互动用 OneTimeWorkRequest 直接调度 */
         const val SHORT_DELAY_THRESHOLD_MS = 30L * 60L * 1000L
-        /** 第六轮 review M4 修复：限流等待超时（8 分钟，低于 WorkManager 默认 10 分钟超时） */
-        const val ACQUIRE_TIMEOUT_MS = 8L * 60L * 1000L
+        // #222：MAX_RUN_ATTEMPTS / MAX_COMMENT_LENGTH / ACQUIRE_TIMEOUT_MS 已抽到 WorkerConstants
     }
 }

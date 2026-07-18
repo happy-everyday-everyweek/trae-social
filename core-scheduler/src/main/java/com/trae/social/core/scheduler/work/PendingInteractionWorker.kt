@@ -142,7 +142,7 @@ class PendingInteractionWorker @AssistedInject constructor(
                 status = "error",
                 error = t.message,
             )
-            return if (runAttemptCount >= MAX_RUN_ATTEMPTS) {
+            return if (runAttemptCount >= WorkerConstants.MAX_RUN_ATTEMPTS) {
                 Result.failure(workDataOf(WorkerKeys.KEY_ERROR to (t.message ?: "unknown")))
             } else {
                 Result.retry()
@@ -198,7 +198,7 @@ class PendingInteractionWorker @AssistedInject constructor(
         results.forEach { result ->
             val idx = result.commenterIndex
             if (idx in interactionIds.indices && result.text.isNotBlank()) {
-                mapping[interactionIds[idx]] = result.text.take(MAX_COMMENT_LENGTH)
+                mapping[interactionIds[idx]] = result.text.take(WorkerConstants.MAX_COMMENT_LENGTH)
             }
         }
         return mapping
@@ -241,9 +241,8 @@ class PendingInteractionWorker @AssistedInject constructor(
     }
 
     private companion object {
-        const val MAX_RUN_ATTEMPTS = 3
-        const val MAX_COMMENT_LENGTH = 100
         /** #79：单批拉取待执行互动的上限，避免积压时 Worker 执行超时 */
         const val PENDING_BATCH_LIMIT = 50
+        // #222：MAX_RUN_ATTEMPTS / MAX_COMMENT_LENGTH 已抽到 WorkerConstants
     }
 }

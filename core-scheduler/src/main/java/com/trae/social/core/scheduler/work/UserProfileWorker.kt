@@ -239,12 +239,12 @@ class UserProfileWorker @AssistedInject constructor(
     }
 
     private companion object {
-        const val MAX_RUN_ATTEMPTS = 3
         const val MIN_NEW_EVENTS = 20
         const val FEEDBACK_EFFECT_WINDOW_MS = 14L * 24 * 60 * 60 * 1000 // 14 天
         // #146：日志 accountId 用 user-self（真实账号，满足外键约束）
         const val LOG_ACCOUNT_ID = "user-self"
         // M4：prompt 模板版本，模板内容变更时递增以使指纹失效
         const val PROMPT_TEMPLATE_VERSION = 1
+        // #222：MAX_RUN_ATTEMPTS 已抽到 WorkerConstants
     }
 }
