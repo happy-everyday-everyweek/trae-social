@@ -126,7 +126,7 @@ class UserProfileWorker @AssistedInject constructor(
             } catch (t: Throwable) {
                 Timber.w(t, "UserProfileWorker LLM 调用失败")
                 logEvent(started, "llm_error", t.message)
-                return if (runAttemptCount >= MAX_RUN_ATTEMPTS) {
+                return if (runAttemptCount >= WorkerConstants.MAX_RUN_ATTEMPTS) {
                     Result.failure(workDataOf(WorkerKeys.KEY_ERROR to (t.message ?: "unknown")))
                 } else {
                     Result.retry()
@@ -186,7 +186,7 @@ class UserProfileWorker @AssistedInject constructor(
         } catch (t: Throwable) {
             Timber.e(t, "UserProfileWorker 执行失败")
             logEvent(started, "error", t.message)
-            return if (runAttemptCount >= MAX_RUN_ATTEMPTS) {
+            return if (runAttemptCount >= WorkerConstants.MAX_RUN_ATTEMPTS) {
                 Result.failure(workDataOf(WorkerKeys.KEY_ERROR to (t.message ?: "unknown")))
             } else {
                 Result.retry()
