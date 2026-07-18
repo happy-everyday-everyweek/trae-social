@@ -115,6 +115,7 @@ dependencies {
     implementation(project(":core-designsystem"))
     implementation(project(":core-data"))
     implementation(project(":core-llm"))
+    implementation(project(":core-profiling"))
     implementation(project(":core-scheduler"))
     implementation(project(":feature-feed"))
     implementation(project(":feature-timeline"))
@@ -153,6 +154,10 @@ dependencies {
 
     // 协程
     implementation(libs.kotlinx.coroutines.android)
+
+    // 序列化（#146：app 层埋点构造 TAB_SWITCH 的 extra[from/to] 需 JsonElement；
+    // core-profiling/core-data 以 implementation 暴露，不传递到 app 编译类路径，故显式声明）
+    implementation(libs.kotlinx.serialization.json)
 
     // 日志
     implementation(libs.timber)

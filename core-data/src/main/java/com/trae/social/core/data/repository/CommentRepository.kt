@@ -21,4 +21,15 @@ class CommentRepository @Inject constructor(
 
     suspend fun getCommentsForTweet(tweetId: String): List<CommentWithAuthor> =
         commentDao.getCommentsForTweet(tweetId)
+
+    /**
+     * #146：按推文 + 作者查询评论原文列表（供 EventTextPreParser 回查用户评论文本）。
+     */
+    suspend fun getByTweetAndAuthor(tweetId: String, authorId: String): List<CommentEntity> =
+        commentDao.getByTweetAndAuthor(tweetId, authorId)
+
+    /**
+     * #146 review：按评论 ID 查询单条评论原文（供 EventTextPreParser 精确回查）。
+     */
+    suspend fun getById(commentId: String): CommentEntity? = commentDao.getById(commentId)
 }

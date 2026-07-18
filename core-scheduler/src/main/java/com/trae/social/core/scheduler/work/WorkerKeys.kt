@@ -36,7 +36,10 @@ object WorkerTags {
     const val INTERACTION = "interaction"
     const val PENDING_INTERACTION = "pending_interaction"
     const val PERSONA_UPDATE = "persona_update"
+    const val USER_PROFILE = "user_profile"
     const val BOOT_INIT = "boot_init"
+    /** #146 G 修复：用户行为事件清理（按 TTL 删除过期原始事件） */
+    const val EVENT_CLEANUP = "event_cleanup"
 }
 
 /**
@@ -125,6 +128,38 @@ object WorkerPolicies {
             .setConstraints(networkConstraints)
             .setBackoffCriteria(backoffPolicy, BACKOFF_INITIAL_SECONDS, TimeUnit.SECONDS)
             .addTag(WorkerTags.PERSONA_UPDATE)
+            .build()
+    }
+
+    /**
+     * 构建 UserProfileWorker 周期请求（#146 第三层）。
+     *
+     * 周期按 [level] 缩放：LOW=96h / MEDIUM=48h / HIGH=24h。
+     */
+    fun userProfilePeriodicRequest(level: AiActivityLevel): androidx.work.PeriodicWorkRequest {
+        val periodHours = when (level) {
+            AiActivityLevel.LOW -> 96L
+            AiActivityLevel.MEDIUM -> 48L
+            AiActivityLevel.HIGH -> 24L
+        }
+        return PeriodicWorkRequestBuilder<UserProfileWorker>(
+            periodHours, TimeUnit.HOURS,
+        )
+            .setConstraints(networkConstraints)
+            .setBackoffCriteria(backoffPolicy, BACKOFF_INITIAL_SECONDS, TimeUnit.SECONDS)
+            .addTag(WorkerTags.USER_PROFILE)
+            .build()
+    }
+
+    /**
+     * 构建 EventCleanupWorker 周期请求（#146 G 修复：24h 周期清理过期用户行为事件）。
+     *
+     * 无网络约束（纯本地 DB 清理，离线可执行）。
+     */
+    fun eventCleanupPeriodicRequest(): androidx.work.PeriodicWorkRequest {
+        return PeriodicWorkRequestBuilder<EventCleanupWorker>(24, TimeUnit.HOURS)
+            .setBackoffCriteria(backoffPolicy, BACKOFF_INITIAL_SECONDS, TimeUnit.SECONDS)
+            .addTag(WorkerTags.EVENT_CLEANUP)
             .build()
     }
 }

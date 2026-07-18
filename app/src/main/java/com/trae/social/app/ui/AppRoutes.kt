@@ -31,6 +31,9 @@ object AppRoutes {
     /** 全屏路由：开发者选项 */
     const val DEV_OPTIONS = "devoptions"
 
+    /** #146：全屏路由：画像对话页（用户反馈智能体） */
+    const val OPEN_PROFILE_CHAT = "profile_chat"
+
     /** 全屏路由：发布 */
     const val PUBLISH = "publish"
 

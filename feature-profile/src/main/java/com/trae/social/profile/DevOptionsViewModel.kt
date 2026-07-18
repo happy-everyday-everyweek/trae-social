@@ -62,10 +62,35 @@ class DevOptionsViewModel @Inject constructor(
     private val _triggerResult = MutableStateFlow<String?>(null)
     val triggerResult: StateFlow<String?> = _triggerResult.asStateFlow()
 
+    // #146 F1 修复：画像采集 / 反哺灰度 / 反馈智能体 三个调试开关落到 DevOptions 界面
+    /** 用户行为采集总开关（默认开启） */
+    private val _profilingEnabled = MutableStateFlow(true)
+    val profilingEnabled: StateFlow<Boolean> = _profilingEnabled.asStateFlow()
+
+    /** 反哺全局灰度比例（默认 1.0 全量生效） */
+    private val _feedbackGrayRatio = MutableStateFlow(ConfigRepository.DEFAULT_FEEDBACK_GRAY_RATIO)
+    val feedbackGrayRatio: StateFlow<Double> = _feedbackGrayRatio.asStateFlow()
+
+    /** 用户反馈智能体开关（默认开启） */
+    private val _feedbackAgentEnabled = MutableStateFlow(true)
+    val feedbackAgentEnabled: StateFlow<Boolean> = _feedbackAgentEnabled.asStateFlow()
+
     init {
         viewModelScope.launch {
             _activityLevel.value = runCatching { configRepository.getAiActivityLevel() }
                 .getOrElse { AiActivityLevel.MEDIUM }
+        }
+        viewModelScope.launch {
+            _profilingEnabled.value = runCatching { configRepository.isProfilingEnabled() }
+                .getOrElse { true }
+        }
+        viewModelScope.launch {
+            _feedbackGrayRatio.value = runCatching { configRepository.getFeedbackGrayRatio() }
+                .getOrElse { ConfigRepository.DEFAULT_FEEDBACK_GRAY_RATIO }
+        }
+        viewModelScope.launch {
+            _feedbackAgentEnabled.value = runCatching { configRepository.isFeedbackAgentEnabled() }
+                .getOrElse { true }
         }
         refreshStats()
     }
@@ -75,6 +100,33 @@ class DevOptionsViewModel @Inject constructor(
             runCatching { configRepository.setAiActivityLevel(level) }
                 .onSuccess { _activityLevel.value = level }
                 .onFailure { Timber.w(it, "切换活跃度档位失败") }
+        }
+    }
+
+    /** F1：切换用户行为采集总开关 */
+    fun setProfilingEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            runCatching { configRepository.setProfilingEnabled(enabled) }
+                .onSuccess { _profilingEnabled.value = enabled }
+                .onFailure { Timber.w(it, "切换画像采集开关失败") }
+        }
+    }
+
+    /** F1：设置反哺全局灰度比例（0.0 - 1.0） */
+    fun setFeedbackGrayRatio(ratio: Double) {
+        viewModelScope.launch {
+            runCatching { configRepository.setFeedbackGrayRatio(ratio) }
+                .onSuccess { _feedbackGrayRatio.value = ratio }
+                .onFailure { Timber.w(it, "设置反哺灰度比例失败") }
+        }
+    }
+
+    /** F1：切换用户反馈智能体开关 */
+    fun setFeedbackAgentEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            runCatching { configRepository.setFeedbackAgentEnabled(enabled) }
+                .onSuccess { _feedbackAgentEnabled.value = enabled }
+                .onFailure { Timber.w(it, "切换反馈智能体开关失败") }
         }
     }
 

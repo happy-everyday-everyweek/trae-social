@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
 }
@@ -46,6 +47,10 @@ dependencies {
     // 项目内模块
     implementation(project(":core-data"))
     implementation(project(":core-llm"))
+    // #146：UserProfileWorker 注入 UserProfileAggregator / ProfileVersionStore（profiling 层），
+    // 后续 TweetGenerationWorker / InteractionWorker / PersonaUpdateWorker 也要读画像驱动反哺（A/E）。
+    // 缺此依赖会导致 Hilt KSP 报 NonExistentClass（core-scheduler:kspDebugKotlin FAILED）。
+    implementation(project(":core-profiling"))
 
     implementation(libs.androidx.core.ktx)
 
@@ -61,6 +66,8 @@ dependencies {
 
     // 协程
     implementation(libs.kotlinx.coroutines.android)
+    // #146 A：反哺层打标用 JsonPrimitive（scenarioId/drivenByProfile/group extra 字段）
+    implementation(libs.kotlinx.serialization.json)
 
     // 日志
     implementation(libs.timber)

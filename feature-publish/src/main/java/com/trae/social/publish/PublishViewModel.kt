@@ -10,6 +10,9 @@ import com.trae.social.core.data.entity.TweetEntity
 import com.trae.social.core.data.repository.AccountRepository
 import com.trae.social.core.data.repository.InteractionRepository
 import com.trae.social.core.data.repository.TweetRepository
+import com.trae.social.core.data.model.UserActionType
+import com.trae.social.core.profiling.capture.SessionManager
+import com.trae.social.core.profiling.capture.UserActionTracker
 import com.trae.social.core.scheduler.work.WorkerPolicies
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -91,6 +94,8 @@ class PublishViewModel @Inject constructor(
     private val tweetRepository: TweetRepository,
     private val interactionRepository: InteractionRepository,
     private val accountRepository: AccountRepository,
+    private val userActionTracker: UserActionTracker,
+    private val sessionManager: SessionManager,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PublishUiState())
@@ -153,6 +158,22 @@ class PublishViewModel @Inject constructor(
                     deduplicationKey = "user-self-$now-${UUID.randomUUID()}",
                 )
                 tweetRepository.insertTweet(tweet)
+                // #146 B：发布成功埋点（用 track 挂起直写，保证不可丢失）
+                userActionTracker.track(
+                    com.trae.social.core.data.model.UserActionEvent(
+                        id = UUID.randomUUID().toString(),
+                        type = UserActionType.PUBLISH_TWEET,
+                        screen = "publish",
+                        targetId = tweetId,
+                        targetKind = "tweet",
+                        extra = mapOf(
+                            "captionLen" to kotlinx.serialization.json.JsonPrimitive(current.caption.length),
+                            "imageCount" to kotlinx.serialization.json.JsonPrimitive(current.captures.size),
+                        ),
+                        occurredAt = now,
+                        session = sessionManager.currentSessionId() ?: "unknown",
+                    )
+                )
                 triggerAiInteraction(tweetId)
                 // IMPL-15：仅在成功时 emit Published，失败时 emit PublishFailed
                 _events.send(PublishEvent.Published)

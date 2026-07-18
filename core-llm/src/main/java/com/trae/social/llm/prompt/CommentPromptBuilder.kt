@@ -46,19 +46,40 @@ class CommentPromptBuilder {
     enum class CommentType { COMMENT, LIKE, RETWEET }
 
     /**
+     * 用户口味提示（#146 A/E 场景 4 commentPersona）。
+     *
+     * 当 driven 组启用场景 4 时，由 [InteractionWorker] 收集用户兴趣 Top 主题，
+     * 注入到评论 prompt，使 AI 评论文本在主题、措辞、情感倾向上更贴近用户口味；
+     * control 组不注入，保留原始评论风格，供 computeFeedbackEffect 做 A/B 回测
+     * 评论质量与互动率 delta。
+     *
+     * @param topThemes 用户兴趣 Top 主题列表（来源：snapshot.evidence.topThemes + interestVector keys）。
+     * @param topInterestWeights 主题到兴趣权重的映射（用于提示 LLM 关注权重高的主题）。
+     * @param narrative 用户画像叙事摘要，供 LLM 理解用户身份背景，可选。
+     */
+    data class UserTasteHint(
+        val topThemes: List<String>,
+        val topInterestWeights: Map<String, Double>,
+        val narrative: String? = null,
+    )
+
+    /**
      * 构建对话消息列表。
      *
      * @param tweet 被评推文。
      * @param commenters 评论者人设列表，建议 3-5 个。
+     * @param userTaste 用户口味提示；非空时启用 #146 场景 4 driven 路径，
+     *   在 user prompt 末尾追加 【用户口味提示】 段；为空时走 control 路径。
      * @return system + user 两条消息。
      */
     fun build(
         tweet: TweetInput,
         commenters: List<TweetPromptBuilder.PersonaInput>,
+        userTaste: UserTasteHint? = null,
     ): List<ChatMessage> {
         require(commenters.isNotEmpty()) { "评论者人设列表不能为空" }
         val system = buildSystemPrompt()
-        val user = buildUserPrompt(tweet, commenters)
+        val user = buildUserPrompt(tweet, commenters, userTaste)
         return listOf(
             ChatMessage(ChatMessage.Role.SYSTEM, system),
             ChatMessage(ChatMessage.Role.USER, user),
@@ -76,6 +97,7 @@ class CommentPromptBuilder {
     private fun buildUserPrompt(
         tweet: TweetInput,
         commenters: List<TweetPromptBuilder.PersonaInput>,
+        userTaste: UserTasteHint? = null,
     ): String {
         return buildString {
             appendLine("【被评推文】")
@@ -90,6 +112,26 @@ class CommentPromptBuilder {
                 appendLine(" #$i ${p.displayName}（职业：${p.profession}，年龄：${p.ageRange}，风格：${p.languageStyle}，价值观：${p.values}，口癖：${p.catchphrase}，情绪：${p.recentMood}）")
             }
             appendLine()
+            // #146 A/E 场景 4：driven 组注入用户口味提示，引导评论文本贴近用户兴趣
+            if (userTaste != null) {
+                appendLine("【用户口味提示】")
+                if (userTaste.topThemes.isNotEmpty()) {
+                    appendLine("用户兴趣 Top 主题：${userTaste.topThemes.joinToString("、")}")
+                }
+                if (userTaste.topInterestWeights.isNotEmpty()) {
+                    val weightedTop = userTaste.topInterestWeights.entries
+                        .sortedByDescending { it.value }
+                        .take(5)
+                        .joinToString("、") { "${it.key}(${"%.2f".format(it.value)})" }
+                    appendLine("高权重主题：$weightedTop")
+                }
+                if (!userTaste.narrative.isNullOrBlank()) {
+                    appendLine("用户背景：${userTaste.narrative.take(120)}")
+                }
+                appendLine("生成评论时，在保持评论者人设一致的前提下，可适度贴合用户兴趣主题与语言偏好。")
+                appendLine("注意：不要强行硬塞用户兴趣关键词；只在主题自然相关时融入，避免生硬感。")
+                appendLine()
+            }
             appendLine("请输出 JSON 数组：[{\"commenterIndex\": 0, \"text\": \"评论内容\", \"type\": \"COMMENT/LIKE/RETWEET\"}]。")
             appendLine("约束：每条评论 text 不超过 100 字符；COMMENT 必带 text；LIKE/RETWEET 的 text 可为空字符串。")
             appendLine("commenterIndex 必须对应上述评论者列表的下标。不要输出 JSON 以外的任何说明文字。")

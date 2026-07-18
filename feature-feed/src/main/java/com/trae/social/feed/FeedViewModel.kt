@@ -15,6 +15,12 @@ import com.trae.social.core.data.repository.CommentRepository
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.data.repository.InteractionRepository
 import com.trae.social.core.data.repository.TweetRepository
+import com.trae.social.core.profiling.capture.SessionManager
+import com.trae.social.core.profiling.capture.UserActionEventBuilder
+import com.trae.social.core.profiling.capture.UserActionTracker
+import com.trae.social.core.data.model.UserActionType
+import com.trae.social.core.profiling.feedback.FeedbackController
+import com.trae.social.core.profiling.feedback.UserProfileReadAccess
 import com.trae.social.feed.di.FeedImageLoader
 import coil.ImageLoader
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -49,8 +55,26 @@ class FeedViewModel @Inject constructor(
     private val interactionRepository: InteractionRepository,
     private val commentRepository: CommentRepository,
     private val configRepository: ConfigRepository,
+    private val userActionTracker: UserActionTracker,
+    private val sessionManager: SessionManager,
+    // #146 A/E 场景 5（feedBoost）：信息流读侧消费用户画像，暴露兴趣供 UI 展示"为你推荐"标签
+    private val readAccess: UserProfileReadAccess,
+    private val feedbackController: FeedbackController,
     @FeedImageLoader val imageLoader: ImageLoader,
 ) : ViewModel() {
+
+    /** #146 B：信息流交互埋点构建器（session 由 SessionManager 提供，冷启动兜底 "unknown"）。 */
+    private val actionBuilder = UserActionEventBuilder(userActionTracker) {
+        sessionManager.currentSessionId() ?: "unknown"
+    }
+
+    /** #146 A/E 场景 5：当前激活画像驱动的信息流 boost 是否生效（UI 据此显示"根据你的兴趣优化"标签）。 */
+    private val _feedBoostEnabled = MutableStateFlow(false)
+    val feedBoostEnabled: StateFlow<Boolean> = _feedBoostEnabled.asStateFlow()
+
+    /** #146 E：用户兴趣画像（top 主题），供 UI 展示兴趣标签；画像为空时返回空。 */
+    private val _profileInterests = MutableStateFlow<List<String>>(emptyList())
+    val profileInterests: StateFlow<List<String>> = _profileInterests.asStateFlow()
 
     /** 账号信息内存缓存，避免分页滚动时重复查库（key = authorId）。
      *  P2 修复：使用 ConcurrentHashMap 保证线程安全，避免 Paging 后台线程并发访问导致 ConcurrentModificationException。
@@ -98,6 +122,30 @@ class FeedViewModel @Inject constructor(
         viewModelScope.launch {
             _isOnboardingSkipped.value = configRepository.isOnboardingSkipped()
         }
+        // #146 A/E 场景 5：读取画像反哺权重与兴趣向量，驱动信息流 boost 标签与兴趣展示。
+        // feedBoost 实际重排受 Paging 分页语义约束（重排破坏分页），此处先打通读侧消费，
+        // 暴露 boostEnabled / profileInterests 供 UI 展示；后续可结合 RemoteMediator 做服务端 boost。
+        // 第六轮 review B1/M5 修复：
+        // 1. 改用挂起版 shouldApply(scenarioId, sessionId) 走灰度分流（原非挂起版不做灰度分组，
+        //    导致场景 5 无 control 组）。
+        // 2. 落一条 scenario 5 曝光打标事件（TWEET_VIEW + isScenarioMarker=true），作为
+        //    computeScenarioStats 的曝光分母，避免 A/B 反哺 delta 恒为 0。
+        viewModelScope.launch {
+            val sessionId = sessionManager.currentSessionId() ?: "unknown"
+            val driven = feedbackController.shouldApply(5, sessionId)
+            _feedBoostEnabled.value = driven
+            runCatching {
+                actionBuilder.emit(
+                    type = UserActionType.TWEET_VIEW,
+                    screen = "feed",
+                    targetId = null,
+                    targetKind = "feed",
+                    extra = scenario5Extra(driven),
+                )
+            }.onFailure { Timber.w(it, "#146 场景 5 曝光打标失败") }
+            _profileInterests.value = readAccess.interestVector()
+                .entries.sortedByDescending { it.value }.take(8).map { it.key }
+        }
         // #102：启动时从 DataStore 恢复收藏状态
         viewModelScope.launch {
             runCatching { configRepository.getBookmarkedTweetIds() }
@@ -123,6 +171,30 @@ class FeedViewModel @Inject constructor(
     }
 
     /**
+     * #146 A/E 场景 5：构建场景 5 extra。
+     *
+     * 第六轮 review B1 修复：feed 互动埋点需带 scenarioId / drivenByProfile / group，
+     * 才能进入 queryScenarioEventsSince 结果集，作为 A/B 反哺的"真实用户互动"分子。
+     * - driven=true（feedBoost 生效，受画像驱动） → "driven" 组
+     * - driven=false（feedBoost 未生效，灰度控制组） → "control" 组
+     *
+     * @param includeMarker 是否同时落 isScenarioMarker=true。曝光打标事件（TWEET_VIEW）传 true，
+     * 真实用户互动事件（like/comment/retweet/bookmark）传 false（缺省即 false，由
+     * computeScenarioStats 据此区分曝光与互动）。
+     */
+    private fun scenario5Extra(driven: Boolean, includeMarker: Boolean = false): Map<String, kotlinx.serialization.json.JsonElement> {
+        val map = mutableMapOf<String, kotlinx.serialization.json.JsonElement>(
+            "scenarioId" to kotlinx.serialization.json.JsonPrimitive(5),
+            "drivenByProfile" to kotlinx.serialization.json.JsonPrimitive(driven),
+            "group" to kotlinx.serialization.json.JsonPrimitive(if (driven) "driven" else "control"),
+        )
+        if (includeMarker) {
+            map["isScenarioMarker"] = kotlinx.serialization.json.JsonPrimitive(true)
+        }
+        return map
+    }
+
+    /**
      * 点赞：乐观更新本地集合，后台调 InteractionRepository 排程 + 更新计数。
      */
     fun likeTweet(tweetId: String) {
@@ -134,6 +206,15 @@ class FeedViewModel @Inject constructor(
             newSet.add(tweetId)
         }
         _likedTweetIds.value = newSet
+        // #146 B：点赞/取消点赞埋点（驱动第二层基础分析的互动率统计）
+        // 第六轮 review B1 修复：携带场景 5 extra，使真实用户点赞进入 A/B 反哺结果集（作为互动分子）。
+        actionBuilder.emit(
+            type = if (wasLiked) UserActionType.TWEET_UNLIKE else UserActionType.TWEET_LIKE,
+            screen = "feed",
+            targetId = tweetId,
+            targetKind = "tweet",
+            extra = scenario5Extra(_feedBoostEnabled.value),
+        )
 
         viewModelScope.launch {
             try {
@@ -171,6 +252,21 @@ class FeedViewModel @Inject constructor(
      * - comments 表无此约束，支持同一用户对同一推文发表多条评论。
      */
     fun commentTweet(tweetId: String, text: String) {
+        // #146 B：评论埋点（extra 带评论字数，供画像分析评论偏好）
+        // #146 review：提前生成 commentId 写入 extra，供 EventTextPreParser 按 id 精确回查原文，
+        // 避免按时间最近原则匹配在多条评论场景下错配。
+        val commentId = UUID.randomUUID().toString()
+        // 第六轮 review B1 修复：合并场景 5 extra，使真实用户评论进入 A/B 反哺结果集（作为互动分子）。
+        actionBuilder.emit(
+            type = UserActionType.TWEET_COMMENT,
+            screen = "feed",
+            targetId = tweetId,
+            targetKind = "tweet",
+            extra = scenario5Extra(_feedBoostEnabled.value) + mapOf(
+                "commentLen" to kotlinx.serialization.json.JsonPrimitive(text.length),
+                "commentId" to kotlinx.serialization.json.JsonPrimitive(commentId),
+            ),
+        )
         viewModelScope.launch {
             var interactionInserted = false
             try {
@@ -192,7 +288,7 @@ class FeedViewModel @Inject constructor(
                 interactionInserted = true
                 commentRepository.addComment(
                     CommentEntity(
-                        id = UUID.randomUUID().toString(),
+                        id = commentId,
                         tweetId = tweetId,
                         // #133：评论作者为当前用户，与 CommentSheet 乐观展示的"我"一致
                         authorId = USER_SELF_ID,
@@ -240,6 +336,15 @@ class FeedViewModel @Inject constructor(
      * 转发推文的 authorId 为当前用户（user-self），而非原推作者。
      */
     fun retweetTweet(original: TweetEntity) {
+        // #146 B：转发埋点
+        // 第六轮 review B1 修复：携带场景 5 extra，使真实用户转发进入 A/B 反哺结果集（作为互动分子）。
+        actionBuilder.emit(
+            type = UserActionType.TWEET_RETWEET,
+            screen = "feed",
+            targetId = original.id,
+            targetKind = "tweet",
+            extra = scenario5Extra(_feedBoostEnabled.value),
+        )
         viewModelScope.launch {
             try {
                 val now = System.currentTimeMillis()
@@ -288,6 +393,15 @@ class FeedViewModel @Inject constructor(
             newSet.add(tweetId)
         }
         _bookmarkedTweetIds.value = newSet
+        // #146 B：收藏/取消收藏埋点
+        // 第六轮 review B1 修复：携带场景 5 extra，使真实用户收藏进入 A/B 反哺结果集（作为互动分子）。
+        actionBuilder.emit(
+            type = if (wasBookmarked) UserActionType.TWEET_UNBOOKMARK else UserActionType.TWEET_BOOKMARK,
+            screen = "feed",
+            targetId = tweetId,
+            targetKind = "tweet",
+            extra = scenario5Extra(_feedBoostEnabled.value),
+        )
         // #102：持久化到 DataStore，确保旋转屏幕或杀进程重启后收藏状态不丢失
         viewModelScope.launch {
             runCatching { configRepository.setBookmarkedTweetIds(newSet) }

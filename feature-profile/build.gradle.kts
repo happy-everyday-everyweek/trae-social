@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
 }
@@ -43,6 +44,8 @@ android {
 dependencies {
     implementation(project(":core-designsystem"))
     implementation(project(":core-data"))
+    implementation(project(":core-llm"))
+    implementation(project(":core-profiling"))
     implementation(project(":core-scheduler"))
 
     implementation(libs.androidx.core.ktx)
@@ -70,6 +73,7 @@ dependencies {
     implementation(libs.hilt.navigation.compose)
 
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.serialization.json)
     implementation(libs.timber)
 
     debugImplementation(libs.androidx.compose.ui.tooling)

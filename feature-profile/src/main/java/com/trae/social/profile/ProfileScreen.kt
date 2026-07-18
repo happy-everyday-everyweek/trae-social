@@ -119,6 +119,18 @@ fun ProfileScreen(
                     avatarUrl = ProfileUtils.avatarUriFromSeed(state.account.avatarSeed),
                     imageLoader = viewModel.imageLoader,
                 )
+                // #146 A/E 场景 6 followRecommend：推荐关注入口
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .socialClickable { onNavigateToFollowList(FollowListType.RECOMMENDED) }
+                        .padding(horizontal = spacing.lg, vertical = spacing.md),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text("推荐关注", fontWeight = FontWeight.Medium, color = colors.label)
+                    Text("基于你的兴趣 >", color = colors.tertiaryLabel)
+                }
                 SocialDivider()
                 CapsuleTab(
                     tabs = ProfileTab.values().map { it.label },

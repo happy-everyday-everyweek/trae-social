@@ -1,6 +1,7 @@
 package com.trae.social.llm.prompt
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -147,5 +148,91 @@ class CommentPromptBuilderTest {
         val results = CommentPromptBuilder.parseCommentResults(raw)
         assertEquals(1, results.size)
         assertEquals(99, results[0].commenterIndex)
+    }
+
+    // ---- #146 A/E 场景 4 commentPersona：UserTasteHint 注入测试 ----
+
+    @Test
+    fun `build 不传 userTaste 时不包含用户口味提示段（control 路径）`() {
+        val messages = builder.build(
+            tweet = CommentPromptBuilder.TweetInput("正文", "作者", "程序员"),
+            commenters = listOf(samplePersona("评论者A")),
+        )
+        val user = messages[1].content
+        assertFalse(user.contains("【用户口味提示】"))
+    }
+
+    @Test
+    fun `build 传 userTaste 时包含用户口味提示段（driven 路径）`() {
+        val taste = CommentPromptBuilder.UserTasteHint(
+            topThemes = listOf("编程", "音乐"),
+            topInterestWeights = mapOf("编程" to 0.6, "音乐" to 0.3),
+            narrative = null,
+        )
+        val messages = builder.build(
+            tweet = CommentPromptBuilder.TweetInput("正文", "作者", "程序员"),
+            commenters = listOf(samplePersona("评论者A")),
+            userTaste = taste,
+        )
+        val user = messages[1].content
+        assertTrue(user.contains("【用户口味提示】"))
+        assertTrue(user.contains("编程"))
+        assertTrue(user.contains("音乐"))
+    }
+
+    @Test
+    fun `build userTaste 包含高权重主题排序展示`() {
+        val taste = CommentPromptBuilder.UserTasteHint(
+            topThemes = emptyList(),
+            topInterestWeights = mapOf("编程" to 0.6, "音乐" to 0.3, "电影" to 0.1),
+            narrative = null,
+        )
+        val messages = builder.build(
+            tweet = CommentPromptBuilder.TweetInput("正文", "作者", "程序员"),
+            commenters = listOf(samplePersona("评论者A")),
+            userTaste = taste,
+        )
+        val user = messages[1].content
+        assertTrue(user.contains("高权重主题"))
+        // 编程权重最高应排在最前
+        val progIdx = user.indexOf("编程")
+        val musicIdx = user.indexOf("音乐")
+        assertTrue(progIdx >= 0 && musicIdx >= 0 && progIdx < musicIdx)
+    }
+
+    @Test
+    fun `build userTaste 包含 narrative 时展示用户背景`() {
+        val taste = CommentPromptBuilder.UserTasteHint(
+            topThemes = listOf("编程"),
+            topInterestWeights = emptyMap(),
+            narrative = "一个热爱技术的程序员",
+        )
+        val messages = builder.build(
+            tweet = CommentPromptBuilder.TweetInput("正文", "作者", "程序员"),
+            commenters = listOf(samplePersona("评论者A")),
+            userTaste = taste,
+        )
+        val user = messages[1].content
+        assertTrue(user.contains("用户背景"))
+        assertTrue(user.contains("一个热爱技术的程序员"))
+    }
+
+    @Test
+    fun `build userTaste 全空时不展示主题与权重行但保留提示段`() {
+        val taste = CommentPromptBuilder.UserTasteHint(
+            topThemes = emptyList(),
+            topInterestWeights = emptyMap(),
+            narrative = null,
+        )
+        val messages = builder.build(
+            tweet = CommentPromptBuilder.TweetInput("正文", "作者", "程序员"),
+            commenters = listOf(samplePersona("评论者A")),
+            userTaste = taste,
+        )
+        val user = messages[1].content
+        assertTrue(user.contains("【用户口味提示】"))
+        assertFalse(user.contains("用户兴趣 Top 主题"))
+        assertFalse(user.contains("高权重主题"))
+        assertFalse(user.contains("用户背景"))
     }
 }

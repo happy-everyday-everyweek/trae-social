@@ -31,6 +31,7 @@ LLM 驱动的高拟真社交平台 Android 应用，视觉与功能高度还原 
 - [06 - core-llm LLM 层](./06-core-llm-LLM-层.md)：多提供商客户端、拦截器链、限流
 - [07 - core-scheduler 调度层](./07-core-scheduler-调度层.md)：Worker、调度规则、配额、前台服务
 - [08 - core-designsystem 设计系统](./08-core-designsystem-设计系统.md)：主题、色彩、字体、磨砂玻璃组件
+- [20 - core-profiling 用户行为建模](./20-core-profiling-用户行为建模.md)：5 层架构（捕获 / 基础分析 / LLM 深度画像 / 画像反哺 / 用户反馈智能体）
 
 ### 功能模块
 
@@ -41,13 +42,14 @@ LLM 驱动的高拟真社交平台 Android 应用，视觉与功能高度还原 
 
 - [11 - AI 调度系统详解](./11-AI-调度系统详解.md)：调度恢复、自链、限流、配额、档位联动
 - [12 - LLM 集成与 Prompt 工程](./12-LLM-集成与-Prompt-工程.md)：四提供商协议、Prompt 模板、内容过滤、人设漂移防护
-- [13 - 数据库设计](./13-数据库设计.md)：10 张表、8 个 DAO、5 条迁移、TypeConverters
+- [13 - 数据库设计](./13-数据库设计.md)：16 张表、13 个 DAO、6 条迁移、TypeConverters
 - [14 - 虚拟人设与图库系统](./14-虚拟人设与图库系统.md)：人设 schema、200 张 SVG、生成与校验脚本
 - [15 - 构建与 CI/CD](./15-构建与-CI-CD.md)：版本目录、构建类型、ABI 拆分、GitHub Actions
 - [16 - 配置与密钥管理](./16-配置与密钥管理.md)：EncryptedSharedPreferences、DataStore、API Key
 - [17 - 权限与前台服务](./17-权限与前台服务.md)：权限清单、specialUse、BootReceiver
 - [18 - 开发指南](./18-开发指南.md)：代码规范、Hilt DI、测试、提交规范
 - [19 - 常见问题与已知问题](./19-常见问题与已知问题.md)：FAQ、R8 bug、splashscreen 未启用等
+- [20 - core-profiling 用户行为建模](./20-core-profiling-用户行为建模.md)：5 层架构、画像反哺、A/B 回测、单轮 LLM 智能体
 
 ## 相关文档
 

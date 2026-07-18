@@ -14,7 +14,12 @@ import com.trae.social.core.data.dao.ImageUsageDao
 import com.trae.social.core.data.dao.InteractionDao
 import com.trae.social.core.data.dao.SchedulerLogDao
 import com.trae.social.core.data.dao.TweetDao
+import com.trae.social.core.data.dao.UserActionDao
 import com.trae.social.core.data.dao.UserConfigDao
+import com.trae.social.core.data.dao.UserProfileDao
+import com.trae.social.core.data.dao.UserProfileFeedbackDao
+import com.trae.social.core.data.dao.UserProfileOverrideDao
+import com.trae.social.core.data.dao.UserProfileRollbackDao
 import com.trae.social.core.data.db.AppDatabase
 import dagger.Module
 import dagger.Provides
@@ -286,6 +291,83 @@ object DataModule {
         }
     }
 
+    /**
+     * #146：v6 → v7，新增用户行为建模六张表（user_action_events / user_profile_snapshots /
+     * user_profile_versions / user_profile_overrides / user_profile_feedback /
+     * user_profile_rollbacks）+ 索引。
+     *
+     * 六张表均无外键（用户行为数据独立于虚拟账号体系，不随账号级联删除），
+     * 仅受"清除我的画像数据"按钮手动清空。
+     */
+    private val MIGRATION_6_7 = object : Migration(6, 7) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            // 1. user_action_events（原始事件流）
+            database.execSQL(
+                "CREATE TABLE IF NOT EXISTS `user_action_events` (" +
+                    "`id` TEXT NOT NULL, `type` TEXT NOT NULL, `screen` TEXT NOT NULL, " +
+                    "`targetId` TEXT, `targetKind` TEXT, `extra` TEXT, `durationMs` INTEGER, " +
+                    "`occurredAt` INTEGER NOT NULL, `session` TEXT NOT NULL, " +
+                    "PRIMARY KEY(`id`))"
+            )
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_user_action_events_occurredAt` ON `user_action_events` (`occurredAt`)")
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_user_action_events_type_occurredAt` ON `user_action_events` (`type`, `occurredAt`)")
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_user_action_events_session` ON `user_action_events` (`session`)")
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_user_action_events_targetId_type` ON `user_action_events` (`targetId`, `type`)")
+
+            // 2. user_profile_snapshots（基础分析快照）
+            database.execSQL(
+                "CREATE TABLE IF NOT EXISTS `user_profile_snapshots` (" +
+                    "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `payload` TEXT NOT NULL, " +
+                    "`eventWindowStart` INTEGER NOT NULL, `eventWindowEnd` INTEGER NOT NULL, " +
+                    "`computedAt` INTEGER NOT NULL, `source` TEXT NOT NULL)"
+            )
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_user_profile_snapshots_computedAt` ON `user_profile_snapshots` (`computedAt`)")
+
+            // 3. user_profile_versions（LLM 深度画像版本，含 isActive）
+            database.execSQL(
+                "CREATE TABLE IF NOT EXISTS `user_profile_versions` (" +
+                    "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `payload` TEXT NOT NULL, " +
+                    "`narrative` TEXT NOT NULL, `modelProvider` TEXT NOT NULL, " +
+                    "`promptHash` TEXT NOT NULL, `inputFingerprint` TEXT NOT NULL, " +
+                    "`snapshotId` INTEGER, `rollbackFrom` INTEGER, " +
+                    "`isActive` INTEGER NOT NULL DEFAULT 0, `createdAt` INTEGER NOT NULL)"
+            )
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_user_profile_versions_snapshotId` ON `user_profile_versions` (`snapshotId`)")
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_user_profile_versions_createdAt` ON `user_profile_versions` (`createdAt`)")
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_user_profile_versions_inputFingerprint` ON `user_profile_versions` (`inputFingerprint`)")
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_user_profile_versions_isActive` ON `user_profile_versions` (`isActive`)")
+
+            // 4. user_profile_overrides（用户显式覆盖）
+            database.execSQL(
+                "CREATE TABLE IF NOT EXISTS `user_profile_overrides` (" +
+                    "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `type` TEXT NOT NULL, " +
+                    "`key` TEXT NOT NULL, `value` TEXT NOT NULL, `reason` TEXT NOT NULL, " +
+                    "`createdAt` INTEGER NOT NULL, `source` TEXT NOT NULL, " +
+                    "`superseded` INTEGER NOT NULL DEFAULT 0)"
+            )
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_user_profile_overrides_type_key` ON `user_profile_overrides` (`type`, `key`)")
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_user_profile_overrides_superseded` ON `user_profile_overrides` (`superseded`)")
+
+            // 5. user_profile_feedback（对话历史）
+            database.execSQL(
+                "CREATE TABLE IF NOT EXISTS `user_profile_feedback` (" +
+                    "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `role` TEXT NOT NULL, " +
+                    "`content` TEXT NOT NULL, `appliedActions` TEXT, `rollbackPreviews` TEXT, " +
+                    "`createdAt` INTEGER NOT NULL)"
+            )
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_user_profile_feedback_createdAt` ON `user_profile_feedback` (`createdAt`)")
+
+            // 6. user_profile_rollbacks（回滚历史审计）
+            database.execSQL(
+                "CREATE TABLE IF NOT EXISTS `user_profile_rollbacks` (" +
+                    "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `fromVersionId` INTEGER NOT NULL, " +
+                    "`toVersionId` INTEGER NOT NULL, `reason` TEXT NOT NULL, " +
+                    "`appliedAt` INTEGER NOT NULL)"
+            )
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_user_profile_rollbacks_appliedAt` ON `user_profile_rollbacks` (`appliedAt`)")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
@@ -296,7 +378,7 @@ object DataModule {
             AppDatabase.DATABASE_NAME
         )
             .fallbackToDestructiveMigrationOnDowngrade()
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
             .build()
     }
 
@@ -331,6 +413,27 @@ object DataModule {
     @Provides
     @Singleton
     fun provideCommentDao(db: AppDatabase): CommentDao = db.commentDao()
+
+    // #146：用户行为建模相关 DAO
+    @Provides
+    @Singleton
+    fun provideUserActionDao(db: AppDatabase): UserActionDao = db.userActionDao()
+
+    @Provides
+    @Singleton
+    fun provideUserProfileDao(db: AppDatabase): UserProfileDao = db.userProfileDao()
+
+    @Provides
+    @Singleton
+    fun provideUserProfileOverrideDao(db: AppDatabase): UserProfileOverrideDao = db.userProfileOverrideDao()
+
+    @Provides
+    @Singleton
+    fun provideUserProfileFeedbackDao(db: AppDatabase): UserProfileFeedbackDao = db.userProfileFeedbackDao()
+
+    @Provides
+    @Singleton
+    fun provideUserProfileRollbackDao(db: AppDatabase): UserProfileRollbackDao = db.userProfileRollbackDao()
 
     /**
      * 提供 EncryptedSharedPreferences（RISK-11：API Key 加密存储）。

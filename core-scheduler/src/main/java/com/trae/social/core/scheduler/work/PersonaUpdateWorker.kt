@@ -6,9 +6,15 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.trae.social.core.data.entity.SchedulerLogEntity
+import com.trae.social.core.data.model.UserActionEvent
+import com.trae.social.core.data.model.UserActionType
 import com.trae.social.core.data.repository.AccountRepository
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.data.repository.TweetRepository
+import com.trae.social.core.profiling.capture.SessionManager
+import com.trae.social.core.profiling.capture.UserActionTracker
+import com.trae.social.core.profiling.feedback.FeedbackController
+import com.trae.social.core.profiling.feedback.UserProfileReadAccess
 import com.trae.social.core.scheduler.ratelimit.SchedulerRateLimiter
 import com.trae.social.llm.ChatConfig
 import com.trae.social.llm.LlmProviderRegistry
@@ -17,6 +23,7 @@ import com.trae.social.llm.prompt.PersonaUpdatePromptBuilder
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import timber.log.Timber
+import java.util.UUID
 
 /**
  * 人设动态字段更新 Worker（SubTask 8.4）。
@@ -28,6 +35,9 @@ import timber.log.Timber
  * 4. [PersonaUpdatePromptBuilder.parsePersonaUpdate] 解析；
  * 5. [PersonaUpdatePromptBuilder.shouldRollback] 校验（相似度过低则回退）；
  * 6. [AccountRepository.updateDynamicFields] 写入。
+ *
+ * #146 A/E 场景 7 personaCoEvolve：当 driven 组启用时，注入用户兴趣 Top 主题到
+ * 人设演进 prompt，引导虚拟账号人设向用户兴趣方向自然共演化；control 组不注入。
  *
  * RISK-2（人设漂移）：相似度校验确保不会出现人设突变。
  */
@@ -41,6 +51,11 @@ class PersonaUpdateWorker @AssistedInject constructor(
     private val rateLimiter: SchedulerRateLimiter,
     private val logDao: com.trae.social.core.data.dao.SchedulerLogDao,
     private val configRepository: ConfigRepository,
+    // #146 A/E：反哺层场景 7（personaCoEvolve）
+    private val feedbackController: FeedbackController,
+    private val readAccess: UserProfileReadAccess,
+    private val userActionTracker: UserActionTracker,
+    private val sessionManager: SessionManager,
 ) : CoroutineWorker(appContext, params) {
 
     private val promptBuilder = PersonaUpdatePromptBuilder()
@@ -58,6 +73,13 @@ class PersonaUpdateWorker @AssistedInject constructor(
                 .getOrDefault(com.trae.social.core.data.config.AiActivityLevel.MEDIUM)
             val batchSize = level.personaUpdateBatchSize
 
+            // #146 A/E 场景 7 personaCoEvolve：判断本次批次是否 driven（画像驱动人设共演化）。
+            // 整批共用一次 driven 判定（而非逐账号），因为人设共演化是批次级策略，
+            // 同批要么全注入用户兴趣，要么全不注入，便于 computeFeedbackEffect 做 A/B 回测。
+            val sessionId = sessionManager.currentSessionId() ?: "persona_update"
+            val drivenScenario7 = feedbackController.shouldApply(7, sessionId)
+            val userInterests = if (drivenScenario7) collectUserInterests() else emptyList()
+
             // 1. 选取 batchSize 个最久未更新的虚拟账号（#75）
             val candidates = pickRandomAccounts(batchSize)
             if (candidates.isEmpty()) {
@@ -73,7 +95,7 @@ class PersonaUpdateWorker @AssistedInject constructor(
                         skipped++
                         continue
                     }
-                    val success = updateSinglePersona(account)
+                    val success = updateSinglePersona(account, userInterests)
                     when (success) {
                         UpdateResult.UPDATED -> updated++
                         UpdateResult.ROLLED_BACK -> rolledBack++
@@ -84,11 +106,42 @@ class PersonaUpdateWorker @AssistedInject constructor(
                 } catch (e: RateLimitedException) {
                     // IMPL-19：429 限流向上抛出，由 doWork 统一捕获并跳过整个批次
                     throw e
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    // 第六轮 review M3 修复：CancellationException 必须重抛，否则取消信号被吞。
+                    throw e
                 } catch (t: Throwable) {
                     Timber.w(t, "账号 %s 人设更新失败", account.id)
                     failed++
                 }
             }
+
+            // #146 A/E 场景 7：反哺层打标——为本批次人设更新发 scenario 事件，供 computeFeedbackEffect 做 A/B 回测。
+            // drivenByProfile 标记本批人设演进是否受画像驱动；control 组同样落事件以便计算共鸣度 delta。
+            // 第六轮 review B1/B2 修复：isScenarioMarker=true 标记本事件为调度器打标（非真实用户行为），
+            // 供 UserProfileAggregator.computeScenarioStats 区分"曝光标记"与"真实互动"，
+            // 供 BasicProfileAnalyzer.analyze 过滤掉调度器打标，避免污染用户画像。
+            runCatching {
+                userActionTracker.trackNow(
+                    UserActionEvent(
+                        id = UUID.randomUUID().toString(),
+                        type = UserActionType.FEEDBACK_OVERRIDE_APPLIED,
+                        screen = "persona_update_co_evolve",
+                        targetId = "batch_$started",
+                        targetKind = "persona_batch",
+                        extra = mapOf(
+                            "scenarioId" to kotlinx.serialization.json.JsonPrimitive(7),
+                            "drivenByProfile" to kotlinx.serialization.json.JsonPrimitive(drivenScenario7),
+                            "group" to kotlinx.serialization.json.JsonPrimitive(if (drivenScenario7) "driven" else "control"),
+                            "batchSize" to kotlinx.serialization.json.JsonPrimitive(candidates.size),
+                            "updated" to kotlinx.serialization.json.JsonPrimitive(updated),
+                            "rolledBack" to kotlinx.serialization.json.JsonPrimitive(rolledBack),
+                            "isScenarioMarker" to kotlinx.serialization.json.JsonPrimitive(true),
+                        ),
+                        occurredAt = started,
+                        session = sessionId,
+                    )
+                )
+            }.onFailure { Timber.w(it, "#146 场景 7 打标失败") }
 
             // #112：日志状态增加 skipped；errorMessage 仅在真正 failed > 0 时设置
             val status = "updated_${updated}_rolledBack_${rolledBack}_skipped_${skipped}_failed_$failed"
@@ -100,6 +153,9 @@ class PersonaUpdateWorker @AssistedInject constructor(
             logSchedulerEvent("system", started, "rate_limited", e.message)
             return Result.success(workDataOf(WorkerKeys.KEY_RESULT to "rate_limited"))
         } catch (t: Throwable) {
+            // 第六轮 review M3 修复：CancellationException 必须重抛，否则 WorkManager 取消 Worker 时
+            // 协程无法正确传播取消信号，导致 doWork 卡在 catch(t: Throwable) 内继续执行返回 Result.retry。
+            if (t is kotlinx.coroutines.CancellationException) throw t
             Timber.e(t, "PersonaUpdateWorker 执行失败")
             logSchedulerEvent("system", started, "error", t.message)
             return if (runAttemptCount >= MAX_RUN_ATTEMPTS) {
@@ -132,9 +188,12 @@ class PersonaUpdateWorker @AssistedInject constructor(
 
     /**
      * 更新单个账号的人设动态字段。
+     *
+     * @param userInterests 用户兴趣 Top 主题（#146 场景 7 driven 时非空），注入人设演进 prompt。
      */
     private suspend fun updateSinglePersona(
         account: com.trae.social.core.data.entity.AccountEntity,
+        userInterests: List<String>,
     ): UpdateResult {
         // 加载当前动态字段
         val dynamic = accountRepository.getDynamicFields(account.id)
@@ -151,8 +210,8 @@ class PersonaUpdateWorker @AssistedInject constructor(
             .map { it.text }
         val recentEvents = recentTweets.ifEmpty { listOf("（暂无近期推文）") }
 
-        // 调用 LLM 生成更新
-        val messages = promptBuilder.build(currentInput, recentEvents)
+        // 调用 LLM 生成更新（#146 场景 7：driven 组注入用户兴趣画像）
+        val messages = promptBuilder.build(currentInput, recentEvents, userInterests)
         val raw = try {
             llmRegistry.getDefaultClient().chatSync(
                 messages = messages,
@@ -193,6 +252,28 @@ class PersonaUpdateWorker @AssistedInject constructor(
             updatedAt = now,
         )
         return UpdateResult.UPDATED
+    }
+
+    /**
+     * 收集用户兴趣 Top 主题（#146 场景 7 personaCoEvolve）。
+     *
+     * 合并来源：
+     * - interestVector：用户兴趣向量 keys（已合并 theme overrides）；
+     * - latestSnapshot.evidence.topThemes：观察到的 Top 主题（按 weight 降序）。
+     *
+     * 任一来源缺失时仅降级，不阻断人设更新。取 Top 10 用于 prompt 提示。
+     */
+    private fun collectUserInterests(): List<String> {
+        val interestVector = runCatching { readAccess.interestVector() }.getOrDefault(emptyMap())
+        val snapshot = runCatching { readAccess.latestSnapshot() }.getOrNull()
+        val topThemesFromSnapshot = snapshot?.evidence?.topThemes
+            ?.sortedByDescending { it.weight }
+            ?.take(8)
+            ?.map { it.theme }
+            ?: emptyList()
+        return (topThemesFromSnapshot + interestVector.keys)
+            .distinct()
+            .take(10)
     }
 
     private suspend fun logSchedulerEvent(
