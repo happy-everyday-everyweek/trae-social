@@ -72,9 +72,8 @@ fun ProfileChatScreen(
     viewModel: ProfileChatViewModel = hiltViewModel(),
 ) {
     val messages by viewModel.messages.collectAsStateWithLifecycle()
-    val activeVersion by viewModel.activeVersion.collectAsStateWithLifecycle()
-    val snapshot by viewModel.snapshot.collectAsStateWithLifecycle()
-    val activeOverrides by viewModel.activeOverrides.collectAsStateWithLifecycle()
+    // #226 修复：activeVersion / snapshot / activeOverrides 合并为单个 profileSummary StateFlow
+    val profileSummary by viewModel.profileSummary.collectAsStateWithLifecycle()
     val recentVersions by viewModel.recentVersions.collectAsStateWithLifecycle()
     val sending by viewModel.sending.collectAsStateWithLifecycle()
     val pendingPreviews by viewModel.pendingPreviews.collectAsStateWithLifecycle()
@@ -125,9 +124,9 @@ fun ProfileChatScreen(
 
             // 顶部画像摘要卡片
             ProfileSummaryCard(
-                activeVersion = activeVersion,
-                snapshot = snapshot,
-                activeOverrideCount = activeOverrides.size,
+                activeVersion = profileSummary.activeVersion,
+                snapshot = profileSummary.snapshot,
+                activeOverrideCount = profileSummary.activeOverrides.size,
                 onShowVersionHistory = {
                     viewModel.refreshRecentVersions()
                     showVersionHistory = !showVersionHistory
