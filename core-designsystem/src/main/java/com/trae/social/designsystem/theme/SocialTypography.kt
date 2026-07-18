@@ -119,7 +119,11 @@ val DefaultSocialTypography = SocialTypography(
 
 /**
  * 通过 CompositionLocal 暴露当前排版样式。
+ *
+ * #195：提供 [DefaultSocialTypography] 作为 default，使 `@Preview`、单测与非
+ * `SocialTheme` 包裹的临时组合能正常渲染，与 `LocalSocialSpacing`/`LocalSocialShapes`
+ * 行为一致。正式 UI 仍应通过 [SocialTheme] 提供排版。
  */
 val LocalSocialTypography = staticCompositionLocalOf<SocialTypography> {
-    error("SocialTypography 未提供，请在 SocialTheme 中包裹内容")
+    DefaultSocialTypography
 }
