@@ -19,6 +19,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -184,7 +185,10 @@ private fun ProviderCard(
 
 /**
  * 提供商选项元数据。
+ *
+ * #231：标注 @Immutable，所有字段为不可变类型（Color / String / enum）。
  */
+@Immutable
 private data class ProviderOption(
     val provider: LlmProvider,
     val name: String,

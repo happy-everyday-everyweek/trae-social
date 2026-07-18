@@ -35,6 +35,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,7 +61,12 @@ import com.trae.social.designsystem.theme.socialColors
 
 /**
  * 全屏大图查看器状态（#8）：图片 URI 列表 + 初始下标。
+ *
+ * #231：标注 @Immutable。`images` 为 `List<String>`，会被 Compose 推断为 Unstable
+ * 导致 FullScreenImageState 不可 skip。该类作为 mutableStateOf 值构造后即不再变，
+ * 可安全标注 @Immutable。
  */
+@Immutable
 private data class FullScreenImageState(
     val images: List<String>,
     val index: Int,
