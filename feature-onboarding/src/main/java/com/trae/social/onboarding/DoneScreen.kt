@@ -19,6 +19,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,13 +50,17 @@ fun DoneScreen(
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
 
+    // #239：用 rememberUpdatedState 持有 onCompleted，避免调用方传入的 lambda 未 remember
+    // 时，effect 因 key 未变不会重启而调用首次捕获的陈旧引用。
+    val currentOnCompleted by rememberUpdatedState(onCompleted)
+
     // 防止自动延迟与手动按钮重复触发 onCompleted：第一次调用后置 dismissed，
     // 后续路径（LaunchedEffect delay 到期或再次点击）直接短路返回。
     var dismissed by remember { mutableStateOf(false) }
     val safeOnCompleted: () -> Unit = {
         if (!dismissed) {
             dismissed = true
-            onCompleted()
+            currentOnCompleted()
         }
     }
 
