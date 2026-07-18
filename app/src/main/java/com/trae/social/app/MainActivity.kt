@@ -1,6 +1,7 @@
 package com.trae.social.app
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -69,6 +70,8 @@ import com.trae.social.profile.SettingsScreen
 import com.trae.social.publish.PublishScreen
 import com.trae.social.timeline.TimelineScreen
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonPrimitive
 import javax.inject.Inject
@@ -100,6 +103,10 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var basicProfileTrigger: BasicProfileTrigger
 
+    // #210：singleTask 模式下二次启动走 onNewIntent 而非 onCreate，
+    // 通过该 StateFlow 将新 Intent 透传给 Compose 层（NavHost），未来接入深链时观察此流即可路由。
+    val newIntentFlow: MutableStateFlow<Intent?> = MutableStateFlow(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -126,6 +133,8 @@ class MainActivity : ComponentActivity() {
                 sessionManager.onPause()
             }
         })
+        // #210：onCreate 路径下首次 Intent 也写入 newIntentFlow，保证 Compose 层观察到的初始值一致
+        newIntentFlow.value = intent
         setContent {
             // #12：读取主题偏好覆写系统深色模式；偏好变更时此处会重组
             val darkTheme = ThemePreferences.isDarkTheme(isSystemInDarkTheme())
@@ -134,9 +143,21 @@ class MainActivity : ComponentActivity() {
                     configRepository = configRepository,
                     userActionTracker = userActionTracker,
                     sessionManager = sessionManager,
+                    newIntentFlow = newIntentFlow,
                 )
             }
         }
+    }
+
+    // #210：singleTask 模式下 Activity 已存活时再次被启动（如从桌面图标二次点击、
+    // 通知 PendingIntent、外部跳转），系统调用 onNewIntent 而非 onCreate。
+    // 必须调用 setIntent 让后续 getIntent() 拿到最新 Intent，并将 Intent 推入
+    // newIntentFlow 供 Compose 层（NavHost）做深链路由。当前无深链 intent-filter，
+    // 此 hook 为未来接入深链/通知跳转预留。
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        newIntentFlow.value = intent
     }
 }
 
@@ -151,10 +172,22 @@ private fun SocialApp(
     configRepository: ConfigRepository,
     userActionTracker: UserActionTracker,
     sessionManager: SessionManager,
+    // #210：MainActivity.onNewIntent 透传的 Intent 流，未来接入深链时观察此流做路由
+    newIntentFlow: StateFlow<Intent?>,
 ) {
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+
+    // #210：观察 newIntentFlow，当前无深链 intent-filter，预留 hook；
+    // 未来接入深链时在此处解析 intent.data/extras 并 navController.navigate(...)。
+    LaunchedEffect(newIntentFlow) {
+        newIntentFlow.collect { intent ->
+            if (intent != null) {
+                // TODO 深链路由：解析 intent.data 或 extras，调用 navController.navigate(...)
+            }
+        }
+    }
 
     // IMPL-46：Android 13+ 运行时申请 POST_NOTIFICATIONS 权限，
     // 确保调度前台服务的常驻通知可见
