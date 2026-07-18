@@ -219,12 +219,14 @@ class ConfigRepository @Inject constructor(
                 provider == LlmProvider.GEMINI -> "https://generativelanguage.googleapis.com/v1beta/openai/"
                 else -> protocol.defaultBaseUrl
             }
-            val resolvedModel = when {
-                !model.isNullOrBlank() -> model
-                provider == LlmProvider.OPENAI -> "gpt-4o-mini"
-                provider == LlmProvider.ANTHROPIC -> "claude-3-5-sonnet-20240620"
-                provider == LlmProvider.GEMINI -> "gemini-1.5-flash"
-                provider == LlmProvider.CUSTOM -> "gpt-4o-mini"
+            // 枚举式 when：编译器可静态判断 exhaustive，避免条件式 when 必须加 else 分支
+            val resolvedModel = when (provider) {
+                LlmProvider.OPENAI, LlmProvider.CUSTOM ->
+                    if (!model.isNullOrBlank()) model else "gpt-4o-mini"
+                LlmProvider.ANTHROPIC ->
+                    if (!model.isNullOrBlank()) model else "claude-3-5-sonnet-20240620"
+                LlmProvider.GEMINI ->
+                    if (!model.isNullOrBlank()) model else "gemini-1.5-flash"
             }
             val capabilities = when (provider) {
                 LlmProvider.OPENAI, LlmProvider.CUSTOM -> setOf(
