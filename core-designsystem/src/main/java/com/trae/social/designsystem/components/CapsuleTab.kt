@@ -1,8 +1,10 @@
 package com.trae.social.designsystem.components
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.trae.social.designsystem.theme.LocalReduceMotion
 import com.trae.social.designsystem.theme.LocalSocialColors
 import com.trae.social.designsystem.theme.LocalSocialTypography
 
@@ -41,6 +44,19 @@ fun CapsuleTab(
 ) {
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
+    val reduceMotion = LocalReduceMotion.current
+    // #204：色值过渡 spec——
+    // - 默认：NoBouncy + StiffnessMediumLow（≈200ms），色彩柔顺切换；原先未指定 stiffness
+    //   回落到 StiffnessMedium(1500)，对色值过渡过慢、肉眼可感"迟滞"。
+    // - 减弱动效：tween(150, FastOutSlowInEasing)，仅保留色值过渡、移除任何物理感
+    val colorSpec = if (reduceMotion) {
+        tween<Color>(durationMillis = 150, easing = FastOutSlowInEasing)
+    } else {
+        spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMediumLow,
+        )
+    }
 
     Row(
         modifier = modifier.horizontalScroll(rememberScrollState()),
@@ -51,12 +67,12 @@ fun CapsuleTab(
             // #22：胶囊背景色与文字色平滑过渡，避免瞬间跳变
             val bgColor by animateColorAsState(
                 targetValue = if (selected) colors.systemBlue else colors.secondaryBackground,
-                animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy),
+                animationSpec = colorSpec,
                 label = "capsuleBg",
             )
             val contentColor by animateColorAsState(
                 targetValue = if (selected) Color.White else colors.label,
-                animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy),
+                animationSpec = colorSpec,
                 label = "capsuleContent",
             )
             Box(

@@ -32,6 +32,7 @@ import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -71,6 +72,7 @@ import coil.request.ImageRequest
 import com.trae.social.designsystem.components.LoadingShimmer
 import com.trae.social.designsystem.components.SocialDivider
 import com.trae.social.designsystem.components.socialClickable
+import com.trae.social.designsystem.theme.LocalReduceMotion
 import com.trae.social.designsystem.theme.LocalSocialColors
 import com.trae.social.designsystem.theme.LocalSocialSpacing
 import com.trae.social.designsystem.theme.LocalSocialTypography
@@ -565,19 +567,38 @@ private fun InteractionButton(
     val typography = LocalSocialTypography.current
     val spacing = LocalSocialSpacing.current
     val hapticFeedback = LocalHapticFeedback.current
-    // #3：仅在 false→true 跳变时弹跳，hasObserved 防止首帧（已点赞项）误触动画
+    val reduceMotion = LocalReduceMotion.current
+    // #3/#201：仅在 false→true 跳变时弹跳，hasObserved 防止首帧（已点赞项）误触动画
+    // - 原先 snapTo(0.6f) → animateTo(1f, MediumBouncy+StiffnessMedium) 起点过低（缩到一半）、
+    //   wobble 3+ 次，整个点赞反馈拖沓且过大，与社交帖子"轻盈点赞"调性不符。
+    // - 调整为 snapTo(0.8f) → LowBouncy+StiffnessMediumLow ≈ 300ms 收束，一次柔和 overshoot
+    //   即稳。Emil "nothing appears from nothing" + Apple "damping 0.8 仅在带速度时"原则：
+    //   用户点击本身是带速度的输入，所以保留一次轻 overshoot。
+    // - 减弱动效：tween(150, FastOutSlowInEasing) 直接到 1f，无 overshoot，
+    //   仍能感知到"图标被按了一下"。
     val scale = remember { Animatable(1f) }
     var hasObserved by remember { mutableStateOf(false) }
     LaunchedEffect(active) {
         if (bounceWhenActive && active && hasObserved) {
-            scale.snapTo(0.6f)
-            scale.animateTo(
-                targetValue = 1f,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessMedium,
-                ),
-            )
+            if (reduceMotion) {
+                scale.snapTo(0.8f)
+                scale.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(
+                        durationMillis = 150,
+                        easing = FastOutSlowInEasing,
+                    ),
+                )
+            } else {
+                scale.snapTo(0.8f)
+                scale.animateTo(
+                    targetValue = 1f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioLowBouncy,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
+                )
+            }
         }
         hasObserved = true
     }

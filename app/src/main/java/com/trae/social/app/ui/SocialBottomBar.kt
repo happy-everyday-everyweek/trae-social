@@ -1,9 +1,11 @@
 package com.trae.social.app.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -44,6 +46,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import com.trae.social.designsystem.components.GlassBlurContainer
 import com.trae.social.designsystem.components.socialClickable
+import com.trae.social.designsystem.theme.LocalReduceMotion
 import com.trae.social.designsystem.theme.LocalSocialColors
 import com.trae.social.designsystem.theme.LocalSocialSpacing
 import com.trae.social.designsystem.theme.LocalSocialTypography
@@ -146,16 +149,39 @@ private fun TabItem(
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
     val hapticFeedback = LocalHapticFeedback.current
-    // #22：选中/未选中颜色平滑过渡，避免瞬间跳变
+    val reduceMotion = LocalReduceMotion.current
+    // #22/#202：选中/未选中颜色平滑过渡，避免瞬间跳变
+    // - 色值不应 overshoot（颜色过冲会闪烁中间色），用 NoBouncy + StiffnessMediumLow ≈200ms
+    //   原先用 MediumBouncy 会让 systemBlue↔tertiaryLabel 中间穿过亮蓝/紫色，肉眼可见抖动。
+    // - 减弱动效：tween(150) 仅保留色值过渡，移除物理感
+    val contentColorSpec = if (reduceMotion) {
+        tween<Color>(durationMillis = 150, easing = FastOutSlowInEasing)
+    } else {
+        spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMediumLow,
+        )
+    }
+    // #22/#202：选中圆点缩放进场/退场，替代瞬间出现/消失
+    // - 圆点是单点视觉信号、用户每次切 Tab 都看，适合"轻"反馈：
+    //   LowBouncy ≈ 0.75 提供一次柔和 overshoot 即收束，比 MediumBouncy 的 3+ 次震荡更克制。
+    // - 减弱动效：tween(150) 直接渐变到目标值，无 overshoot
+    val dotScaleSpec = if (reduceMotion) {
+        tween<Float>(durationMillis = 150, easing = FastOutSlowInEasing)
+    } else {
+        spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessMedium,
+        )
+    }
     val contentColor by animateColorAsState(
         targetValue = if (selected) colors.systemBlue else colors.tertiaryLabel,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        animationSpec = contentColorSpec,
         label = "tabContentColor",
     )
-    // #22：选中圆点缩放进场/退场，替代瞬间出现/消失
     val dotScale by animateFloatAsState(
         targetValue = if (selected) 1f else 0f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        animationSpec = dotScaleSpec,
         label = "tabDotScale",
     )
 
@@ -205,12 +231,26 @@ private fun PublishButton(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalSocialColors.current
+    val reduceMotion = LocalReduceMotion.current
     // #26：自建 InteractionSource 追踪按压状态，驱动缩放动效
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
+    // #202：按压弹簧——
+    // - 默认：NoBouncy + StiffnessMedium（≈300ms 收束），按压是高频操作，不需要 overshoot；
+    //   原 MediumBouncy 让按钮每次按下都晃几下，频繁点击下视觉抖动。
+    // - 减弱动效：tween(120, FastOutSlowInEasing)——按压反馈不能完全省（否则界面"没反应"），
+    //   但要更短、更平。
+    val scaleSpec = if (reduceMotion) {
+        tween<Float>(durationMillis = 120, easing = FastOutSlowInEasing)
+    } else {
+        spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMedium,
+        )
+    }
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 0.92f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        animationSpec = scaleSpec,
         label = "publishScale",
     )
 
