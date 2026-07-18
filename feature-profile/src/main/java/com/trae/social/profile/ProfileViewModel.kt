@@ -13,7 +13,7 @@ import com.trae.social.core.data.repository.AccountRepository
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.data.repository.InteractionRepository
 import com.trae.social.core.data.repository.TweetRepository
-import com.trae.social.profile.di.ProfileImageLoader
+import com.trae.social.designsystem.image.SvgImageLoader
 import coil.ImageLoader
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -43,7 +43,7 @@ class ProfileViewModel @Inject constructor(
     private val followRelationDao: FollowRelationDao,
     // #134：注入 InteractionRepository，使 retweetTweet 能创建实际互动记录
     private val interactionRepository: InteractionRepository,
-    @ProfileImageLoader val imageLoader: ImageLoader,
+    @SvgImageLoader val imageLoader: ImageLoader,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<ProfileUiState>(ProfileUiState.Loading)
