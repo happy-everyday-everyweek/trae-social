@@ -87,8 +87,14 @@ fun ProfileScreen(
     val colors = socialColors()
     // #8：全屏大图查看器状态（媒体网格与推文图片共用）
     var fullScreenState by remember { mutableStateOf<FullScreenImageState?>(null) }
-    val onImageClick: (List<String>, Int) -> Unit = { images, index ->
-        fullScreenState = FullScreenImageState(images, index)
+    // #233：onImageClick 用 remember 缓存，避免每次 ProfileScreen 重组（selectedTab
+    // 切换、fullScreenState 变化、uiState 变化）都 new 一个新 lambda 实例向下传
+    // 破坏子组件 TweetsTab/MediaTab/LikesTab skip。fullScreenState 是 by 委托的
+    // State，闭包内写入会路由到原 State，无需把 fullScreenState 加进 key。
+    val onImageClick: (List<String>, Int) -> Unit = remember {
+        { images, index ->
+            fullScreenState = FullScreenImageState(images, index)
+        }
     }
     val spacing = LocalSocialSpacing.current
 
