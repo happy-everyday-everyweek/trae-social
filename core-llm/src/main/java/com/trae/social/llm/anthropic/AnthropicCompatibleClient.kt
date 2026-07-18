@@ -79,10 +79,10 @@ class AnthropicCompatibleClient(
                     while (iterator.hasNext()) {
                         val event = iterator.next()
                         // RawMessageStreamEvent 是 union，本身没有 .delta() 方法
-                        if (!event.isContentBlockDelta) continue
+                        if (!event.isContentBlockDelta()) continue
                         val blockDelta = event.asContentBlockDelta().delta()
                         // delta 的方法名是 isText / asText，不是 isTextDelta / asTextDelta
-                        if (!blockDelta.isText) continue
+                        if (!blockDelta.isText()) continue
                         val text = blockDelta.asText().text()
                         if (text.isNotEmpty()) {
                             emit(text)
@@ -116,7 +116,7 @@ class AnthropicCompatibleClient(
         val response: Message = client.messages().create(params)
         // Message.content() 返回 List<ContentBlock>，要遍历取 TextBlock.text()
         return response.content()
-            .filter { it.isText }
+            .filter { it.isText() }
             .joinToString("") { it.asText().text() }
     }
 
