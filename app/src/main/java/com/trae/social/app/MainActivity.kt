@@ -26,6 +26,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
@@ -263,6 +264,44 @@ private fun MainScaffold(
     // 避免偏移 = 0 - 0 = 0 导致模糊到内容顶部而非底部条带的首帧错位。
     val backgroundLayerReady = contentHeightPx > 0f && barHeightPx > 0f
 
+    // #240：用 rememberUpdatedState 持有高频变化的 currentRoute，使 onTabSelected/onPublishClick
+    // lambda 仅依赖稳定引用（navController/actionBuilder），重组时不产生新实例，让 SocialBottomBar
+    // 与其子组件 TabItem/PublishButton 不再因 lambda 参数不稳定而被迫 skip 失效。
+    val currentRouteState = rememberUpdatedState(currentRoute)
+
+    // #240：lambda 提升至 remember，避免 isScrolling/contentHeightPx/barHeightPx 等高频翻转状态
+    // 触发 MainScaffold 重组时每次 new lambda 实例破坏子组件 skip。
+    val onTabSelected = remember(navController, actionBuilder) {
+        { route: String ->
+            val fromRoute = currentRouteState.value
+            // M2 修复：Tab 切换埋点（Feed/Timeline/Profile 间切换，带 from/to）
+            if (route != fromRoute) {
+                actionBuilder.emit(
+                    type = UserActionType.TAB_SWITCH,
+                    screen = route,
+                    extra = mapOf(
+                        "from" to JsonPrimitive(fromRoute ?: "unknown"),
+                        "to" to JsonPrimitive(route),
+                    ),
+                )
+            }
+            navController.navigate(route) {
+                popUpTo(navController.graph.findStartDestination().id) {
+                    saveState = true
+                }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+    }
+    val onPublishClick = remember(navController) {
+        {
+            navController.navigate(AppRoutes.PUBLISH) {
+                launchSingleTop = true
+            }
+        }
+    }
+
     // 用 provideIsScrolling 包裹整个 Scaffold，使 bottomBar 内的 GlassBlurContainer 可读取
     provideIsScrolling(isScrolling) {
         Scaffold(
@@ -270,31 +309,8 @@ private fun MainScaffold(
                 if (showBottomBar) {
                     SocialBottomBar(
                         currentRoute = currentRoute,
-                        onTabSelected = { route ->
-                            // M2 修复：Tab 切换埋点（Feed/Timeline/Profile 间切换，带 from/to）
-                            if (route != currentRoute) {
-                                actionBuilder.emit(
-                                    type = UserActionType.TAB_SWITCH,
-                                    screen = route,
-                                    extra = mapOf(
-                                        "from" to JsonPrimitive(currentRoute ?: "unknown"),
-                                        "to" to JsonPrimitive(route),
-                                    ),
-                                )
-                            }
-                            navController.navigate(route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        onPublishClick = {
-                            navController.navigate(AppRoutes.PUBLISH) {
-                                launchSingleTop = true
-                            }
-                        },
+                        onTabSelected = onTabSelected,
+                        onPublishClick = onPublishClick,
                         // #2：将捕获的内容图层及其平移偏移透传给底栏。
                         // 高度未测量完成前传 null，回退为纯色半透明，避免首帧偏移错位。
                         backgroundLayer = if (backgroundLayerReady) backgroundLayer else null,
