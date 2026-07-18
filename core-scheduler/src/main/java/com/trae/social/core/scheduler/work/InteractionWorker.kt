@@ -152,6 +152,9 @@ class InteractionWorker @AssistedInject constructor(
             // #146 A：反哺层打标——为本次互动排程发 scenario 事件，供 computeFeedbackEffect 做 A/B 回测。
             // 场景 3/8 共用一次排程，以场景 3 为主标记（互动账号选择），场景 8（时段）作为同次排程的附属维度。
             // drivenByProfile 标记本次排程是否受画像驱动；control 组同样落事件以便计算互动率 delta。
+            // 第六轮 review B1/B2 修复：isScenarioMarker=true 标记本事件为调度器打标（非真实用户互动），
+            // 供 UserProfileAggregator.computeScenarioStats 区分"曝光标记"与"真实互动"，避免 delta 恒为 0；
+            // 供 BasicProfileAnalyzer.analyze 过滤掉调度器打标，避免污染用户画像。
             val driven3 = drivenScenario3 || drivenScenario8
             runCatching {
                 userActionTracker.trackNow(
@@ -166,6 +169,7 @@ class InteractionWorker @AssistedInject constructor(
                             "drivenByProfile" to kotlinx.serialization.json.JsonPrimitive(driven3),
                             "group" to kotlinx.serialization.json.JsonPrimitive(if (driven3) "driven" else "control"),
                             "interactionCount" to kotlinx.serialization.json.JsonPrimitive(interactions.size),
+                            "isScenarioMarker" to kotlinx.serialization.json.JsonPrimitive(true),
                         ),
                         occurredAt = now,
                         session = sessionId,
@@ -190,6 +194,7 @@ class InteractionWorker @AssistedInject constructor(
                                 "drivenByProfile" to kotlinx.serialization.json.JsonPrimitive(drivenScenario4),
                                 "group" to kotlinx.serialization.json.JsonPrimitive(if (drivenScenario4) "driven" else "control"),
                                 "commentCount" to kotlinx.serialization.json.JsonPrimitive(commentAssignments.size),
+                                "isScenarioMarker" to kotlinx.serialization.json.JsonPrimitive(true),
                             ),
                             occurredAt = now,
                             session = sessionId,
@@ -229,6 +234,10 @@ class InteractionWorker @AssistedInject constructor(
             status = "rate_limited"
             logSchedulerEvent(tweetId, started, status, e.message)
             return Result.success(workDataOf(WorkerKeys.KEY_RESULT to status))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // 第六轮 review M3 修复：CancellationException 必须重抛，否则 WorkManager 取消 Worker 时
+            // 协程无法正确传播取消信号，导致 doWork 卡在 catch(t: Throwable) 内继续执行返回 Result.retry。
+            throw e
         } catch (t: Throwable) {
             Timber.e(t, "InteractionWorker 执行失败 tweetId=%s", tweetId)
             error = t.message ?: t.javaClass.simpleName
@@ -397,7 +406,12 @@ class InteractionWorker @AssistedInject constructor(
         drivenScenario4: Boolean,
     ): Map<String, String> {
         if (commenters.isEmpty()) return emptyMap()
-        rateLimiter.acquire()
+        // 第六轮 review M4 修复：与 TweetGenerationWorker/PersonaUpdateWorker 一致，使用带超时的 acquire，
+        // 避免限流阻塞超过 WorkManager 默认 10 分钟超时上限导致 Worker 被强制终止。
+        if (!rateLimiter.acquireWithTimeout(ACQUIRE_TIMEOUT_MS)) {
+            Timber.i("InteractionWorker 生成评论限流等待超时，跳过评论内容")
+            return emptyMap()
+        }
 
         val personas = commenters.map { it.persona }
         // #146 场景 4：driven 组收集用户口味提示（兴趣 Top 主题 + 高权重映射 + 叙事摘要）
@@ -560,5 +574,7 @@ class InteractionWorker @AssistedInject constructor(
         const val RETWEET_THRESHOLD = 0.15
         /** #78：短延迟阈值，覆盖 COMMENT(<=15min)/RETWEET(<=30min)，低于此值的互动用 OneTimeWorkRequest 直接调度 */
         const val SHORT_DELAY_THRESHOLD_MS = 30L * 60L * 1000L
+        /** 第六轮 review M4 修复：限流等待超时（8 分钟，低于 WorkManager 默认 10 分钟超时） */
+        const val ACQUIRE_TIMEOUT_MS = 8L * 60L * 1000L
     }
 }

@@ -62,8 +62,14 @@ class CachedProfileLoader @Inject constructor(
                 overrides = overrideDao.active().mapNotNull { ProfileMappers.run { it.toDomain() } }
                 eventCount = userActionDao.countAll()
                 grayRatio = runCatching { configRepository.getFeedbackGrayRatio() }.getOrDefault(1.0)
-                // 冷启动 seeding：取最早的 COLD_START_SEEDING 快照
-                coldStartSeeding = snapshot?.takeIf { eventCount < ConfigRepository.COLD_START_THRESHOLD }?.interestVector
+                // 第六轮 review B3 修复：冷启动 seeding 应取最早的 COLD_START_SEEDING 快照
+                // （onboarding 兴趣选择写入的初始兴趣），而非最新快照。
+                // 原实现 `snapshot?.takeIf { eventCount < COLD_START_THRESHOLD }?.interestVector`
+                // 读的是最新快照（未按 source 过滤），且 snapshot == null 时返回 null → 死路。
+                coldStartSeeding = userProfileDao.earliestColdStartSnapshot()
+                    ?.let { ProfileMappers.run { it.toDomain() } }
+                    ?.takeIf { eventCount < ConfigRepository.COLD_START_THRESHOLD }
+                    ?.interestVector
             }.onFailure { Timber.w(it, "CachedProfileLoader 刷新失败") }
         }
     }

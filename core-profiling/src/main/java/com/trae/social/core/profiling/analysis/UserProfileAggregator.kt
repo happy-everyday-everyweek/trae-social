@@ -87,6 +87,18 @@ class UserProfileAggregator @Inject constructor(
         return FeedbackEffect(deltas, negative)
     }
 
+    /**
+     * 计算单场景 A/B 反哺效果统计。
+     *
+     * 第六轮 review B1 修复：区分"调度器打标事件"与"真实用户互动事件"：
+     * - isScenarioMarker=true 的打标事件 = 曝光标记（driven/control 计数），
+     *   互动量按 extra.interactionCount 累加（无该字段则按 1 计），代表本次排程曝光的互动规模。
+     * - isScenarioMarker 缺省/为 false 且 type 命中 [INTERACTION_TYPES] 的真实用户事件 = 互动计数
+     *   （drivenInteract/controlInteract 累加），代表用户在曝光后实际发生的正向互动。
+     *
+     * 原实现把打标事件（type 同为 TWEET_LIKE / TWEET_COMMENT 等）同时计为曝光与互动，
+     * 导致 drivenRate = controlRate = 1.0 → delta 恒为 0，A/B 闭环失效。
+     */
     private fun computeScenarioStats(scenarioId: Int, events: List<com.trae.social.core.data.entity.UserActionEventEntity>): ScenarioEffectStats {
         val domains = events.mapNotNull { ProfileMappers.run { it.toDomain() } }
         var driven = 0
@@ -95,13 +107,16 @@ class UserProfileAggregator @Inject constructor(
         var controlInteract = 0
         for (e in domains) {
             val isDriven = ProfileMappers.readExtraBoolean(e.extra, "drivenByProfile")
-            val isInteraction = e.type.name in INTERACTION_TYPES
-            if (isDriven) {
-                driven++
-                if (isInteraction) drivenInteract++
+            val isMarker = ProfileMappers.readExtraBoolean(e.extra, "isScenarioMarker")
+            if (isMarker) {
+                // 调度器打标事件：仅计曝光（用 interactionCount 表达曝光规模，缺省为 1）
+                val exposure = ProfileMappers.readExtraInt(e.extra, "interactionCount") ?: 1
+                if (isDriven) driven += exposure else control += exposure
             } else {
-                control++
-                if (isInteraction) controlInteract++
+                // 真实用户事件：type 命中互动类型才计互动
+                if (e.type.name in INTERACTION_TYPES) {
+                    if (isDriven) drivenInteract++ else controlInteract++
+                }
             }
         }
         val drivenRate = if (driven == 0) 0.0 else drivenInteract.toDouble() / driven

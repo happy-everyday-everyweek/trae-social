@@ -67,6 +67,10 @@ class EventTextPreParser @Inject constructor(
      *
      * 已解析过的事件（extra 中存在 textTopic）跳过；LLM 不可用或调用失败时
      * 优雅降级，返回原始事件列表。
+     *
+     * 第六轮 review M8 修复：增加整体时间预算 [OVERALL_BUDGET_MS]，避免 200 条事件
+     * × 10 批 × 每批 30s 超时 = 5 分钟以上拖垮 UserProfileWorker 10min WM 上限。
+     * 超预算后停止处理后续批次，已解析的批次结果仍然写回。
      */
     suspend fun enrichWithTextSignals(events: List<UserActionEvent>): List<UserActionEvent> {
         // 1. 筛选需要解析的事件（携带文本且未解析过）
@@ -87,12 +91,20 @@ class EventTextPreParser @Inject constructor(
         }
 
         // 4. 批量 LLM 解析（分批避免单次 token 超限）
+        // M8 修复：整体时间预算，避免大批量事件拖垮 Worker 上限
         val enriched = mutableMapOf<String, TextSignals>()
         // Q1 修复：仅收集"批次成功"的候选事件 ID。批次成功（batchParse 未抛异常）时，
         // 无论 LLM 是否返回某 index 的条目，都标记 textParsed=true，避免下个分析窗口
         // 重复送 LLM 消耗配额。批次失败（超时 / 网络异常）时不标记，允许后续重试。
         val parsedIds = mutableSetOf<String>()
+        val overallDeadline = System.currentTimeMillis() + OVERALL_BUDGET_MS
         withText.chunked(MAX_BATCH_SIZE).forEach { batch ->
+            // M8 修复：超整体预算则停止处理后续批次
+            if (System.currentTimeMillis() >= overallDeadline) {
+                Timber.w("EventTextPreParser: 超整体时间预算 %dms，停止处理剩余批次（已解析 %d/%d）",
+                    OVERALL_BUDGET_MS, parsedIds.size, withText.size)
+                return@forEach
+            }
             runCatching {
                 val result = batchParse(batch, provider)
                 // 批次成功：所有该批事件都标记为已解析（即使 LLM 漏返回某 index）
@@ -128,21 +140,45 @@ class EventTextPreParser @Inject constructor(
         }
     }
 
-    /** 判断事件是否需要预解析：PUBLISH_TWEET / TWEET_COMMENT 且有 targetId 且未解析过。 */
+    /**
+     * 判断事件是否需要预解析：PUBLISH_TWEET / TWEET_COMMENT 且有 targetId 且未解析过。
+     *
+     * 第六轮 review 新增 MINOR 修复：排除调度器打标事件（isScenarioMarker=true 或
+     * screen ∈ 调度器 screen 白名单），避免把 AI 生成的推文文本（TweetGenerationWorker
+     * 为每条 AI 推文打的 PUBLISH_TWEET 事件）送 LLM 解析，浪费配额且污染用户兴趣画像
+     * （AI 自生成主题被当作用户主动表达融合进兴趣向量）。
+     */
     private fun needsParsing(event: UserActionEvent): Boolean {
         if (event.type != UserActionType.PUBLISH_TWEET &&
             event.type != UserActionType.TWEET_COMMENT
         ) return false
         if (event.targetId.isNullOrBlank()) return false
+        // 排除调度器打标事件（与 BasicProfileAnalyzer.B2 修复同策略）
+        if (ProfileMappers.readExtraBoolean(event.extra, "isScenarioMarker")) return false
+        if (event.screen in SCHEDULER_SCREENS) return false
         // 已解析过则跳过（缓存命中）：检查 textParsed 标记，
         // 而非检查 textTopic（LLM 可能返回 topic=null 但 sentiment/intent 非空）
         return !ProfileMappers.readExtraBoolean(event.extra, KEY_TEXT_PARSED)
     }
 
     /**
+     * 调度器 Worker 落事件的 screen 白名单（与 [BasicProfileAnalyzer.SCHEDULER_SCREENS] 一致）。
+     */
+    private val SCHEDULER_SCREENS = setOf(
+        "tweet_generation",
+        "interaction_schedule",
+        "interaction_schedule_comment",
+        "persona_update_co_evolve",
+    )
+
+    /**
      * 按 targetId 回查事件关联的原文。
      *
      * - PUBLISH_TWEET：targetId 为推文 ID，从 tweets 表取 text 字段。
+     *   第六轮 review 新增 MINOR 修复：仅回查真实用户发布（authorId == user-self 且
+     *   !isAiGenerated）的推文，避免 AI 生成的推文文本被当作用户主动表达送 LLM 解析
+     *   （与 needsParsing 的 screen 过滤互为兜底：needsParsing 拦调度器事件，
+     *   此处拦截非调度器路径但引用了 AI 推文的边界情况）。
      * - TWEET_COMMENT：优先按 extra 中的 commentId 精确查询（埋点完整性方案），
      *   缺失 commentId 时回退到按推文 + 作者 + 时间最近原则匹配（兼容历史数据）。
      */
@@ -150,7 +186,10 @@ class EventTextPreParser @Inject constructor(
         val targetId = event.targetId ?: return null
         return when (event.type) {
             UserActionType.PUBLISH_TWEET -> {
-                tweetRepository.getById(targetId)?.text
+                val tweet = tweetRepository.getById(targetId) ?: return null
+                // 仅解析真实用户发布的推文，排除 AI 生成推文
+                if (tweet.authorId != userSelfId || tweet.isAiGenerated) return null
+                tweet.text
             }
             UserActionType.TWEET_COMMENT -> {
                 // review 修复：优先用埋点写入的 commentId 精确回查，避免多条评论错配
@@ -286,6 +325,14 @@ class EventTextPreParser @Inject constructor(
         private const val MAX_BATCH_SIZE = 20
         /** review 修复：单批 LLM 调用超时上限，超时由 runCatching 降级返回原 events。 */
         private const val LLM_TIMEOUT_MS = 30_000L
+        /**
+         * 第六轮 review M8 修复：整体时间预算上限。
+         *
+         * 200 条事件 × 10 批 × 每批 30s 超时 = 5 分钟以上，会拖垮 UserProfileWorker
+         * 10min WM 上限（持续负载下 retry → 重处理同一批 → 管线追不上）。
+         * 设 2 分钟预算：最多 4 批成功（每批 30s）后停止，剩余批次下个窗口再处理。
+         */
+        private const val OVERALL_BUDGET_MS = 2 * 60 * 1000L
 
         private const val SYSTEM_PROMPT =
             "你是一个社交媒体文本分析助手。从用户发布的文本中提取主题、情感和意图。" +

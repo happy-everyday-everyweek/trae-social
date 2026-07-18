@@ -106,6 +106,9 @@ class PersonaUpdateWorker @AssistedInject constructor(
                 } catch (e: RateLimitedException) {
                     // IMPL-19：429 限流向上抛出，由 doWork 统一捕获并跳过整个批次
                     throw e
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    // 第六轮 review M3 修复：CancellationException 必须重抛，否则取消信号被吞。
+                    throw e
                 } catch (t: Throwable) {
                     Timber.w(t, "账号 %s 人设更新失败", account.id)
                     failed++
@@ -114,6 +117,9 @@ class PersonaUpdateWorker @AssistedInject constructor(
 
             // #146 A/E 场景 7：反哺层打标——为本批次人设更新发 scenario 事件，供 computeFeedbackEffect 做 A/B 回测。
             // drivenByProfile 标记本批人设演进是否受画像驱动；control 组同样落事件以便计算共鸣度 delta。
+            // 第六轮 review B1/B2 修复：isScenarioMarker=true 标记本事件为调度器打标（非真实用户行为），
+            // 供 UserProfileAggregator.computeScenarioStats 区分"曝光标记"与"真实互动"，
+            // 供 BasicProfileAnalyzer.analyze 过滤掉调度器打标，避免污染用户画像。
             runCatching {
                 userActionTracker.trackNow(
                     UserActionEvent(
@@ -129,6 +135,7 @@ class PersonaUpdateWorker @AssistedInject constructor(
                             "batchSize" to kotlinx.serialization.json.JsonPrimitive(candidates.size),
                             "updated" to kotlinx.serialization.json.JsonPrimitive(updated),
                             "rolledBack" to kotlinx.serialization.json.JsonPrimitive(rolledBack),
+                            "isScenarioMarker" to kotlinx.serialization.json.JsonPrimitive(true),
                         ),
                         occurredAt = started,
                         session = sessionId,
@@ -146,6 +153,9 @@ class PersonaUpdateWorker @AssistedInject constructor(
             logSchedulerEvent("system", started, "rate_limited", e.message)
             return Result.success(workDataOf(WorkerKeys.KEY_RESULT to "rate_limited"))
         } catch (t: Throwable) {
+            // 第六轮 review M3 修复：CancellationException 必须重抛，否则 WorkManager 取消 Worker 时
+            // 协程无法正确传播取消信号，导致 doWork 卡在 catch(t: Throwable) 内继续执行返回 Result.retry。
+            if (t is kotlinx.coroutines.CancellationException) throw t
             Timber.e(t, "PersonaUpdateWorker 执行失败")
             logSchedulerEvent("system", started, "error", t.message)
             return if (runAttemptCount >= MAX_RUN_ATTEMPTS) {

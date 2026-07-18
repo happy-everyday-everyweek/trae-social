@@ -56,8 +56,18 @@ class UserProfileReadAccessImpl @Inject constructor(
     override fun interestVector(): Map<String, Double> {
         if (!gate.isEnabled()) return emptyMap()
         cache.get(KEY_INTEREST)?.let { @Suppress("UNCHECKED_CAST") return it as Map<String, Double> }
-        val snapshot = loader.snapshot() ?: return coldStartSeeding() ?: emptyMap()
-        val base = snapshot.interestVector
+        // 第六轮 review B3 修复：冷启动（事件量 < COLD_START_THRESHOLD）时优先用
+        // onboarding 写入的 COLD_START_SEEDING 兴趣向量，避免 snapshot == null 时返回空。
+        // 原实现 `loader.snapshot() ?: return coldStartSeeding() ?: emptyMap()` 在
+        // snapshot == null 时 coldStartSeeding 也为 null（死路）→ onboarding 兴趣不参与个性化。
+        val snapshot = loader.snapshot()
+        val base = if (snapshot != null) {
+            snapshot.interestVector
+        } else if (isColdStart()) {
+            coldStartSeeding() ?: emptyMap()
+        } else {
+            emptyMap()
+        }
         val merged = applyThemeOverrides(base)
         cache.put(KEY_INTEREST, merged)
         return merged
@@ -86,8 +96,19 @@ class UserProfileReadAccessImpl @Inject constructor(
         return result
     }
 
+    /**
+     * 第六轮 review B3 修复：冷启动判定不再要求 snapshot == null。
+     *
+     * 原实现 `loader.snapshot() == null && (eventCount < COLD_START_THRESHOLD)` 在
+     * snapshot == null 时 coldStartSeeding() 也为 null（死路）；在 snapshot != null 时
+     * 返回 false（即使事件量极少，也不走冷启动 seeding）。
+     *
+     * 修正语义：冷启动 = 累计事件量 < [ConfigRepository.COLD_START_THRESHOLD]，
+     * 此时应优先用 onboarding 写入的 COLD_START_SEEDING 兴趣向量，而非（可能尚未生成的）
+     * 基础分析快照。snapshot 是否存在不影响判定（早期可能有 INCREMENTAL 快照但事件量仍少）。
+     */
     override fun isColdStart(): Boolean =
-        loader.snapshot() == null && (loader.snapshotEventCount() < ConfigRepository.COLD_START_THRESHOLD)
+        loader.snapshotEventCount() < ConfigRepository.COLD_START_THRESHOLD
 
     override fun coldStartSeeding(): Map<String, Double>? = loader.coldStartSeeding()
 

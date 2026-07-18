@@ -25,6 +25,18 @@ interface UserProfileDao {
     @Query("SELECT * FROM user_profile_snapshots ORDER BY computedAt DESC LIMIT 1")
     suspend fun latestSnapshot(): UserProfileSnapshotEntity?
 
+    /**
+     * 第六轮 review B3 修复：查询最早的 COLD_START_SEEDING 快照。
+     *
+     * 冷启动 seeding 由 onboarding 兴趣选择写入（source=COLD_START_SEEDING），
+     * 应取最早一条（onboarding 时写入的初始兴趣），而非最新快照。
+     * 原实现 [latestSnapshot] 读最新快照且未按 source 过滤，导致：
+     * 1. 冷启动 seeding 永远读到 INCREMENTAL/FULL_RECOMPUTE 快照（语义错误）
+     * 2. snapshot == null（真正冷启动）时 coldStartSeeding 也为 null → 死路
+     */
+    @Query("SELECT * FROM user_profile_snapshots WHERE source = 'COLD_START_SEEDING' ORDER BY computedAt ASC LIMIT 1")
+    suspend fun earliestColdStartSnapshot(): UserProfileSnapshotEntity?
+
     @Query("SELECT * FROM user_profile_snapshots WHERE id = :id")
     suspend fun snapshotById(id: Long): UserProfileSnapshotEntity?
 

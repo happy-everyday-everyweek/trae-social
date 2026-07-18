@@ -136,6 +136,12 @@ class UserActionTrackerImpl @Inject constructor(
                 if (remaining == 0L) break
                 val next = try {
                     kotlinx.coroutines.withTimeoutOrNull(remaining) { channel.receive() }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    // 第六轮 review 新增 MAJOR 修复：CancellationException 必须重抛。
+                    // consumeLoop 在 while(true) 里跑，唯一退出路径是协程被取消；
+                    // 原 catch (_: Throwable) 吞掉取消信号 → consumer 协程永不退出
+                    //（scope 是 @Singleton 持有的 SupervisorJob，进程级生命周期）。
+                    throw e
                 } catch (_: Throwable) {
                     null
                 }

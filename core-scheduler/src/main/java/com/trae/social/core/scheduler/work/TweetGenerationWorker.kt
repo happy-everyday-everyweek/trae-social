@@ -313,6 +313,9 @@ class TweetGenerationWorker @AssistedInject constructor(
             // #146 A：反哺层打标——为本次推文生成发 scenario 1 事件，供 computeFeedbackEffect 做 A/B 回测。
             // drivenByProfile 标记本次生成是否受画像驱动（注入了用户兴趣话题）；
             // control 组同样落事件以便后续计算 driven/control 两组的内容触达率与互动率 delta。
+            // 第六轮 review B1/B2 修复：isScenarioMarker=true 标记本事件为调度器打标（非真实用户行为），
+            // 供 UserProfileAggregator.computeScenarioStats 区分"曝光标记"与"真实互动"，
+            // 供 BasicProfileAnalyzer.analyze 过滤掉调度器打标，避免污染用户画像。
             runCatching {
                 userActionTracker.trackNow(
                     UserActionEvent(
@@ -326,6 +329,7 @@ class TweetGenerationWorker @AssistedInject constructor(
                             "drivenByProfile" to kotlinx.serialization.json.JsonPrimitive(drivenScenario1),
                             "group" to kotlinx.serialization.json.JsonPrimitive(if (drivenScenario1) "driven" else "control"),
                             "authorId" to kotlinx.serialization.json.JsonPrimitive(accountId),
+                            "isScenarioMarker" to kotlinx.serialization.json.JsonPrimitive(true),
                         ),
                         occurredAt = now,
                         session = sessionId,
@@ -367,6 +371,9 @@ class TweetGenerationWorker @AssistedInject constructor(
                 )
             )
         } catch (t: Throwable) {
+            // 第六轮 review M3 修复：CancellationException 必须重抛，否则 WorkManager 取消 Worker 时
+            // 协程无法正确传播取消信号，导致 doWork 卡在 catch(t: Throwable) 内继续执行返回 Result.retry。
+            if (t is kotlinx.coroutines.CancellationException) throw t
             Timber.e(t, "TweetGenerationWorker 执行失败 accountId=%s", accountId)
             errorMessage = t.message ?: t.javaClass.simpleName
             resultStatus = "error"

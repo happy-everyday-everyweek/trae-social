@@ -43,6 +43,11 @@ object BasicProfileAnalyzer {
      *
      * 单一权重表：兴趣向量计算（[computeInterestVector]）与时间衰减基数（[baseWeight]）
      * 共用同一份数值，避免两张表手改漏同步导致语义分歧（见 PR #150 review Q2）。
+     *
+     * 第六轮 review 新增 MAJOR 修复：负向动作（UNLIKE / UNBOOKMARK / UNFOLLOW）显式
+     * 给负权，避免它们走 [FALLBACK_WEIGHT]=0.5 反而向兴趣向量加正分（取消点赞却强化
+     * 该主题兴趣，与语义完全相反）。负权配合 [weight] 允许 base < 0 → 兴趣向量中
+     * 该主题被扣分；[computeActiveHours] 中负权会被 clamp 到 0（不影响活跃时段统计）。
      */
     private val actionWeights = mapOf(
         UserActionType.TWEET_VIEW to 1.0,
@@ -53,6 +58,10 @@ object BasicProfileAnalyzer {
         UserActionType.TWEET_DWELL to 2.0,
         UserActionType.PUBLISH_TWEET to 6.0,
         UserActionType.FOLLOW to 3.0,
+        // 负向动作：取消点赞 / 取消收藏 / 取关 → 负权，从兴趣向量中扣分
+        UserActionType.TWEET_UNLIKE to -3.0,
+        UserActionType.TWEET_UNBOOKMARK to -6.0,
+        UserActionType.UNFOLLOW to -3.0,
         UserActionType.SESSION_START to 1.0,
         UserActionType.SESSION_END to 1.0,
         UserActionType.SCREEN_ENTER to 1.0,
@@ -61,6 +70,36 @@ object BasicProfileAnalyzer {
 
     /** 回退权重：未在 [actionWeights] 中显式列出的动作类型。 */
     private const val FALLBACK_WEIGHT = 0.5
+
+    /**
+     * 调度器 Worker 落事件的 screen 白名单。
+     *
+     * 第六轮 review B2 修复：调度器打标事件（TweetGenerationWorker / InteractionWorker /
+     * PersonaUpdateWorker）使用与真实用户相同的 UserActionType（PUBLISH_TWEET / TWEET_LIKE /
+     * TWEET_COMMENT / FEEDBACK_OVERRIDE_APPLIED），若不过滤会让 AI 活动污染用户画像
+     * （220 虚拟账号 × 多 Worker 周期打标，AI 事件量远超真实用户事件，画像实际反映
+     * AI 活动而非用户活动，且该画像又驱动 AI → 正反馈发散）。
+     *
+     * 过滤策略双保险：
+     * 1. extra 含 `isScenarioMarker=true`（Workers 显式打的标记）→ 调度器事件
+     * 2. screen ∈ [SCHEDULER_SCREENS]（按来源屏幕兜底，防止旧数据/漏打标记）→ 调度器事件
+     */
+    private val SCHEDULER_SCREENS = setOf(
+        "tweet_generation",
+        "interaction_schedule",
+        "interaction_schedule_comment",
+        "persona_update_co_evolve",
+    )
+
+    /**
+     * 判断事件是否为调度器打标事件（应从用户画像分析中剔除）。
+     * 见 [SCHEDULER_SCREENS] 的过滤策略说明。
+     */
+    private fun isSchedulerMarker(e: UserActionEvent): Boolean {
+        if (ProfileMappers.readExtraBoolean(e.extra, "isScenarioMarker")) return true
+        if (e.screen in SCHEDULER_SCREENS) return true
+        return false
+    }
 
     /**
      * 全量分析：对 [events]（按 occurredAt 排序）计算画像快照。
@@ -73,7 +112,10 @@ object BasicProfileAnalyzer {
         previous: UserProfileSnapshot?,
         now: Long,
     ): UserProfileSnapshot {
-        val sorted = events.sortedBy { it.occurredAt }
+        // 第六轮 review B2 修复：剔除调度器打标事件，避免 AI 活动污染用户画像。
+        // 过滤策略见 [isSchedulerMarker]（isScenarioMarker=true 或 screen ∈ SCHEDULER_SCREENS）。
+        val userEvents = events.filterNot { isSchedulerMarker(it) }
+        val sorted = userEvents.sortedBy { it.occurredAt }
         val windowStart = sorted.firstOrNull()?.occurredAt ?: now
         val windowEnd = sorted.lastOrNull()?.occurredAt ?: now
 
@@ -162,7 +204,9 @@ object BasicProfileAnalyzer {
 
     private fun weight(event: UserActionEvent, now: Long): Double {
         val base = baseWeight(event.type)
-        if (base <= 0.0) return 0.0
+        // 第六轮 review 新增 MAJOR 修复：允许负权（UNLIKE/UNBOOKMARK/UNFOLLOW），
+        // 仅当 base == 0.0 时返回 0（保留对零权事件的早返回优化）。
+        if (base == 0.0) return 0.0
         val ageDays = (now - event.occurredAt).coerceAtLeast(0L) / MS_PER_DAY
         return base * 0.5.pow(ageDays / HALF_LIFE_DAYS)
     }
@@ -173,12 +217,16 @@ object BasicProfileAnalyzer {
     // ---- 活跃时段 ----
 
     private fun computeActiveHours(weighted: List<Pair<UserActionEvent, Double>>): Map<Int, Double> {
-        val buckets = IntArray(24)
+        // 第六轮 review M1 修复：IntArray → DoubleArray，避免 w.toInt() 截断小数权重为 0
+        // （如 TWEET_VIEW base=1.0 × decay<1.0 → 0.8 被截为 0，凌晨活跃时段被系统性低估）。
+        // 同时对负权（UNLIKE/UNBOOKMARK/UNFOLLOW）clamp 到 0：取消动作仍代表用户在线，
+        // 但不应从活跃时段中扣分（活跃时段衡量"何时活跃"，不衡量"正向/负向行为"）。
+        val buckets = DoubleArray(24)
         weighted.forEach { (e, w) ->
             val hour = epochToHour(e.occurredAt)
-            if (hour in 0..23) buckets[hour] += w.toInt().coerceAtLeast(0)
+            if (hour in 0..23) buckets[hour] += w.coerceAtLeast(0.0)
         }
-        return (0..23).associateWith { buckets[it].toDouble() }.filterValues { it > 0 }
+        return (0..23).associateWith { buckets[it] }.filterValues { it > 0 }
     }
 
     private fun hourWeights(snapshot: UserProfileSnapshot): Map<Int, Double> {
@@ -226,11 +274,14 @@ object BasicProfileAnalyzer {
 
     private fun computeInteractionTendency(events: List<UserActionEvent>): InteractionTendency {
         val viewed = events.count { it.type == UserActionType.TWEET_VIEW }.coerceAtLeast(1)
+        // 第六轮 review 新增 MAJOR 修复：净互动率 = 正向 − 负向，避免"点赞后取消"被算两次正向。
         return InteractionTendency(
-            likeRate = events.count { it.type == UserActionType.TWEET_LIKE }.toDouble() / viewed,
+            likeRate = (events.count { it.type == UserActionType.TWEET_LIKE } -
+                events.count { it.type == UserActionType.TWEET_UNLIKE }).coerceAtLeast(0).toDouble() / viewed,
             commentRate = events.count { it.type == UserActionType.TWEET_COMMENT }.toDouble() / viewed,
             retweetRate = events.count { it.type == UserActionType.TWEET_RETWEET }.toDouble() / viewed,
-            bookmarkRate = events.count { it.type == UserActionType.TWEET_BOOKMARK }.toDouble() / viewed,
+            bookmarkRate = (events.count { it.type == UserActionType.TWEET_BOOKMARK } -
+                events.count { it.type == UserActionType.TWEET_UNBOOKMARK }).coerceAtLeast(0).toDouble() / viewed,
         )
     }
 
@@ -265,7 +316,10 @@ object BasicProfileAnalyzer {
     // ---- 社交风格 ----
 
     private fun computeSocialStyle(events: List<UserActionEvent>): SocialStyle {
-        val follows = events.count { it.type == UserActionType.FOLLOW }
+        // 第六轮 review 新增 MAJOR 修复：净关注数 = FOLLOW − UNFOLLOW，避免"关注后又取关"
+        // 被算成跟"持续关注"一样的正向社交倾向。
+        val follows = (events.count { it.type == UserActionType.FOLLOW } -
+            events.count { it.type == UserActionType.UNFOLLOW }).coerceAtLeast(0)
         val views = events.count { it.type == UserActionType.TWEET_VIEW }.coerceAtLeast(1)
         val interactions = events.count {
             it.type == UserActionType.TWEET_LIKE || it.type == UserActionType.TWEET_COMMENT
