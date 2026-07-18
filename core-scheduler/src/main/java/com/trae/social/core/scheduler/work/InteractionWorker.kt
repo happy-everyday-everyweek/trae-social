@@ -121,7 +121,7 @@ class InteractionWorker @AssistedInject constructor(
                     accountId = account.id,
                     type = type,
                     delayMillis = delayMillis,
-                    persona = toPersonaInput(account),
+                    persona = TweetPromptBuilder.PersonaInput.from(account),
                 )
             }
 
@@ -492,22 +492,6 @@ class InteractionWorker @AssistedInject constructor(
             narrative = narrative,
         )
     }
-
-    private fun toPersonaInput(
-        account: com.trae.social.core.data.entity.AccountEntity,
-    ): TweetPromptBuilder.PersonaInput = TweetPromptBuilder.PersonaInput(
-        displayName = account.displayName,
-        profession = account.profession,
-        ageRange = account.ageRange,
-        culturalBackground = account.culturalBackground,
-        worldview = account.worldview,
-        values = account.values,
-        languageStyle = account.languageStyle,
-        catchphrase = account.catchphrase.joinToString("、"),
-        emojiPreference = account.emojiPreference,
-        typoRate = account.typoRate,
-        recentMood = account.recentMood.ifBlank { "平和" },
-    )
 
     // #218：logSchedulerEvent 实现抽到 SchedulerLogger.log，此处保留薄包装统一 action 标识
     private suspend fun logSchedulerEvent(

@@ -157,20 +157,10 @@ class TweetGenerationWorker @AssistedInject constructor(
 
             // ------------------------------------------------------------------
             // 3. 构建 PersonaInput，调用 TweetPromptBuilder.build()
+            // #219：统一走 PersonaInput.from(account)，与 InteractionWorker /
+            // PendingInteractionWorker 复用同一映射，避免字段调整时多处修改
             // ------------------------------------------------------------------
-            val personaInput = TweetPromptBuilder.PersonaInput(
-                displayName = account.displayName,
-                profession = account.profession,
-                ageRange = account.ageRange,
-                culturalBackground = account.culturalBackground,
-                worldview = account.worldview,
-                values = account.values,
-                languageStyle = account.languageStyle,
-                catchphrase = account.catchphrase.joinToString("、"),
-                emojiPreference = account.emojiPreference,
-                typoRate = account.typoRate,
-                recentMood = account.recentMood.ifBlank { "平和" },
-            )
+            val personaInput = TweetPromptBuilder.PersonaInput.from(account)
             // #80：传入 activeWindows 以计算活跃窗实际结束小时
             val timeSlotDescription = describeTimeWindow(windowStart, accountZone, account.activeWindows)
             val messages = promptBuilder.build(personaInput, timeSlotDescription, promptContext)
