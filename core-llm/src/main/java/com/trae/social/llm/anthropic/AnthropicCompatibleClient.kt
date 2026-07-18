@@ -1,5 +1,6 @@
 package com.trae.social.llm.anthropic
 
+import com.anthropic.client.AnthropicClient
 import com.anthropic.client.okhttp.AnthropicOkHttpClient
 import com.anthropic.core.http.StreamResponse
 import com.anthropic.models.messages.Message
@@ -35,6 +36,21 @@ import java.io.IOException
  * - 已 emit 部分 token 后中断 → 抛 [IOException]（内容不完整）
  * - 尚未 emit 时遭遇非持久性错误 → 降级为 [chatSync]
  * - 持久性 HTTP 4xx（非 429）→ 直接 rethrow
+ *
+ * 注：Anthropic Java SDK 2.34.1 关键 API 形态——
+ * - `AnthropicOkHttpClient.builder().apiKey().baseUrl().maxRetries().build()` 返回
+ *   [AnthropicClient]（接口类型）。
+ * - `client.messages().createStreaming(params)` 返回
+ *   [StreamResponse]<[RawMessageStreamEvent]>；`.stream()` 返回
+ *   `java.util.stream.Stream<RawMessageStreamEvent>`。
+ * - [RawMessageStreamEvent] 是 union，本身没有 `.delta()` 或 `.error()` 方法，
+ *   必须先 `isContentBlockDelta()` 判断，再 `asContentBlockDelta().delta()` 拿
+ *   `RawContentBlockDelta`；它的方法名是 `isText()` / `asText()`，
+ *   **不是** `isTextDelta()` / `asTextDelta()`。错误通过异常抛出，不走事件。
+ * - [MessageParam] 有 builder，但 `Role` 只有 USER / ASSISTANT，SYSTEM 消息走
+ *   [MessageCreateParams.builder]`.system(String)`。
+ * - [Message.content()] 返回 `List<ContentBlock>`（不是 String），
+ *   要遍历取 `TextBlock.asText().text()`。
  */
 class AnthropicCompatibleClient(
     private val endpoint: EndpointConfig,
@@ -43,7 +59,7 @@ class AnthropicCompatibleClient(
     override val endpointId: String = endpoint.id
     override val capabilities: Set<ModelCapability> = endpoint.capabilities
 
-    private val client: AnthropicOkHttpClient = AnthropicOkHttpClient.builder()
+    private val client: AnthropicClient = AnthropicOkHttpClient.builder()
         .apply {
             endpoint.apiKey?.takeIf { it.isNotBlank() }?.let { apiKey(it) }
             baseUrl(endpoint.baseUrl)
@@ -57,21 +73,21 @@ class AnthropicCompatibleClient(
         try {
             val params = buildParams(messages, config)
             client.messages().createStreaming(params).use { streamResponse: StreamResponse<RawMessageStreamEvent> ->
-                streamResponse.stream().forEach { event ->
-                    // ContentBlockDelta 事件携带增量文本
-                    val deltaEvent = event.contentBlockDelta().orElse(null) ?: return@forEach
-                    val delta = deltaEvent.delta()
-                    if (delta.isTextDelta()) {
-                        val text = delta.asTextDelta().text()
+                // 用 iterator 显式迭代 java.util.stream.Stream，才能在 suspend 上下文 emit
+                streamResponse.stream().use { stream ->
+                    val iterator = stream.iterator()
+                    while (iterator.hasNext()) {
+                        val event = iterator.next()
+                        // RawMessageStreamEvent 是 union，本身没有 .delta() 方法
+                        if (!event.isContentBlockDelta) continue
+                        val blockDelta = event.asContentBlockDelta().delta()
+                        // delta 的方法名是 isText / asText，不是 isTextDelta / asTextDelta
+                        if (!blockDelta.isText) continue
+                        val text = blockDelta.asText().text()
                         if (text.isNotEmpty()) {
                             emit(text)
                             emitted = true
                         }
-                    }
-                    // IMPL-28：error 事件（quota 超限/内容被拦截）抛异常
-                    event.error().ifPresent { err ->
-                        val msg = err.message().orElse(err.toString())
-                        throw IOException("anthropic stream error: $msg")
                     }
                 }
             }
@@ -98,11 +114,10 @@ class AnthropicCompatibleClient(
     override suspend fun chatSync(messages: List<ChatMessage>, config: ChatConfig): String {
         val params = buildParams(messages, config)
         val response: Message = client.messages().create(params)
+        // Message.content() 返回 List<ContentBlock>，要遍历取 TextBlock.text()
         return response.content()
-            .firstOrNull { it.isText() }
-            ?.asText()
-            ?.text()
-            .orEmpty()
+            .filter { it.isText }
+            .joinToString("") { it.asText().text() }
     }
 
     override suspend fun ping(): Boolean {
@@ -154,12 +169,14 @@ class AnthropicCompatibleClient(
      *
      * 当前实现仅处理纯文本（Anthropic 多模态需 base64 编码图像，
      * 由引擎层提前预处理为文本描述，不在此处展开）。
+     * MessageParam.Role 只有 USER / ASSISTANT（SYSTEM 在 buildParams 中已过滤，
+     * 单独通过 MessageCreateParams.system 设置）。
      */
     private fun ChatMessage.toAnthropicMessageParam(): MessageParam {
         val role = when (role) {
             ChatMessage.Role.USER -> MessageParam.Role.USER
             ChatMessage.Role.ASSISTANT -> MessageParam.Role.ASSISTANT
-            ChatMessage.Role.SYSTEM -> MessageParam.Role.USER
+            ChatMessage.Role.SYSTEM -> error("SYSTEM 消息应通过 MessageCreateParams.system 设置，不应走到 toAnthropicMessageParam")
         }
         val text = textContent()
         return MessageParam.builder()
@@ -183,10 +200,5 @@ class AnthropicCompatibleClient(
     private fun extractHttpCode(message: String): Int? {
         val regex = Regex("""\b(4\d{2}|5\d{2})\b""")
         return regex.find(message)?.value?.toIntOrNull()
-    }
-
-    private companion object {
-        const val JSON_MODE_HINT =
-            "请严格只输出合法 JSON 对象，不要包含 markdown 代码块标记或额外说明。"
     }
 }

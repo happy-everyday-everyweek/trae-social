@@ -1,12 +1,19 @@
 package com.trae.social.llm.openai
 
+import com.openai.client.OpenAIClient
 import com.openai.client.okhttp.OpenAIOkHttpClient
 import com.openai.core.http.StreamResponse
-import com.openai.models.chat.completion.ChatCompletion
-import com.openai.models.chat.completion.ChatCompletionChunk
-import com.openai.models.chat.completion.ChatCompletionContentPart
-import com.openai.models.chat.completion.ChatCompletionCreateParams
-import com.openai.models.chat.completion.ChatCompletionMessageParam
+import com.openai.models.ResponseFormatJsonObject
+import com.openai.models.chat.completions.ChatCompletion
+import com.openai.models.chat.completions.ChatCompletionAssistantMessageParam
+import com.openai.models.chat.completions.ChatCompletionChunk
+import com.openai.models.chat.completions.ChatCompletionContentPart
+import com.openai.models.chat.completions.ChatCompletionContentPartImage
+import com.openai.models.chat.completions.ChatCompletionContentPartText
+import com.openai.models.chat.completions.ChatCompletionCreateParams
+import com.openai.models.chat.completions.ChatCompletionMessageParam
+import com.openai.models.chat.completions.ChatCompletionSystemMessageParam
+import com.openai.models.chat.completions.ChatCompletionUserMessageParam
 import com.trae.social.core.data.config.ModelCapability
 import com.trae.social.llm.ChatConfig
 import com.trae.social.llm.ChatMessage
@@ -39,6 +46,17 @@ import java.io.IOException
  * （`image_url` 形式）发送；纯文本走 SDK 便捷方法。
  *
  * 鉴权头 `Authorization: Bearer <key>` 由 SDK 内部注入，不再需要 AuthInterceptor。
+ *
+ * 注：OpenAI Java SDK 4.43.0 关键 API 形态——
+ * - `OpenAIOkHttpClient.builder().apiKey().baseUrl().build()` 返回 [OpenAIClient]（接口类型）。
+ * - `client.chat().completions().createStreaming(params)` 返回
+ *   [StreamResponse]<[ChatCompletionChunk]>；`.stream()` 返回
+ *   `java.util.stream.Stream<ChatCompletionChunk>`，需要在 suspend 上下文用 iterator
+ *   显式迭代才能 emit token。
+ * - `ChatCompletionMessageParam` 是 union 类型，无 builder，用 `ofSystem/ofUser/ofAssistant`
+ *   工厂包装具体角色 message param。
+ * - 多模态 content 用 [ChatCompletionContentPart] union + 顶层 [ChatCompletionContentPartText]
+ *   / [ChatCompletionContentPartImage] 类构造。
  */
 class OpenAiCompatibleClient(
     private val endpoint: EndpointConfig,
@@ -47,7 +65,7 @@ class OpenAiCompatibleClient(
     override val endpointId: String = endpoint.id
     override val capabilities: Set<ModelCapability> = endpoint.capabilities
 
-    private val client: OpenAIOkHttpClient = OpenAIOkHttpClient.builder()
+    private val client: OpenAIClient = OpenAIOkHttpClient.builder()
         .apply {
             endpoint.apiKey?.takeIf { it.isNotBlank() }?.let { apiKey(it) }
             // baseUrl 已包含版本路径（如 "https://api.openai.com/v1/"）
@@ -60,13 +78,19 @@ class OpenAiCompatibleClient(
         try {
             val params = buildParams(messages, config)
             client.chat().completions().createStreaming(params).use { streamResponse: StreamResponse<ChatCompletionChunk> ->
-                streamResponse.stream().forEach { chunk ->
-                    chunk.choices().forEach { choice ->
-                        val delta = choice.delta()
-                        val token = delta.content().orElse(null)
-                        if (!token.isNullOrEmpty()) {
-                            emit(token)
-                            emitted = true
+                // 用 iterator 显式迭代 java.util.stream.Stream，才能在 inline lambda 之外
+                // emit suspend 调用（Java Stream 的 forEach 接受非 suspend 的 Consumer，
+                // 直接在里面 emit 会编译错）。
+                streamResponse.stream().use { stream ->
+                    val iterator = stream.iterator()
+                    while (iterator.hasNext()) {
+                        val chunk = iterator.next()
+                        for (choice in chunk.choices()) {
+                            val token = choice.delta().content().orElse(null)
+                            if (!token.isNullOrEmpty()) {
+                                emit(token)
+                                emitted = true
+                            }
                         }
                     }
                 }
@@ -101,12 +125,12 @@ class OpenAiCompatibleClient(
                 Timber.w("chatSync 返回空 choices，可能被安全策略拦截或服务异常")
                 return ""
             }
-        if (choice.finishReason().isPresent) {
-            val reason = choice.finishReason().get()
-            if (reason.toString().equals("content_filter", ignoreCase = true)) {
-                Timber.w("chatSync 响应被内容安全策略拦截 (finish_reason=%s)", reason)
-            }
+        // ChatCompletion.Choice.finishReason() 非 Optional，直接拿
+        val reason = choice.finishReason()
+        if (reason != null && reason.toString().equals("content_filter", ignoreCase = true)) {
+            Timber.w("chatSync 响应被内容安全策略拦截 (finish_reason=%s)", reason)
         }
+        // ChatCompletionMessage.content() 返回 Optional<String>
         return choice.message().content().orElse("")
     }
 
@@ -134,113 +158,73 @@ class OpenAiCompatibleClient(
 
         // JSON mode 原生支持（端点声明 JSON_MODE_NATIVE 才用原生方式）
         if (config.jsonMode && ModelCapability.JSON_MODE_NATIVE in endpoint.capabilities) {
-            builder.responseFormat(
-                ChatCompletionCreateParams.ResponseFormat.builder()
-                    .type(ChatCompletionCreateParams.ResponseFormat.Type.JSON_OBJECT)
-                    .build()
-            )
+            builder.responseFormat(ResponseFormatJsonObject.builder().build())
         }
 
-        val sdkMessages = messages.map { it.toOpenAiMessageParam() }
-        builder.messages(sdkMessages)
+        // 用 addMessage(ChatCompletionMessageParam) 逐条添加，每条消息单独构造 union 实例
+        for (msg in messages) {
+            builder.addMessage(msg.toOpenAiMessageParam())
+        }
         return builder.build()
     }
 
     /**
      * 把 [ChatMessage] 映射为 SDK 消息参数。
      *
-     * - 全文本：用 String content（兼容性最好，SDK 自动选择最简形式）
+     * - 全文本：用 String content（兼容性最好）
      * - 含多模态：构造 [ChatCompletionContentPart] 数组（仅支持 Text + Image）
      */
     private fun ChatMessage.toOpenAiMessageParam(): ChatCompletionMessageParam {
-        val hasMultimodal = content.any { it !is ContentPart.Text }
-        val role = when (role) {
-            ChatMessage.Role.SYSTEM -> ChatCompletionMessageParam.SystemMessageParam.Role.SYSTEM
-            ChatMessage.Role.USER -> ChatCompletionMessageParam.UserMessageParam.Role.USER
-            ChatMessage.Role.ASSISTANT -> ChatCompletionMessageParam.AssistantMessageParam.Role.ASSISTANT
+        val hasMultimodal = hasMultimodalContent()
+        return when (role) {
+            ChatMessage.Role.SYSTEM -> ChatCompletionMessageParam.ofSystem(
+                ChatCompletionSystemMessageParam.builder()
+                    .content(textContent())
+                    .build()
+            )
+            ChatMessage.Role.USER -> if (hasMultimodal) {
+                val parts = content.map { it.toOpenAiContentPart() }
+                ChatCompletionMessageParam.ofUser(
+                    ChatCompletionUserMessageParam.builder()
+                        .contentOfArrayOfContentParts(parts)
+                        .build()
+                )
+            } else {
+                ChatCompletionMessageParam.ofUser(
+                    ChatCompletionUserMessageParam.builder()
+                        .content(textContent())
+                        .build()
+                )
+            }
+            ChatMessage.Role.ASSISTANT -> ChatCompletionMessageParam.ofAssistant(
+                ChatCompletionAssistantMessageParam.builder()
+                    .content(textContent())
+                    .build()
+            )
         }
-        return when {
-            !hasMultimodal -> {
-                val text = content.firstNotNullOfOrNull { (it as? ContentPart.Text)?.text } ?: ""
-                when (role) {
-                    ChatCompletionMessageParam.SystemMessageParam.Role.SYSTEM ->
-                        ChatCompletionMessageParam.builder().ofSystemMessage(
-                            ChatCompletionMessageParam.SystemMessageParam.builder()
-                                .role(role)
-                                .content(text)
-                                .build()
-                        ).build()
+    }
 
-                    ChatCompletionMessageParam.UserMessageParam.Role.USER ->
-                        ChatCompletionMessageParam.builder().ofUserMessage(
-                            ChatCompletionMessageParam.UserMessageParam.builder()
-                                .role(role)
-                                .content(text)
-                                .build()
-                        ).build()
-
-                    ChatCompletionMessageParam.AssistantMessageParam.Role.ASSISTANT ->
-                        ChatCompletionMessageParam.builder().ofAssistantMessage(
-                            ChatCompletionMessageParam.AssistantMessageParam.builder()
-                                .role(role)
-                                .content(text)
-                                .build()
-                        ).build()
-                }
-            }
-            else -> {
-                // 多模态：仅 USER 角色支持 multimodal（SYSTEM/ASSISTANT 取首个文本）
-                if (role == ChatCompletionMessageParam.UserMessageParam.Role.USER) {
-                    val parts = content.map { part ->
-                        when (part) {
-                            is ContentPart.Text -> ChatCompletionMessageParam.UserMessageParam.Content.ofTextPart(
-                                ChatCompletionContentPart.Text.builder().text(part.text).build()
-                            )
-                            is ContentPart.Image -> ChatCompletionMessageParam.UserMessageParam.Content.ofImagePart(
-                                ChatCompletionContentPart.Image.builder()
-                                    .imageUrl(
-                                        ChatCompletionContentPart.Image.ImageURL.builder()
-                                            .url(part.url)
-                                            .build()
-                                    )
-                                    .build()
-                            )
-                            is ContentPart.Audio, is ContentPart.Video -> {
-                                // OpenAI Chat Completions 当前不直接支持 audio/video URL 输入；
-                                // 多模态降级链里应在调用前转换为文本描述。
-                                ChatCompletionMessageParam.UserMessageParam.Content.ofTextPart(
-                                    ChatCompletionContentPart.Text.builder()
-                                        .text("[unsupported media type: ${part::class.simpleName}]")
-                                        .build()
-                                )
-                            }
-                        }
-                    }
-                    ChatCompletionMessageParam.builder().ofUserMessage(
-                        ChatCompletionMessageParam.UserMessageParam.builder()
-                            .role(role)
-                            .content(parts)
-                            .build()
-                    ).build()
-                } else {
-                    val text = content.firstNotNullOfOrNull { (it as? ContentPart.Text)?.text } ?: ""
-                    when (role) {
-                        ChatCompletionMessageParam.SystemMessageParam.Role.SYSTEM ->
-                            ChatCompletionMessageParam.builder().ofSystemMessage(
-                                ChatCompletionMessageParam.SystemMessageParam.builder()
-                                    .role(role).content(text).build()
-                            ).build()
-
-                        ChatCompletionMessageParam.AssistantMessageParam.Role.ASSISTANT ->
-                            ChatCompletionMessageParam.builder().ofAssistantMessage(
-                                ChatCompletionMessageParam.AssistantMessageParam.builder()
-                                    .role(role).content(text).build()
-                            ).build()
-
-                        else -> error("unreachable")
-                    }
-                }
-            }
+    private fun ContentPart.toOpenAiContentPart(): ChatCompletionContentPart = when (this) {
+        is ContentPart.Text -> ChatCompletionContentPart.ofText(
+            ChatCompletionContentPartText.builder().text(text).build()
+        )
+        is ContentPart.Image -> ChatCompletionContentPart.ofImageUrl(
+            ChatCompletionContentPartImage.builder()
+                .imageUrl(
+                    ChatCompletionContentPartImage.ImageUrl.builder()
+                        .url(url)
+                        .build()
+                )
+                .build()
+        )
+        is ContentPart.Audio, is ContentPart.Video -> {
+            // OpenAI Chat Completions 当前不直接支持 audio/video URL 输入；
+            // 多模态降级链里应在调用前转换为文本描述。
+            ChatCompletionContentPart.ofText(
+                ChatCompletionContentPartText.builder()
+                    .text("[unsupported media type: ${this::class.simpleName}]")
+                    .build()
+            )
         }
     }
 
