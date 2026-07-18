@@ -225,7 +225,7 @@ class EventTextPreParser @Inject constructor(
     private fun buildPrompt(batch: List<TextBatchItem>): List<ChatMessage> {
         val system = ChatMessage(
             role = ChatMessage.Role.SYSTEM,
-            content = SYSTEM_PROMPT,
+            text = SYSTEM_PROMPT,
         )
         val userContent = buildJsonObject {
             put("events", buildJsonArray {
@@ -238,7 +238,7 @@ class EventTextPreParser @Inject constructor(
                 }
             })
         }.toString()
-        val user = ChatMessage(role = ChatMessage.Role.USER, content = userContent)
+        val user = ChatMessage(role = ChatMessage.Role.USER, text = userContent)
         return listOf(system, user)
     }
 
