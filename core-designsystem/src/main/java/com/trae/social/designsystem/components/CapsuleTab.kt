@@ -32,13 +32,17 @@ import com.trae.social.designsystem.theme.LocalSocialTypography
  * 选中项以 systemBlue 胶囊高亮、白色文字；未选中项为次级背景、label 色。
  * 支持横向滚动以容纳较多 Tab 项。
  *
+ * #236：tabs 改为 vararg String，避免 List<String> 被 Compose 稳定性推断判为
+ * Unstable 导致父组件任何重组都强制 CapsuleTab 重组（无法 skip）。vararg 数组
+ * 在稳定性推断中默认 Stable。
+ *
  * @param tabs Tab 文案列表
  * @param selectedIndex 当前选中索引
  * @param onTabSelected 选中回调
  */
 @Composable
 fun CapsuleTab(
-    tabs: List<String>,
+    vararg tabs: String,
     selectedIndex: Int,
     onTabSelected: (Int) -> Unit,
     modifier: Modifier = Modifier,

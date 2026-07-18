@@ -146,7 +146,7 @@ fun ProfileScreen(
                 }
                 SocialDivider()
                 CapsuleTab(
-                    tabs = ProfileTab.values().map { it.label },
+                    tabs = *ProfileTab.values().map { it.label }.toTypedArray(),
                     selectedIndex = selectedTab.ordinal,
                     onTabSelected = { viewModel.selectTab(ProfileTab.values()[it]) },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = spacing.lg, vertical = spacing.sm),

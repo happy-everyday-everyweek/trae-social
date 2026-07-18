@@ -130,7 +130,7 @@ fun PublishScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 CapsuleTab(
-                    tabs = listOf("相机", "编辑器"),
+                    tabs = *arrayOf("相机", "编辑器"),
                     selectedIndex = selectedTab,
                     onTabSelected = { selectedTab = it },
                 )
