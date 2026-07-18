@@ -62,7 +62,11 @@ class UserProfileAggregator @Inject constructor(
             eventSummary = eventSummary,
             feedbackEffect = feedbackEffect,
             userFeedback = userFeedback,
-            previousNarrative = userProfileDao.latestVersion()?.narrative,
+            // 第七轮 review M1 修复：改用 activeVersion() 替代 latestVersion()。
+            // latestVersion 按 createdAt DESC 取最新创建版本，回滚场景下（V5 最新但已回滚到 V2 激活），
+            // 下一轮 LLM 拿到 V5 的"坏"叙事 → shouldRollbackNarrative(V5, V6) 因相似度过校验 →
+            // V6 落库激活 → 回滚被静默绕过。activeVersion 按 isActive=1 取当前激活版本，避免该问题。
+            previousNarrative = userProfileDao.activeVersion()?.narrative,
         )
     }
 
@@ -70,16 +74,24 @@ class UserProfileAggregator @Inject constructor(
      * 计算各场景 A/B 反哺效果（driven/control 差异）。
      *
      * delta < 0 时下一轮降低该场景 feedbackWeights（负反馈修正）。
+     *
+     * 第七轮 review B1 修复：原实现按 `extra LIKE %"scenarioId":N%` 8 次查询，
+     * 无法捕获"真实用户互动事件缺 scenarioId"的情况（场景 1/3/4 真实互动事件不带
+     * scenarioId，targetId 命中 AI marker 但 extra 无 scenarioId 字段）。
+     * 改为统一查询窗口内全部事件 + 在内存中按 scenarioId 分组 + 按 targetId 隐式关联
+     * marker 与 interaction，使所有 8 场景 A/B delta 不再恒为 0。
      */
     private suspend fun computeFeedbackEffect(since: Long): FeedbackEffect {
         if (!gate.isEnabled()) return FeedbackEffect(emptyMap(), emptyList())
+        val allEvents = runCatching { userActionDao.queryAllSince(since) }
+            .getOrElse { return FeedbackEffect(emptyMap(), emptyList()) }
+        if (allEvents.isEmpty()) return FeedbackEffect(emptyMap(), emptyList())
+
         val deltas = mutableMapOf<Int, Double>()
         for (scenarioId in 1..8) {
             runCatching {
-                val pattern = "%\"scenarioId\":$scenarioId%"
-                val events = userActionDao.queryScenarioEventsSince(since, pattern)
-                if (events.isEmpty()) return@runCatching
-                val stats = computeScenarioStats(scenarioId, events)
+                val stats = computeScenarioStats(scenarioId, allEvents)
+                if (stats.drivenCount == 0 && stats.controlCount == 0) return@runCatching
                 deltas[scenarioId] = stats.delta
             }.onFailure { /* 单场景失败不影响其他 */ }
         }
@@ -96,33 +108,91 @@ class UserProfileAggregator @Inject constructor(
      * - isScenarioMarker 缺省/为 false 且 type 命中 [INTERACTION_TYPES] 的真实用户事件 = 互动计数
      *   （drivenInteract/controlInteract 累加），代表用户在曝光后实际发生的正向互动。
      *
-     * 原实现把打标事件（type 同为 TWEET_LIKE / TWEET_COMMENT 等）同时计为曝光与互动，
-     * 导致 drivenRate = controlRate = 1.0 → delta 恒为 0，A/B 闭环失效。
+     * 第七轮 review B1 修复：原实现仅识别"显式标记"（event.extra 有 scenarioId=N）的真实互动，
+     * 但场景 1/3/4 的真实用户互动事件（如点赞 AI 生成的推文）从不带 scenarioId → drivenInteract/
+     * controlInteract 恒为 0 → delta 恒为 0。增加"按 targetId 隐式关联"：真实互动事件若
+     * targetId 命中本场景某 marker 的 targetId，则计入本场景互动分子（drivenByProfile 取自
+     * 该 marker）。场景 5/6/7/8 的 marker targetId 为 null 或非 tweet.id，隐式关联不会误命中。
      */
-    private fun computeScenarioStats(scenarioId: Int, events: List<com.trae.social.core.data.entity.UserActionEventEntity>): ScenarioEffectStats {
-        val domains = events.mapNotNull { ProfileMappers.run { it.toDomain() } }
+    private fun computeScenarioStats(
+        scenarioId: Int,
+        allEvents: List<com.trae.social.core.data.entity.UserActionEventEntity>,
+    ): ScenarioEffectStats {
+        val domains = allEvents.mapNotNull { ProfileMappers.run { it.toDomain() } }
+
+        // 1. 分离本场景的 marker 与所有真实互动事件
+        val markers = mutableListOf<ScenarioMarker>()
+        val realInteractions = mutableListOf<RealInteraction>()
+        for (e in domains) {
+            val eScenarioId = ProfileMappers.readExtraInt(e.extra, "scenarioId")
+            val isMarker = ProfileMappers.readExtraBoolean(e.extra, "isScenarioMarker")
+            val isInteraction = e.type.name in INTERACTION_TYPES
+            if (eScenarioId == scenarioId && isMarker) {
+                markers.add(
+                    ScenarioMarker(
+                        targetId = e.targetId,
+                        driven = ProfileMappers.readExtraBoolean(e.extra, "drivenByProfile"),
+                        exposure = ProfileMappers.readExtraInt(e.extra, "interactionCount") ?: 1,
+                    )
+                )
+            } else if (isInteraction && !isMarker) {
+                realInteractions.add(
+                    RealInteraction(
+                        targetId = e.targetId,
+                        scenarioId = eScenarioId,
+                        driven = ProfileMappers.readExtraBoolean(e.extra, "drivenByProfile"),
+                    )
+                )
+            }
+        }
+        if (markers.isEmpty()) {
+            return ScenarioEffectStats(scenarioId, 0, 0, 0.0, 0.0, 0.0)
+        }
+
+        // 2. marker targetId 索引（用于隐式关联；null/blank targetId 不参与）
+        val markersByTargetId: Map<String, List<ScenarioMarker>> = markers
+            .filter { !it.targetId.isNullOrBlank() }
+            .groupBy { it.targetId!! }
+
+        // 3. 统计曝光与互动
         var driven = 0
         var control = 0
         var drivenInteract = 0
         var controlInteract = 0
-        for (e in domains) {
-            val isDriven = ProfileMappers.readExtraBoolean(e.extra, "drivenByProfile")
-            val isMarker = ProfileMappers.readExtraBoolean(e.extra, "isScenarioMarker")
-            if (isMarker) {
-                // 调度器打标事件：仅计曝光（用 interactionCount 表达曝光规模，缺省为 1）
-                val exposure = ProfileMappers.readExtraInt(e.extra, "interactionCount") ?: 1
-                if (isDriven) driven += exposure else control += exposure
-            } else {
-                // 真实用户事件：type 命中互动类型才计互动
-                if (e.type.name in INTERACTION_TYPES) {
-                    if (isDriven) drivenInteract++ else controlInteract++
-                }
+        for (m in markers) {
+            if (m.driven) driven += m.exposure else control += m.exposure
+        }
+        for (i in realInteractions) {
+            val attributedDriven: Boolean? = when {
+                // 显式标记：event 自带 scenarioId=N（场景 5/6 路径，已经在 extra 中标记）
+                i.scenarioId == scenarioId -> i.driven
+                // 隐式关联：targetId 命中本场景 marker（场景 1/3/4 路径，
+                // 真实用户互动事件不带 scenarioId，但 targetId 与 AI marker 相同）
+                !i.targetId.isNullOrBlank() -> markersByTargetId[i.targetId!!]
+                    ?.firstOrNull()?.driven
+                else -> null
             }
+            if (attributedDriven == null) continue
+            if (attributedDriven) drivenInteract++ else controlInteract++
         }
         val drivenRate = if (driven == 0) 0.0 else drivenInteract.toDouble() / driven
         val controlRate = if (control == 0) 0.0 else controlInteract.toDouble() / control
         return ScenarioEffectStats(scenarioId, driven, control, drivenRate, controlRate, drivenRate - controlRate)
     }
+
+    /** 单场景 marker 摘要（用于 computeScenarioStats 内部分组）。 */
+    private data class ScenarioMarker(
+        val targetId: String?,
+        val driven: Boolean,
+        val exposure: Int,
+    )
+
+    /** 真实用户互动事件摘要（用于 computeScenarioStats 内部分组）。 */
+    private data class RealInteraction(
+        val targetId: String?,
+        val scenarioId: Int?,
+        val driven: Boolean,
+    )
 
     private fun com.trae.social.core.data.entity.UserActionEventEntity.toDomain() =
         ProfileMappers.run { toDomain() }

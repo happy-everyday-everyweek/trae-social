@@ -159,7 +159,10 @@ class InteractionWorker @AssistedInject constructor(
             runCatching {
                 userActionTracker.trackNow(
                     UserActionEvent(
-                        id = UUID.randomUUID().toString(),
+                        // 第七轮 review M6 修复：用稳定 id 替代 UUID.randomUUID()。
+                        // Worker 重试时 tweetId 不变（来自 inputData），故同一推文的互动排程
+                        // 重试产生相同 id，Room @PrimaryKey + REPLACE 保证幂等。
+                        id = "marker_s3_$tweetId",
                         type = UserActionType.TWEET_LIKE,
                         screen = "interaction_schedule",
                         targetId = tweet.id,
@@ -184,7 +187,8 @@ class InteractionWorker @AssistedInject constructor(
                 runCatching {
                     userActionTracker.trackNow(
                         UserActionEvent(
-                            id = UUID.randomUUID().toString(),
+                            // 第七轮 review M6 修复：用稳定 id 替代 UUID.randomUUID()（同场景 3）。
+                            id = "marker_s4_$tweetId",
                             type = UserActionType.TWEET_COMMENT,
                             screen = "interaction_schedule_comment",
                             targetId = tweet.id,

@@ -120,6 +120,9 @@ class UserProfileWorker @AssistedInject constructor(
                 Timber.w("UserProfileWorker 遇到限流，跳过 retryAfter=%s", e.retryAfterSeconds)
                 logEvent(started, "rate_limited", e.message)
                 return Result.success(workDataOf(WorkerKeys.KEY_RESULT to "rate_limited"))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // 第七轮 review M5 修复：CancellationException 必须重抛。
+                throw e
             } catch (t: Throwable) {
                 Timber.w(t, "UserProfileWorker LLM 调用失败")
                 logEvent(started, "llm_error", t.message)
@@ -176,6 +179,10 @@ class UserProfileWorker @AssistedInject constructor(
             val newId = versionStore.insertAndActivate(version)
             logEvent(started, "success", "versionId=$newId")
             return Result.success(workDataOf(WorkerKeys.KEY_RESULT to "success", "versionId" to newId))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // 第七轮 review M5 修复：CancellationException 必须重抛，否则 WorkManager 取消 Worker 时
+            // 协程无法正确传播取消信号，导致 doWork 卡在 catch(t: Throwable) 内继续执行返回 Result.retry。
+            throw e
         } catch (t: Throwable) {
             Timber.e(t, "UserProfileWorker 执行失败")
             logEvent(started, "error", t.message)

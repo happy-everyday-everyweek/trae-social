@@ -5,6 +5,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.trae.social.core.data.repository.AccountRepository
+import com.trae.social.core.profiling.analysis.BasicProfileTrigger
 import com.trae.social.core.scheduler.work.TweetGenerationWorker
 import com.trae.social.core.scheduler.work.WorkerKeys
 import com.trae.social.core.scheduler.work.WorkerPolicies
@@ -26,12 +27,18 @@ import javax.inject.Singleton
  * 使用 `coldstart_<accountId>_<windowStart>` 作为 deduplicationKey，
  * 配合 tweets 表 unique 索引保证幂等（重复触发不产生重复推文）。
  *
+ * 第七轮 review M4 修复：同时将活跃账号的职业作为初始兴趣种子写入
+ * COLD_START_SEEDING 快照（通过 [BasicProfileTrigger.seedColdStartSnapshot]），
+ * 使冷启动期 UserProfileReadAccess.coldStartSeeding() 返回非空兴趣向量，
+ * TweetGenerationWorker driven 组能注入"用户近期关注话题"提示。
+ *
  * IMPL-1/IMPL-45：取代 [com.trae.social.onboarding.DefaultColdStartFiller] 空实现。
  */
 @Singleton
 class AppColdStartFiller @Inject constructor(
     @ApplicationContext private val context: Context,
     private val accountRepository: AccountRepository,
+    private val basicProfileTrigger: BasicProfileTrigger,
 ) : ColdStartFiller {
 
     override suspend fun triggerInitialFill() {
@@ -54,6 +61,20 @@ class AppColdStartFiller @Inject constructor(
             }
             val targets = active.take(MAX_COLD_START_ACCOUNTS)
             Timber.i("ColdStartFiller: 为 %d 个活跃账号入队即时推文生成", targets.size)
+
+            // 第七轮 review M4 修复：将活跃账号的职业作为初始兴趣种子写入冷启动 seeding 快照。
+            // 职业作为兴趣 key 直接注入 TweetGenerationWorker 的"用户近期关注话题"提示，
+            // LLM 会据此生成贴近用户潜在兴趣的内容，实现冷启动期即个性化。
+            runCatching {
+                val professionInterests = targets.map { it.profession }
+                    .filter { it.isNotBlank() }
+                    .groupingBy { it }
+                    .eachCount()
+                    .mapValues { it.value.toDouble() }
+                if (professionInterests.isNotEmpty()) {
+                    basicProfileTrigger.seedColdStartSnapshot(professionInterests)
+                }
+            }.onFailure { Timber.w(it, "冷启动 seeding 快照写入失败，已忽略") }
 
             val workManager = WorkManager.getInstance(context)
             val windowStart = now

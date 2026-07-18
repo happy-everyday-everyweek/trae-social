@@ -22,7 +22,18 @@ interface UserProfileDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSnapshot(snapshot: UserProfileSnapshotEntity): Long
 
-    @Query("SELECT * FROM user_profile_snapshots ORDER BY computedAt DESC LIMIT 1")
+    /**
+     * 第七轮 review M4 修复：latestSnapshot 排除 COLD_START_SEEDING 源。
+     *
+     * 原查询未按 source 过滤，若 onboarding 写入了 COLD_START_SEEDING 快照且尚无
+     * INCREMENTAL/FULL_RECOMPUTE 快照，则 latestSnapshot 会返回 COLD_START_SEEDING 快照，
+     * 导致 CachedProfileLoader.snapshot 非空 → interestVector() 走 `snapshot != null` 分支，
+     * coldStartSeeding() 代码路径成为死代码（永远不被读取）。
+     *
+     * 修正语义：latestSnapshot 仅返回基础分析快照（INCREMENTAL/FULL_RECOMPUTE），
+     * COLD_START_SEEDING 快照仅通过 [earliestColdStartSnapshot] 读取。
+     */
+    @Query("SELECT * FROM user_profile_snapshots WHERE source != 'COLD_START_SEEDING' ORDER BY computedAt DESC LIMIT 1")
     suspend fun latestSnapshot(): UserProfileSnapshotEntity?
 
     /**

@@ -56,6 +56,15 @@ class FollowListViewModel @Inject constructor(
     private val _followingIds = MutableStateFlow<Set<String>>(emptySet())
     val followingIds: StateFlow<Set<String>> = _followingIds.asStateFlow()
 
+    /**
+     * #146 A/E 场景 6：最近一次 RECOMMENDED 列表的 driven 分组结果。
+     *
+     * 第七轮 review B1 修复：toggleFollow 落 FOLLOW 埋点时需带上 scenarioId=6 / drivenByProfile / group，
+     * 才能让 computeScenarioStats 把"真实用户关注"计入互动分子，否则 OPEN_FOLLOWLIST 曝光打标
+     * 与真实 FOLLOW 互动两不沾 → delta 恒为 0。
+     */
+    private var scenario6Driven: Boolean? = null
+
     fun load(type: FollowListType) {
         viewModelScope.launch {
             _uiState.value = FollowListUiState.Loading
@@ -97,6 +106,9 @@ class FollowListViewModel @Inject constructor(
     private suspend fun loadRecommendedAccounts(): List<AccountEntity> {
         val sessionId = sessionManager.currentSessionId() ?: "follow_recommend"
         val drivenScenario6 = feedbackController.shouldApply(6, sessionId)
+        // 第七轮 review B1 修复：缓存本次 RECOMMENDED 列表的 driven 分组结果，
+        // 供 toggleFollow 在 FOLLOW 埋点上带 scenarioId=6 / drivenByProfile / group。
+        scenario6Driven = drivenScenario6
         val interestVector = if (drivenScenario6) {
             runCatching { readAccess.interestVector() }.getOrDefault(emptyMap())
         } else {
@@ -132,6 +144,8 @@ class FollowListViewModel @Inject constructor(
         }
 
         // #146 A/E 场景 6：反哺层打标——为本次推荐列表发 scenario 事件，供 computeFeedbackEffect 做 A/B 回测。
+        // 第七轮 review B1 修复：必须带 isScenarioMarker=true，使 OPEN_FOLLOWLIST 计入曝光分母，
+        // 否则事件既非 marker 又非 INTERACTION_TYPES 互动 → delta 恒为 0。
         runCatching {
             userActionTracker.trackNow(
                 UserActionEvent(
@@ -144,6 +158,7 @@ class FollowListViewModel @Inject constructor(
                         "scenarioId" to kotlinx.serialization.json.JsonPrimitive(6),
                         "drivenByProfile" to kotlinx.serialization.json.JsonPrimitive(drivenScenario6),
                         "group" to kotlinx.serialization.json.JsonPrimitive(if (drivenScenario6) "driven" else "control"),
+                        "isScenarioMarker" to kotlinx.serialization.json.JsonPrimitive(true),
                         "recommendCount" to kotlinx.serialization.json.JsonPrimitive(recommended.size),
                     ),
                     occurredAt = System.currentTimeMillis(),
@@ -168,16 +183,31 @@ class FollowListViewModel @Inject constructor(
 
     /**
      * 切换对某账号的关注状态（关注/取关），写库后刷新本地集合与列表。
+     *
+     * 第七轮 review B1 修复：在 RECOMMENDED 列表里的 FOLLOW/UNFOLLOW 埋点需带上
+     * scenarioId=6 / drivenByProfile / group，使 computeScenarioStats 能将"真实用户关注"
+     * 计入互动分子；UNFOLLOW 不计入互动分子，但仍带 scenarioId 以便调试可追溯。
      */
     fun toggleFollow(type: FollowListType, accountId: String) {
         val isFollowing = accountId in _followingIds.value
         // #146 B：关注/取关埋点（在落库前记录意图，extra 带 listType）
+        val extraBuilder = mutableMapOf<String, kotlinx.serialization.json.JsonElement>(
+            "listType" to kotlinx.serialization.json.JsonPrimitive(type.name),
+        )
+        // 第七轮 review B1 修复：RECOMMENDED 列表里的关注操作携带场景 6 信号
+        if (type == FollowListType.RECOMMENDED) {
+            scenario6Driven?.let { driven ->
+                extraBuilder["scenarioId"] = kotlinx.serialization.json.JsonPrimitive(6)
+                extraBuilder["drivenByProfile"] = kotlinx.serialization.json.JsonPrimitive(driven)
+                extraBuilder["group"] = kotlinx.serialization.json.JsonPrimitive(if (driven) "driven" else "control")
+            }
+        }
         actionBuilder.emit(
             type = if (isFollowing) UserActionType.UNFOLLOW else UserActionType.FOLLOW,
             screen = "followlist",
             targetId = accountId,
             targetKind = "account",
-            extra = mapOf("listType" to kotlinx.serialization.json.JsonPrimitive(type.name)),
+            extra = extraBuilder,
         )
         viewModelScope.launch {
             runCatching {
