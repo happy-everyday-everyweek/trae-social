@@ -42,6 +42,7 @@ import com.trae.social.core.data.entity.UserProfileVersionEntity
  * - version=6（新增 comments 表持久化评论列表，评论弹层打开时从 DB 加载展示）
  * - version=7（#146：新增用户行为建模六张表：user_action_events / user_profile_snapshots /
  *   user_profile_versions / user_profile_overrides / user_profile_feedback / user_profile_rollbacks）
+ * - version=8（#227：移除 tweets 单列 authorId 索引——复合索引 (authorId, createdAt) 已覆盖最左前缀）
  * - exportSchema=true（RISK-9：schema JSON 输出至 schemas/）
  * - TypeConverters 处理 JSON 字段与枚举
  * - 发布版 schema 变更须提供显式 Migration（RISK-9）
@@ -65,7 +66,7 @@ import com.trae.social.core.data.entity.UserProfileVersionEntity
         UserProfileFeedbackEntity::class,
         UserProfileRollbackEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = true
 )
 @TypeConverters(Converters::class)

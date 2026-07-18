@@ -368,6 +368,19 @@ object DataModule {
         }
     }
 
+    /**
+     * #227：删除 tweets 表上冗余的单列 authorId 索引。
+     *
+     * 复合索引 (authorId, createdAt) 已覆盖 WHERE authorId = ? 的最左前缀查询，
+     * 单列 index_tweets_authorId 是冗余的，每条 INSERT/UPDATE 都多维护一份 B-Tree，
+     * 造成写放大。SQLite DROP INDEX IF EXISTS 在索引不存在时静默跳过，安全幂等。
+     */
+    private val MIGRATION_7_8 = object : Migration(7, 8) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL("DROP INDEX IF EXISTS `index_tweets_authorId`")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
@@ -378,7 +391,15 @@ object DataModule {
             AppDatabase.DATABASE_NAME
         )
             .fallbackToDestructiveMigrationOnDowngrade()
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+            .addMigrations(
+                MIGRATION_1_2,
+                MIGRATION_2_3,
+                MIGRATION_3_4,
+                MIGRATION_4_5,
+                MIGRATION_5_6,
+                MIGRATION_6_7,
+                MIGRATION_7_8,
+            )
             .build()
     }
 
