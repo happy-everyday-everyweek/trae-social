@@ -332,7 +332,7 @@ private fun PublishFlyInOverlay(
             }
             else -> 0f
         }
-        // #25：上移使用 EaseOutBack 弹性缓动，上抛感更自然
+        // #25：默认分支用 EaseOutBack 弹性缓动，上抛感更自然
         // #205 P2：减弱动效下完全移除位移（图片居中淡出），符合 ReduceMotion.kt doc
         //   「移除 transform/位移类动画，仅保留 opacity 与 color 过渡」原则——
         //   600px 纵向飞行是减弱动效要消除的前庭刺激；与 WelcomeScreen 减弱动效下
