@@ -8,7 +8,6 @@ import androidx.work.workDataOf
 import com.trae.social.core.data.dao.UserActionDao
 import com.trae.social.core.data.dao.UserProfileDao
 import com.trae.social.core.data.dao.UserProfileFeedbackDao
-import com.trae.social.core.data.entity.SchedulerLogEntity
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.profiling.analysis.UserProfileAggregator
 import com.trae.social.core.profiling.feedback.ProfileVersionStore
@@ -223,19 +222,9 @@ class UserProfileWorker @AssistedInject constructor(
         return md.digest().joinToString("") { "%02x".format(it) }.take(8)
     }
 
+    // #218：logEvent 实现抽到 SchedulerLogger.log，此处保留薄包装统一 action 标识
     private suspend fun logEvent(startedAt: Long, status: String, error: String?) {
-        runCatching {
-            logDao.insert(
-                SchedulerLogEntity(
-                    timestamp = System.currentTimeMillis(),
-                    accountId = LOG_ACCOUNT_ID,
-                    action = "user_profile",
-                    result = status,
-                    durationMs = System.currentTimeMillis() - startedAt,
-                    errorMessage = error,
-                )
-            )
-        }.onFailure { Timber.w(it, "写调度日志失败") }
+        SchedulerLogger.log(logDao, "user_profile", LOG_ACCOUNT_ID, startedAt, status, error)
     }
 
     private companion object {

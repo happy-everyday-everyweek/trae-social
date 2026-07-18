@@ -7,7 +7,6 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.trae.social.core.data.entity.InteractionEntity
 import com.trae.social.core.data.entity.InteractionType
-import com.trae.social.core.data.entity.SchedulerLogEntity
 import com.trae.social.core.data.repository.AccountRepository
 import com.trae.social.core.data.repository.InteractionRepository
 import com.trae.social.core.data.repository.TweetRepository
@@ -510,24 +509,14 @@ class InteractionWorker @AssistedInject constructor(
         recentMood = account.recentMood.ifBlank { "平和" },
     )
 
+    // #218：logSchedulerEvent 实现抽到 SchedulerLogger.log，此处保留薄包装统一 action 标识
     private suspend fun logSchedulerEvent(
         accountId: String,
         startedAt: Long,
         status: String,
         error: String?,
     ) {
-        runCatching {
-            logDao.insert(
-                SchedulerLogEntity(
-                    timestamp = System.currentTimeMillis(),
-                    accountId = accountId,
-                    action = "interaction_schedule",
-                    result = status,
-                    durationMs = System.currentTimeMillis() - startedAt,
-                    errorMessage = error,
-                )
-            )
-        }.onFailure { Timber.w(it, "写调度日志失败") }
+        SchedulerLogger.log(logDao, "interaction_schedule", accountId, startedAt, status, error)
     }
 
     private data class InteractionAssignment(
