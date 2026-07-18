@@ -44,11 +44,21 @@ dependencies {
 
     implementation(libs.androidx.core.ktx)
 
-    // 网络层：Retrofit + OkHttp
-    implementation(libs.retrofit)
-    implementation(libs.retrofit.kotlinx.serialization.converter)
-    implementation(libs.okhttp)
-    implementation(libs.okhttp.logging.interceptor)
+    // #151：OpenAI / Anthropic 官方 Java SDK，取代旧手写 Retrofit API + SSE 解析。
+    // OkHttp 由 SDK 的 *-client-okhttp 子模块传递引入，不再在此直接声明。
+    implementation(libs.openai.java.core)
+    implementation(libs.openai.java.client.okhttp)
+    implementation(libs.anthropic.java.core) {
+        // anthropic-java-core 的 POM 把 Apache HTTP 5.x（httpclient5 / httpcore5）列为
+        // runtime 依赖，Android 上不在 bootclasspath 且与 OkHttp 路径无关，exclude 掉
+        // 避免无用包体与方法数增长。实际网络层走 okhttp client 模块。
+        exclude(group = "org.apache.httpcomponents.core5")
+        exclude(group = "org.apache.httpcomponents.client5")
+    }
+    implementation(libs.anthropic.java.client.okhttp) {
+        exclude(group = "org.apache.httpcomponents.core5")
+        exclude(group = "org.apache.httpcomponents.client5")
+    }
 
     // 序列化 + 协程
     implementation(libs.kotlinx.serialization.json)
@@ -64,5 +74,4 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockk)
-    testImplementation(libs.mockwebserver)
 }

@@ -1,6 +1,5 @@
 package com.trae.social.core.profiling.analysis
 
-import com.trae.social.core.data.config.LlmProvider
 import com.trae.social.core.data.dao.UserActionDao
 import com.trae.social.core.data.model.UserActionEvent
 import com.trae.social.core.data.model.UserActionType
@@ -11,7 +10,7 @@ import com.trae.social.core.data.seed.PersonaSeeder
 import com.trae.social.core.profiling.mapping.ProfileMappers
 import com.trae.social.llm.ChatConfig
 import com.trae.social.llm.ChatMessage
-import com.trae.social.llm.LlmProviderRegistry
+import com.trae.social.llm.RulesetEngine
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -49,7 +48,7 @@ import kotlin.math.abs
  */
 @Singleton
 class EventTextPreParser @Inject constructor(
-    private val llmRegistry: LlmProviderRegistry,
+    private val rulesetEngine: RulesetEngine,
     private val tweetRepository: TweetRepository,
     private val commentRepository: CommentRepository,
     private val userActionDao: UserActionDao,
@@ -84,9 +83,9 @@ class EventTextPreParser @Inject constructor(
         }
         if (withText.isEmpty()) return events
 
-        // 3. 获取 LLM provider，未配置则跳过
-        val provider = configRepository.getDefaultProvider() ?: run {
-            Timber.w("EventTextPreParser: 默认 LLM provider 未配置，跳过预解析")
+        // 3. 未配置任何端点则跳过（RulesetEngine 内部会抛 IllegalStateException，此处提前短路）
+        if (configRepository.listEndpoints().isEmpty()) {
+            Timber.w("EventTextPreParser: 未配置任何 LLM 端点，跳过预解析")
             return events
         }
 
@@ -106,7 +105,7 @@ class EventTextPreParser @Inject constructor(
                 return@forEach
             }
             runCatching {
-                val result = batchParse(batch, provider)
+                val result = batchParse(batch)
                 // 批次成功：所有该批事件都标记为已解析（即使 LLM 漏返回某 index）
                 batch.forEach { parsedIds.add(it.event.id) }
                 result.forEach { (eventId, signals) -> enriched[eventId] = signals }
@@ -209,13 +208,12 @@ class EventTextPreParser @Inject constructor(
     /** 批量调用 LLM 解析文本，返回 eventId → 信号的映射。 */
     private suspend fun batchParse(
         batch: List<TextBatchItem>,
-        provider: LlmProvider,
     ): Map<String, TextSignals> {
         val messages = buildPrompt(batch)
         // review 修复：chatSync 是同步阻塞调用，若 LLM hang 住会卡死 BasicProfileTrigger.compute
         // 主路径。包 withTimeout 超时后抛 TimeoutCancellationException，由外层 runCatching 降级。
         val raw = withTimeout(LLM_TIMEOUT_MS) {
-            llmRegistry.getClient(provider).chatSync(
+            rulesetEngine.chatSync(
                 messages = messages,
                 config = ChatConfig(temperature = 0.2f, maxTokens = 768, jsonMode = true),
             )

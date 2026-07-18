@@ -13,7 +13,7 @@ import com.trae.social.core.profiling.analysis.UserProfileAggregator
 import com.trae.social.core.profiling.feedback.ProfileVersionStore
 import com.trae.social.core.profiling.mapping.ProfileMappers
 import com.trae.social.llm.ChatConfig
-import com.trae.social.llm.LlmProviderRegistry
+import com.trae.social.llm.RulesetEngine
 import com.trae.social.llm.interceptor.RateLimitedException
 import com.trae.social.llm.prompt.UserProfilePromptBuilder
 import dagger.assisted.Assisted
@@ -49,7 +49,7 @@ class UserProfileWorker @AssistedInject constructor(
     private val feedbackDao: UserProfileFeedbackDao,
     private val aggregator: UserProfileAggregator,
     private val versionStore: ProfileVersionStore,
-    private val llmRegistry: LlmProviderRegistry,
+    private val rulesetEngine: RulesetEngine,
     private val configRepository: ConfigRepository,
     private val logDao: com.trae.social.core.data.dao.SchedulerLogDao,
 ) : CoroutineWorker(appContext, params) {
@@ -104,14 +104,19 @@ class UserProfileWorker @AssistedInject constructor(
                 previousNarrative = aggregated.previousNarrative,
             )
             val messages = promptBuilder.build(input)
-            // M2 修复：默认 provider 未配置时显式跳过，避免 getDefaultClient 内部异常导致无效 retry
-            val provider = configRepository.getDefaultProvider()
-            if (provider == null) {
+            // M2 修复：未配置任何端点时显式跳过，避免 RulesetEngine.chatSync 内部抛
+            // IllegalStateException 后被通用 catch 捕获走 retry 浪费 WorkManager 配额
+            val endpoints = configRepository.listEndpoints()
+            if (endpoints.isEmpty()) {
                 logEvent(started, "no_default_provider", null)
                 return Result.success(workDataOf(WorkerKeys.KEY_RESULT to "no_default_provider"))
             }
+            // #151 重构后：RulesetEngine 内部自动选主端点 + 降级链，此处只关心调用结果。
+            // modelProvider 仍记录主端点 id（endpoints 已按 orderIndex 升序，首项即主端点），
+            // 便于版本溯源；降级链触达次端点时该字段不反映实际生效端点，仅作粗粒度标记。
+            val primaryEndpointId = endpoints.first().id
             val raw = try {
-                llmRegistry.getClient(provider).chatSync(
+                rulesetEngine.chatSync(
                     messages = messages,
                     config = ChatConfig(temperature = 0.6f, maxTokens = 768, jsonMode = true),
                 )
@@ -166,7 +171,7 @@ class UserProfileWorker @AssistedInject constructor(
                 feedbackWeights = parsed.feedbackWeights,
                 narrative = parsed.narrative,
                 overrideAcknowledgment = parsed.overrideAcknowledgment,
-                modelProvider = provider.id,
+                modelProvider = primaryEndpointId,
                 promptHash = promptHash(),
                 inputFingerprint = fingerprint,
                 snapshotId = null,

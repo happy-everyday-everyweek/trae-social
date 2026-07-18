@@ -16,7 +16,7 @@ import com.trae.social.core.profiling.feedback.FeedbackController
 import com.trae.social.core.profiling.feedback.UserProfileReadAccess
 import com.trae.social.core.scheduler.ratelimit.SchedulerRateLimiter
 import com.trae.social.llm.ChatConfig
-import com.trae.social.llm.LlmProviderRegistry
+import com.trae.social.llm.RulesetEngine
 import com.trae.social.llm.interceptor.RateLimitedException
 import com.trae.social.llm.prompt.PersonaUpdatePromptBuilder
 import dagger.assisted.Assisted
@@ -45,7 +45,7 @@ class PersonaUpdateWorker @AssistedInject constructor(
     @Assisted params: WorkerParameters,
     private val accountRepository: AccountRepository,
     private val tweetRepository: TweetRepository,
-    private val llmRegistry: LlmProviderRegistry,
+    private val rulesetEngine: RulesetEngine,
     private val rateLimiter: SchedulerRateLimiter,
     private val logDao: com.trae.social.core.data.dao.SchedulerLogDao,
     private val configRepository: ConfigRepository,
@@ -215,7 +215,7 @@ class PersonaUpdateWorker @AssistedInject constructor(
         // 调用 LLM 生成更新（#146 场景 7：driven 组注入用户兴趣画像）
         val messages = promptBuilder.build(currentInput, recentEvents, userInterests)
         val raw = try {
-            llmRegistry.getDefaultClient().chatSync(
+            rulesetEngine.chatSync(
                 messages = messages,
                 config = ChatConfig(temperature = 0.7f, maxTokens = 512, jsonMode = true),
             )

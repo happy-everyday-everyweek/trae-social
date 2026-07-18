@@ -14,6 +14,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -33,16 +37,18 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.trae.social.core.data.config.LlmProvider
+import com.trae.social.core.data.config.LlmProtocol
 import com.trae.social.designsystem.components.SocialCard
 import com.trae.social.designsystem.components.SocialDivider
 import com.trae.social.designsystem.theme.socialColors
 import com.trae.social.designsystem.theme.LocalSocialTypography
 
 /**
- * API Key 管理页（IMPL-2）。
+ * API Key / 端点管理页（#151 重构：多端点 CRUD + 排序）。
  *
- * 按 provider 展示并编辑 API Key / Base URL / 模型名，设置默认 provider。
+ * 列表展示用户配置的所有端点（按 orderIndex 升序），首位为主端点（默认生成模型）。
+ * 每个端点卡片可编辑 displayName / protocol / Base URL / 模型名 / API Key；
+ * 支持"设为主端点"（moveToFront）与删除操作。
  *
  * @param onBack 返回
  */
@@ -56,17 +62,32 @@ fun ApiKeyManagementScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val colors = socialColors()
 
-    // 各 provider 的临时编辑态（key 字段）
-    val apiKeyDrafts = remember { mutableStateMapOf<LlmProvider, String>() }
-    val baseUrlDrafts = remember { mutableStateMapOf<LlmProvider, String>() }
-    val modelDrafts = remember { mutableStateMapOf<LlmProvider, String>() }
+    // 各端点的临时编辑态
+    val apiKeyDrafts = remember { mutableStateMapOf<String, String>() }
+    val baseUrlDrafts = remember { mutableStateMapOf<String, String>() }
+    val modelDrafts = remember { mutableStateMapOf<String, String>() }
+    val displayNameDrafts = remember { mutableStateMapOf<String, String>() }
 
     Column(modifier.fillMaxSize().background(colors.systemBackground)) {
         TopAppBar(
-            title = { Text("API Key 管理", fontWeight = FontWeight.SemiBold) },
+            title = { Text("端点管理", fontWeight = FontWeight.SemiBold) },
             navigationIcon = {
                 IconButton(onClick = onBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                }
+            },
+            actions = {
+                IconButton(onClick = {
+                    // 添加端点：用占位值创建，用户后续在卡片中编辑
+                    viewModel.addEndpoint(
+                        displayName = "新端点",
+                        protocol = LlmProtocol.OPENAI_COMPATIBLE,
+                        baseUrl = LlmProtocol.OPENAI_COMPATIBLE.defaultBaseUrl,
+                        model = "gpt-4o-mini",
+                        apiKey = "",
+                    )
+                }) {
+                    Icon(Icons.Filled.Add, contentDescription = "添加端点")
                 }
             },
         )
@@ -76,21 +97,37 @@ fun ApiKeyManagementScreen(
             }
             return@Column
         }
+        if (state.endpoints.isEmpty()) {
+            Box(Modifier.fillMaxSize(), Alignment.Center) {
+                Text("尚未配置任何端点，点击右上角 + 添加", color = colors.tertiaryLabel)
+            }
+            return@Column
+        }
         LazyColumn(Modifier.fillMaxSize().padding(16.dp)) {
-            items(state.providerConfigs, key = { it.provider.name }) { cfg ->
-                ProviderConfigCard(
+            items(state.endpoints, key = { it.id }) { cfg ->
+                EndpointConfigCard(
                     config = cfg,
-                    isDefault = state.defaultProvider == cfg.provider,
-                    apiKeyDraft = apiKeyDrafts[cfg.provider] ?: "",
-                    onApiKeyChange = { apiKeyDrafts[cfg.provider] = it },
-                    baseUrlDraft = baseUrlDrafts[cfg.provider] ?: cfg.baseUrl,
-                    onBaseUrlChange = { baseUrlDrafts[cfg.provider] = it },
-                    modelDraft = modelDrafts[cfg.provider] ?: cfg.modelName,
-                    onModelChange = { modelDrafts[cfg.provider] = it },
-                    onSaveKey = { viewModel.setApiKey(cfg.provider, it) },
-                    onSaveBaseUrl = { viewModel.setBaseUrl(cfg.provider, it) },
-                    onSaveModel = { viewModel.setModelName(cfg.provider, it) },
-                    onSetDefault = { viewModel.setDefaultProvider(cfg.provider) },
+                    isPrimary = cfg.orderIndex == 0,
+                    apiKeyDraft = apiKeyDrafts[cfg.id] ?: "",
+                    onApiKeyChange = { apiKeyDrafts[cfg.id] = it },
+                    baseUrlDraft = baseUrlDrafts[cfg.id] ?: cfg.baseUrl,
+                    onBaseUrlChange = { baseUrlDrafts[cfg.id] = it },
+                    modelDraft = modelDrafts[cfg.id] ?: cfg.model,
+                    onModelChange = { modelDrafts[cfg.id] = it },
+                    displayNameDraft = displayNameDrafts[cfg.id] ?: cfg.displayName,
+                    onDisplayNameChange = { displayNameDrafts[cfg.id] = it },
+                    onSaveKey = { viewModel.setApiKey(cfg.id, it) },
+                    onSaveEndpoint = {
+                        viewModel.updateEndpoint(
+                            id = cfg.id,
+                            displayName = displayNameDrafts[cfg.id] ?: cfg.displayName,
+                            protocol = cfg.protocol,
+                            baseUrl = baseUrlDrafts[cfg.id] ?: cfg.baseUrl,
+                            model = modelDrafts[cfg.id] ?: cfg.model,
+                        )
+                    },
+                    onSetPrimary = { viewModel.moveToFront(cfg.id) },
+                    onDelete = { viewModel.deleteEndpoint(cfg.id) },
                 )
                 Spacer(Modifier.height(12.dp))
             }
@@ -99,19 +136,21 @@ fun ApiKeyManagementScreen(
 }
 
 @Composable
-private fun ProviderConfigCard(
-    config: ProviderConfig,
-    isDefault: Boolean,
+private fun EndpointConfigCard(
+    config: EndpointConfig,
+    isPrimary: Boolean,
     apiKeyDraft: String,
     onApiKeyChange: (String) -> Unit,
     baseUrlDraft: String,
     onBaseUrlChange: (String) -> Unit,
     modelDraft: String,
     onModelChange: (String) -> Unit,
+    displayNameDraft: String,
+    onDisplayNameChange: (String) -> Unit,
     onSaveKey: (String) -> Unit,
-    onSaveBaseUrl: (String) -> Unit,
-    onSaveModel: (String) -> Unit,
-    onSetDefault: () -> Unit,
+    onSaveEndpoint: () -> Unit,
+    onSetPrimary: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     val colors = socialColors()
     val typography = LocalSocialTypography.current
@@ -122,12 +161,75 @@ private fun ProviderConfigCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(config.provider.displayName, fontWeight = FontWeight.Bold, color = colors.label)
-                if (isDefault) {
-                    Text("默认", color = colors.systemBlue, style = typography.caption2)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onSetPrimary, enabled = !isPrimary) {
+                        Icon(
+                            if (isPrimary) Icons.Filled.Star else Icons.Outlined.StarOutline,
+                            contentDescription = if (isPrimary) "主端点" else "设为主端点",
+                            tint = if (isPrimary) colors.systemBlue else colors.tertiaryLabel,
+                        )
+                    }
+                    Text(displayNameDraft, fontWeight = FontWeight.Bold, color = colors.label)
+                }
+                if (isPrimary) {
+                    Text("主端点", color = colors.systemBlue, style = typography.caption2)
                 }
             }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "${config.protocol.displayName} · #${config.orderIndex + 1}",
+                style = typography.caption2,
+                color = colors.tertiaryLabel,
+            )
             Spacer(Modifier.height(8.dp))
+
+            // 展示名
+            Text("展示名", style = typography.caption1, color = colors.secondaryLabel)
+            OutlinedTextField(
+                value = displayNameDraft,
+                onValueChange = onDisplayNameChange,
+                label = { Text("展示名") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            SocialDivider(Modifier.padding(vertical = 12.dp), thickness = 0.5.dp)
+
+            // Base URL
+            Text("Base URL", style = typography.caption1, color = colors.secondaryLabel)
+            OutlinedTextField(
+                value = baseUrlDraft,
+                onValueChange = onBaseUrlChange,
+                label = { Text("Base URL") },
+                singleLine = true,
+                visualTransformation = VisualTransformation.None,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            SocialDivider(Modifier.padding(vertical = 12.dp), thickness = 0.5.dp)
+
+            // Model
+            Text("模型名", style = typography.caption1, color = colors.secondaryLabel)
+            OutlinedTextField(
+                value = modelDraft,
+                onValueChange = onModelChange,
+                label = { Text("模型名") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            Button(
+                onClick = onSaveEndpoint,
+                // #136：空值校验
+                enabled = displayNameDraft.isNotBlank() &&
+                    baseUrlDraft.isNotBlank() &&
+                    modelDraft.isNotBlank(),
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .fillMaxWidth(),
+            ) { Text("保存端点配置") }
+
+            SocialDivider(Modifier.padding(vertical = 12.dp), thickness = 0.5.dp)
 
             // API Key
             Text("API Key", style = typography.caption1, color = colors.secondaryLabel)
@@ -148,54 +250,26 @@ private fun ProviderConfigCard(
                 modifier = Modifier.padding(top = 4.dp),
             ) { Text("保存 Key") }
 
-            SocialDivider(Modifier.padding(vertical = 12.dp), thickness = 0.5.dp)
-
-            // Base URL
-            Text("Base URL", style = typography.caption1, color = colors.secondaryLabel)
-            OutlinedTextField(
-                value = baseUrlDraft,
-                onValueChange = onBaseUrlChange,
-                label = { Text("Base URL") },
-                singleLine = true,
-                visualTransformation = VisualTransformation.None,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Button(
-                onClick = { onSaveBaseUrl(baseUrlDraft) },
-                // #136：空值校验，避免空字符串覆盖原有有效值
-                enabled = baseUrlDraft.isNotBlank(),
-                modifier = Modifier.padding(top = 4.dp),
-            ) { Text("保存 URL") }
-
-            SocialDivider(Modifier.padding(vertical = 12.dp), thickness = 0.5.dp)
-
-            // Model
-            Text("模型名", style = typography.caption1, color = colors.secondaryLabel)
-            OutlinedTextField(
-                value = modelDraft,
-                onValueChange = onModelChange,
-                label = { Text("模型名") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Button(
-                onClick = { onSaveModel(modelDraft) },
-                // #136：空值校验，避免空字符串覆盖原有有效值
-                enabled = modelDraft.isNotBlank(),
-                modifier = Modifier.padding(top = 4.dp),
-            ) { Text("保存模型") }
-
-            if (!isDefault) {
+            if (!isPrimary) {
                 SocialDivider(Modifier.padding(vertical = 12.dp), thickness = 0.5.dp)
-                // IMPL-27 UI 侧根因：未配置 Key 的 provider 不允许设为默认，
-                // 否则后续所有 LLM 调用静默返回空字符串，AI 功能整体失效。
-                val hasApiKey = !config.apiKeyPreview.isNullOrBlank()
+                // IMPL-27 UI 侧根因：未配置 Key 的端点仍可设为主端点（用空 Key 调用会失败，
+                // 但管理 UI 不强制约束——避免阻塞用户在调试期切换主端点）。
                 Button(
-                    onClick = onSetDefault,
-                    enabled = hasApiKey,
+                    onClick = onSetPrimary,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(if (hasApiKey) "设为默认 provider" else "请先配置 API Key 后再设为默认")
+                    Text("设为主端点")
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Filled.Delete, contentDescription = "删除端点", tint = colors.systemRed)
                 }
             }
         }

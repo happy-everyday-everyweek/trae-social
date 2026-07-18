@@ -1,0 +1,146 @@
+package com.trae.social.llm
+
+import com.trae.social.core.data.config.LlmProtocol
+import com.trae.social.core.data.entity.LlmEndpointEntity
+import com.trae.social.llm.anthropic.AnthropicCompatibleClient
+import com.trae.social.llm.openai.OpenAiCompatibleClient
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import timber.log.Timber
+import java.util.concurrent.ConcurrentHashMap
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * 端点注册中心（#151：取代按 [com.trae.social.core.data.config.LlmProvider] 寻址的旧
+ * [LlmProviderRegistry]）。
+ *
+ * - [getClient]：按 endpointId 懒创建并缓存 [LlmClient] 实例。首次调用从
+ *   [EndpointConfigProvider] 读取端点配置 + API Key，组装 [EndpointConfig] 后构造对应协议
+ *   的 SDK client（[OpenAiCompatibleClient] / [AnthropicCompatibleClient]）。
+ * - [getDefaultClient]：返回 orderIndex=0 的端点对应 client（主模型）。
+ * - [invalidateCache]：清空所有缓存的 client 实例。端点配置变更后调用，
+ *   也可通过订阅 [EndpointConfigProvider.observeEndpointChanges] 自动触发。
+ *
+ * **并发安全**：[getClient] / [getDefaultClient] 为 suspend，使用 [Mutex] 替代
+ * @Synchronized 保证线程安全；double-check 模式避免重复创建。
+ *
+ * 取代旧 [LlmProviderRegistry.invalidateCache]（按 provider 寻址）的失效语义：
+ * - API Key 变更（端点 CRUD / API Key 保存）→ [ConfigRepository._endpointChanges] 发出
+ *   → [EndpointRegistry] 收集 → [invalidateCache]
+ * - 端点 reorder → 同上
+ */
+@Singleton
+class EndpointRegistry @Inject constructor(
+    private val configProvider: EndpointConfigProvider,
+) {
+
+    private val clients = ConcurrentHashMap<String, LlmClient>()
+    private val mutex = Mutex()
+
+    /**
+     * 内部协程作用域，用于订阅端点变更流。
+     *
+     * SupervisorJob：单个子 job 失败不影响作用域其他子 job。
+     * Dispatchers.IO：订阅与失效操作走 IO 线程，避免阻塞 UI。
+     */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    init {
+        // 订阅端点变更：任何端点 CRUD / API Key 变更后失效缓存。
+        scope.launch {
+            try {
+                configProvider.observeEndpointChanges().collect {
+                    invalidateCache()
+                }
+            } catch (t: Throwable) {
+                Timber.e(t, "EndpointRegistry 订阅端点变更失败")
+            }
+        }
+    }
+
+    /**
+     * 按 endpointId 获取 client。不存在则懒创建并缓存。
+     *
+     * 端点不存在 / API Key 缺失时返回 null（调用方应处理 null 情况）。
+     */
+    suspend fun getClient(endpointId: String): LlmClient? {
+        clients[endpointId]?.let { return it }
+        return mutex.withLock {
+            // Double-check after acquiring lock
+            clients[endpointId]?.let { return it }
+            val entity = configProvider.getEndpoint(endpointId) ?: return null
+            val apiKey = runCatching { configProvider.getEndpointApiKey(endpointId) }
+                .getOrNull()
+            val config = EndpointConfig.fromEntity(entity, apiKey)
+            val client = createClient(config) ?: return null
+            clients[endpointId] = client
+            client
+        }
+    }
+
+    /**
+     * 获取主模型 client（orderIndex=0）。
+     *
+     * 端点列表为空时返回 null（调用方应处理：通常引导用户配置端点）。
+     */
+    suspend fun getDefaultClient(): LlmClient? {
+        val endpoints = runCatching { configProvider.listEndpoints() }
+            .getOrElse { e ->
+                Timber.w(e, "EndpointRegistry.listEndpoints 失败")
+                return null
+            }
+        val primary = endpoints.firstOrNull() ?: return null
+        return getClient(primary.id)
+    }
+
+    /**
+     * 列出所有端点（按 orderIndex 升序）。供 UI / 引擎选择降级链使用。
+     */
+    suspend fun listEndpoints(): List<LlmEndpointEntity> {
+        return runCatching { configProvider.listEndpoints() }.getOrDefault(emptyList())
+    }
+
+    /**
+     * 按 id 获取端点（不走缓存，每次读 Room）。
+     */
+    suspend fun getEndpoint(id: String): LlmEndpointEntity? {
+        return runCatching { configProvider.getEndpoint(id) }.getOrNull()
+    }
+
+    /**
+     * 清空所有缓存的 client 实例。
+     *
+     * 在以下场景应调用（或通过订阅 [EndpointConfigProvider.observeEndpointChanges] 自动触发）：
+     * - 用户增删改端点
+     * - API Key 变更
+     * - 端点 reorder
+     */
+    suspend fun invalidateCache() {
+        mutex.withLock { clients.clear() }
+    }
+
+    /**
+     * 按 endpointId 失效单个 client（保留其他）。
+     */
+    suspend fun invalidate(endpointId: String) {
+        mutex.withLock { clients.remove(endpointId) }
+    }
+
+    /**
+     * 根据协议格式构造对应 SDK client。
+     *
+     * 不支持的协议返回 null（含未来可能新增的协议未实现时）。
+     */
+    private fun createClient(config: EndpointConfig): LlmClient? {
+        return when (config.protocol) {
+            LlmProtocol.OPENAI_COMPATIBLE -> OpenAiCompatibleClient(config)
+            LlmProtocol.ANTHROPIC_COMPATIBLE -> AnthropicCompatibleClient(config)
+        }
+    }
+}

@@ -15,7 +15,7 @@ import com.trae.social.core.profiling.capture.SessionManager
 import com.trae.social.core.profiling.capture.UserActionTracker
 import com.trae.social.core.profiling.mapping.ProfileMappers
 import com.trae.social.llm.ChatConfig
-import com.trae.social.llm.LlmProviderRegistry
+import com.trae.social.llm.RulesetEngine
 import com.trae.social.llm.prompt.FeedbackAgentPromptBuilder
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -41,7 +41,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class FeedbackAgent @Inject constructor(
-    private val llmRegistry: LlmProviderRegistry,
+    private val rulesetEngine: RulesetEngine,
     private val adjuster: ProfileAdjuster,
     private val versionStore: ProfileVersionStore,
     private val feedbackDao: UserProfileFeedbackDao,
@@ -132,7 +132,7 @@ class FeedbackAgent @Inject constructor(
         // 由下面的 catch (t: Throwable) 降级为 degradedReply。与 EventTextPreParser 一致。
         val raw = try {
             kotlinx.coroutines.withTimeout(LLM_TIMEOUT_MS) {
-                llmRegistry.getDefaultClient().chatSync(
+                rulesetEngine.chatSync(
                     messages = messages,
                     config = ChatConfig(temperature = 0.3f, maxTokens = 512, jsonMode = true),
                 )

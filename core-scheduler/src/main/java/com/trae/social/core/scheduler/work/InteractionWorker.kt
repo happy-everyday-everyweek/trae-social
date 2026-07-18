@@ -18,7 +18,7 @@ import com.trae.social.core.profiling.feedback.FeedbackController
 import com.trae.social.core.profiling.feedback.UserProfileReadAccess
 import com.trae.social.core.scheduler.ratelimit.SchedulerRateLimiter
 import com.trae.social.llm.ChatConfig
-import com.trae.social.llm.LlmProviderRegistry
+import com.trae.social.llm.RulesetEngine
 import com.trae.social.llm.interceptor.RateLimitedException
 import com.trae.social.llm.prompt.CommentPromptBuilder
 import com.trae.social.llm.prompt.TweetPromptBuilder
@@ -53,7 +53,7 @@ class InteractionWorker @AssistedInject constructor(
     private val accountRepository: AccountRepository,
     private val tweetRepository: TweetRepository,
     private val interactionRepository: InteractionRepository,
-    private val llmRegistry: LlmProviderRegistry,
+    private val rulesetEngine: RulesetEngine,
     private val rateLimiter: SchedulerRateLimiter,
     private val logDao: com.trae.social.core.data.dao.SchedulerLogDao,
     // #146 A/E：反哺层场景 3（interactionAffinity）+ 场景 8（interactionTiming）
@@ -429,7 +429,7 @@ class InteractionWorker @AssistedInject constructor(
             userTaste = userTaste,
         )
         val raw = try {
-            llmRegistry.getDefaultClient().chatSync(
+            rulesetEngine.chatSync(
                 messages = messages,
                 config = ChatConfig(temperature = 0.9f, maxTokens = 512, jsonMode = true),
             )

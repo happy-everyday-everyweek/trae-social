@@ -21,6 +21,10 @@ room = "2.6.1"
 retrofit = "2.11.0"
 okhttp = "4.12.0"
 
+# LLM 官方 Java SDK（#151 重构：取代手写 Retrofit API + SSE 解析）
+openaiJava = "4.43.0"
+anthropicJava = "2.34.1"
+
 # Coil
 coil = "2.6.0"
 
@@ -97,6 +101,12 @@ retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = 
 retrofit-kotlinx-serialization-converter = { group = "com.squareup.retrofit2", name = "converter-kotlinx-serialization", version.ref = "retrofit" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 okhttp-logging-interceptor = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
+
+# LLM 官方 Java SDK（#151：拆分引入 core + okhttp client 模块，体积更小）
+openai-java-core = { group = "com.openai", name = "openai-java-core", version.ref = "openaiJava" }
+openai-java-client-okhttp = { group = "com.openai", name = "openai-java-client-okhttp", version.ref = "openaiJava" }
+anthropic-java-core = { group = "com.anthropic", name = "anthropic-java-core", version.ref = "anthropicJava" }
+anthropic-java-client-okhttp = { group = "com.anthropic", name = "anthropic-java-client-okhttp", version.ref = "anthropicJava" }
 
 # Coil
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }

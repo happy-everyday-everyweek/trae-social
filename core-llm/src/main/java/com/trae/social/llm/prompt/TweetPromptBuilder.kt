@@ -17,7 +17,8 @@ import kotlin.random.Random
  *
  * 风险控制：
  * - RISK-2（人设漂移）：system prompt 强制注入全部人设固定字段。
- * - RISK-12（合规）：system prompt 含合规自检指令，应用层另有 [ContentFilter] 兜底。
+ * - RISK-12（合规）：system prompt 含合规自检指令；#151 重构移除应用层 ContentFilter，
+ *   敏感词检查下沉到模型层 / 上层审核流程。
  * - RISK-13（JSON 解析）：[parseTweetResult] 宽松解析，失败返回 null。
  */
 class TweetPromptBuilder {
