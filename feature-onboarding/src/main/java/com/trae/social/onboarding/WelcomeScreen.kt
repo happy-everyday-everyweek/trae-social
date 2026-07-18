@@ -72,6 +72,11 @@ fun WelcomeScreen(
     // #35：进场动画——插画 alpha 与上移并行（500ms），内容淡入随后（400ms）
     // #200：减弱动效下保留 alpha 渐入（无视觉位移），完全跳过 offset 防止前庭刺激；
     //   时长压到 150ms 提高响应感（Apple："reduced motion ≠ no feedback"）。
+    // 进场动画为一次性播放：spec 与初始 offset 仅在首次组合时按 reduceMotion 计算一次，
+    // 后续运行时切换 reduce-motion 不会重跑进场动画（LaunchedEffect(Unit) 也只触发一次）。
+    // 这是 onboarding 短页面的有意设计：避免用户在引导页中途切换系统设置时插图位置
+    // 突跳。故 illustrationOffset 的 remember 不以 reduceMotion 为 key——若以 reduceMotion
+    // 为 key，切换时会重建 Animatable 并把 offset 重置为 40f，反而造成视觉跳变。
     val illustrationAlpha = remember { Animatable(0f) }
     val illustrationOffset = remember { Animatable(if (reduceMotion) 0f else 40f) }
     val contentAlpha = remember { Animatable(0f) }

@@ -580,25 +580,20 @@ private fun InteractionButton(
     var hasObserved by remember { mutableStateOf(false) }
     LaunchedEffect(active) {
         if (bounceWhenActive && active && hasObserved) {
-            if (reduceMotion) {
-                scale.snapTo(0.8f)
-                scale.animateTo(
-                    targetValue = 1f,
-                    animationSpec = tween(
-                        durationMillis = 150,
-                        easing = FastOutSlowInEasing,
-                    ),
+            // 两个分支仅 spec 不同，抽出共有的 snap + animateTo 以提升可读性
+            val spec = if (reduceMotion) {
+                tween<Float>(
+                    durationMillis = 150,
+                    easing = FastOutSlowInEasing,
                 )
             } else {
-                scale.snapTo(0.8f)
-                scale.animateTo(
-                    targetValue = 1f,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioLowBouncy,
-                        stiffness = Spring.StiffnessMediumLow,
-                    ),
+                spring(
+                    dampingRatio = Spring.DampingRatioLowBouncy,
+                    stiffness = Spring.StiffnessMediumLow,
                 )
             }
+            scale.snapTo(0.8f)
+            scale.animateTo(targetValue = 1f, animationSpec = spec)
         }
         hasObserved = true
     }

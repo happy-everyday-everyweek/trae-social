@@ -236,7 +236,8 @@ private fun PublishButton(
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     // #202：按压弹簧——
-    // - 默认：NoBouncy + StiffnessMedium（≈300ms 收束），按压是高频操作，不需要 overshoot；
+    // - 默认：NoBouncy + StiffnessMedium（≈100ms 收束；StiffnessMedium=1500，
+    //   临界阻尼 4/√1500≈0.10s），按压是高频操作，不需要 overshoot；
     //   原 MediumBouncy 让按钮每次按下都晃几下，频繁点击下视觉抖动。
     // - 减弱动效：tween(120, FastOutSlowInEasing)——按压反馈不能完全省（否则界面"没反应"），
     //   但要更短、更平。
