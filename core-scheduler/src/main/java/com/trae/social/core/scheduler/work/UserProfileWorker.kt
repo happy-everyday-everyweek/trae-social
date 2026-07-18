@@ -126,7 +126,7 @@ class UserProfileWorker @AssistedInject constructor(
             } catch (t: Throwable) {
                 Timber.w(t, "UserProfileWorker LLM 调用失败")
                 logEvent(started, "llm_error", t.message)
-                return if (runAttemptCount >= MAX_RUN_ATTEMPTS) {
+                return if (runAttemptCount >= WorkerConstants.MAX_RUN_ATTEMPTS) {
                     Result.failure(workDataOf(WorkerKeys.KEY_ERROR to (t.message ?: "unknown")))
                 } else {
                     Result.retry()
@@ -186,7 +186,7 @@ class UserProfileWorker @AssistedInject constructor(
         } catch (t: Throwable) {
             Timber.e(t, "UserProfileWorker 执行失败")
             logEvent(started, "error", t.message)
-            return if (runAttemptCount >= MAX_RUN_ATTEMPTS) {
+            return if (runAttemptCount >= WorkerConstants.MAX_RUN_ATTEMPTS) {
                 Result.failure(workDataOf(WorkerKeys.KEY_ERROR to (t.message ?: "unknown")))
             } else {
                 Result.retry()
@@ -239,7 +239,6 @@ class UserProfileWorker @AssistedInject constructor(
     }
 
     private companion object {
-        const val MAX_RUN_ATTEMPTS = 3
         const val MIN_NEW_EVENTS = 20
         const val FEEDBACK_EFFECT_WINDOW_MS = 14L * 24 * 60 * 60 * 1000 // 14 天
         // #146：日志 accountId 用 user-self（真实账号，满足外键约束）

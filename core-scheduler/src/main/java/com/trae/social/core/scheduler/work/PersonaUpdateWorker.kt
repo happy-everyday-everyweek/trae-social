@@ -89,7 +89,7 @@ class PersonaUpdateWorker @AssistedInject constructor(
             for (account in candidates) {
                 try {
                     // M2 修复：使用带超时的 acquire，避免限流阻塞超过 WorkManager 超时上限
-                    if (!rateLimiter.acquireWithTimeout(ACQUIRE_TIMEOUT_MS)) {
+                    if (!rateLimiter.acquireWithTimeout(WorkerConstants.ACQUIRE_TIMEOUT_MS)) {
                         Timber.i("账号 %s 限流等待超时，跳过", account.id)
                         skipped++
                         continue
@@ -161,7 +161,7 @@ class PersonaUpdateWorker @AssistedInject constructor(
             if (t is kotlinx.coroutines.CancellationException) throw t
             Timber.e(t, "PersonaUpdateWorker 执行失败")
             logSchedulerEvent("system", started, "error", t.message)
-            return if (runAttemptCount >= MAX_RUN_ATTEMPTS) {
+            return if (runAttemptCount >= WorkerConstants.MAX_RUN_ATTEMPTS) {
                 Result.failure(workDataOf(WorkerKeys.KEY_ERROR to (t.message ?: "unknown")))
             } else {
                 Result.retry()
@@ -302,9 +302,6 @@ class PersonaUpdateWorker @AssistedInject constructor(
     private enum class UpdateResult { UPDATED, ROLLED_BACK, SKIPPED }
 
     private companion object {
-        const val MAX_RUN_ATTEMPTS = 3
         const val RECENT_EVENTS_LIMIT = 5
-        /** M2 修复：限流等待超时（8 分钟，低于 WorkManager 默认 10 分钟超时） */
-        const val ACQUIRE_TIMEOUT_MS = 8 * 60 * 1000L
     }
 }

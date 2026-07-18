@@ -123,7 +123,7 @@ class TweetGenerationWorker @AssistedInject constructor(
             }
 
             // 限流：M2 修复——使用带超时的 acquire，避免限流阻塞超过 WorkManager 超时上限
-            if (!rateLimiter.acquireWithTimeout(ACQUIRE_TIMEOUT_MS)) {
+            if (!rateLimiter.acquireWithTimeout(WorkerConstants.ACQUIRE_TIMEOUT_MS)) {
                 Timber.i("账号 %s 限流等待超时，稍后重试", accountId)
                 resultStatus = "retry_rate_limited"
                 logSchedulerEvent(accountId, started, resultStatus, "acquire timeout")
@@ -383,7 +383,7 @@ class TweetGenerationWorker @AssistedInject constructor(
             resultStatus = "error"
             logSchedulerEvent(accountId, started, resultStatus, errorMessage)
             // 通用异常：让 WorkManager 按退避策略重试，达到上限后自动放弃
-            return if (runAttemptCount >= MAX_RUN_ATTEMPTS) {
+            return if (runAttemptCount >= WorkerConstants.MAX_RUN_ATTEMPTS) {
                 Result.failure(workDataOf(WorkerKeys.KEY_ERROR to errorMessage))
             } else {
                 Result.retry()
@@ -519,12 +519,8 @@ class TweetGenerationWorker @AssistedInject constructor(
     private companion object {
         const val MAX_TWEET_LENGTH = 280
         const val RECENT_TWEETS_FOR_DEDUP = 3
-        const val MAX_RUN_ATTEMPTS = 3
 
         /** P1 修复：每个活跃窗内允许发布的推文数上限（与 SchedulerInitializer 保持一致） */
         const val POSTS_PER_WINDOW = 2
-
-        /** M2 修复：限流等待超时（8 分钟，低于 WorkManager 默认 10 分钟超时） */
-        const val ACQUIRE_TIMEOUT_MS = 8 * 60 * 1000L
     }
 }
