@@ -127,14 +127,28 @@ class FeedbackAgent @Inject constructor(
 
         // 3. 调 LLM
         val messages = promptBuilder.build(userMessage, ctx)
+        // 第七轮 review M3 修复：chatSync 是同步阻塞调用，若 LLM hang 住会卡死整个用户反馈
+        // 流程（协程永久挂起）。包 withTimeout 超时后抛 TimeoutCancellationException，
+        // 由下面的 catch (t: Throwable) 降级为 degradedReply。与 EventTextPreParser 一致。
         val raw = try {
-            llmRegistry.getDefaultClient().chatSync(
-                messages = messages,
-                config = ChatConfig(temperature = 0.3f, maxTokens = 512, jsonMode = true),
-            )
+            kotlinx.coroutines.withTimeout(LLM_TIMEOUT_MS) {
+                llmRegistry.getDefaultClient().chatSync(
+                    messages = messages,
+                    config = ChatConfig(temperature = 0.3f, maxTokens = 512, jsonMode = true),
+                )
+            }
         } catch (e: kotlinx.coroutines.CancellationException) {
             // 第六轮 review M3 修复：CancellationException 必须重抛，否则协程取消信号被吞，
             // 调用方（如 ViewModelScope 取消）无法正确传播，导致 FeedbackAgent 协程泄漏。
+            // 注意：TimeoutCancellationException 是 CancellationException 子类，withTimeout
+            // 超时时抛出 TimeoutCancellationException → 命中此分支被重抛 → 调用方拿不到降级 reply。
+            // 因此需在重抛前判断是否为超时（TimeoutCancellationException），若是则走降级路径。
+            if (e is kotlinx.coroutines.TimeoutCancellationException) {
+                Timber.w(e, "FeedbackAgent LLM 调用超时 %dms，降级", LLM_TIMEOUT_MS)
+                val reply = degradedReply("智能体响应超时，请稍后再试或使用快捷调整菜单")
+                persistAssistantReply(reply)
+                return reply
+            }
             throw e
         } catch (t: Throwable) {
             Timber.w(t, "FeedbackAgent LLM 调用失败，降级")
@@ -326,5 +340,7 @@ class FeedbackAgent @Inject constructor(
         const val ROLE_ASSISTANT = "ASSISTANT"
         const val RECENT_FEEDBACK_LIMIT = 10
         const val RECENT_VERSIONS_LIMIT = 10
+        /** 第七轮 review M3 修复：LLM 调用超时上限，超时由 catch 降级为 degradedReply。 */
+        const val LLM_TIMEOUT_MS = 30_000L
     }
 }

@@ -97,16 +97,22 @@ class ProfileChatViewModel @Inject constructor(
         // 先乐观追加用户消息（不持久化，handle 内部会持久化；保持 UI 即时反馈）
         _messages.value = _messages.value + ChatMessage.user(trimmed, System.currentTimeMillis())
         viewModelScope.launch {
-            val reply: AgentReply = runCatching { feedbackAgent.handle(trimmed) }
-                .getOrElse { t ->
-                    Timber.w(t, "FeedbackAgent.handle 失败")
-                    AgentReply(
-                        text = "智能体暂时不可用：${t.message ?: "未知错误"}",
-                        appliedActions = emptyList(),
-                        rollbackPreviews = emptyList(),
-                        degraded = true,
-                    )
-                }
+            // 第七轮 review M11 修复：原 runCatching 会吞 CancellationException，导致用户退出
+            // 屏幕时 LLM 调用被取消后仍当 "LLM 失败" 处理（落 degraded reply），且 viewModelScope
+            // 取消信号无法传播。改为 try/catch 显式重抛 CancellationException。
+            val reply: AgentReply = try {
+                feedbackAgent.handle(trimmed)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Timber.w(t, "FeedbackAgent.handle 失败")
+                AgentReply(
+                    text = "智能体暂时不可用：${t.message ?: "未知错误"}",
+                    appliedActions = emptyList(),
+                    rollbackPreviews = emptyList(),
+                    degraded = true,
+                )
+            }
             _messages.value = _messages.value + ChatMessage.assistant(reply)
             if (reply.rollbackPreviews.isNotEmpty()) {
                 _pendingPreviews.value = _pendingPreviews.value + reply.rollbackPreviews
@@ -119,9 +125,12 @@ class ProfileChatViewModel @Inject constructor(
     /** 用户在回滚预览卡片上点击"确认回滚"。 */
     fun confirmRollback(preview: RollbackPreview) {
         viewModelScope.launch {
-            val result: RollbackResult = runCatching {
+            // 第七轮 review M11 修复：同 send()，避免 runCatching 吞 CancellationException。
+            val result: RollbackResult = try {
                 feedbackAgent.confirmRollback(preview, reason = "用户在对话中确认回滚")
-            }.getOrElse { t ->
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (t: Throwable) {
                 Timber.w(t, "confirmRollback 失败")
                 _toast.value = "回滚失败：${t.message ?: "未知错误"}"
                 return@launch
@@ -152,12 +161,16 @@ class ProfileChatViewModel @Inject constructor(
      */
     fun resetAllOverrides() {
         viewModelScope.launch {
-            val count = runCatching { adjuster.resetAll() }
-                .getOrElse { t ->
-                    Timber.w(t, "resetAllOverrides 失败")
-                    _toast.value = "重置失败：${t.message ?: "未知错误"}"
-                    return@launch
-                }
+            // 第七轮 review M11 修复：同 send()，避免 runCatching 吞 CancellationException。
+            val count: Int = try {
+                adjuster.resetAll()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Timber.w(t, "resetAllOverrides 失败")
+                _toast.value = "重置失败：${t.message ?: "未知错误"}"
+                return@launch
+            }
             _pendingPreviews.value = emptyList()
             _messages.value = _messages.value + ChatMessage.assistant(
                 AgentReply(

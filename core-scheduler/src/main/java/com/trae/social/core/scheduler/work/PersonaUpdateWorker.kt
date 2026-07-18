@@ -23,7 +23,6 @@ import com.trae.social.llm.prompt.PersonaUpdatePromptBuilder
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import timber.log.Timber
-import java.util.UUID
 
 /**
  * 人设动态字段更新 Worker（SubTask 8.4）。
@@ -123,7 +122,11 @@ class PersonaUpdateWorker @AssistedInject constructor(
             runCatching {
                 userActionTracker.trackNow(
                     UserActionEvent(
-                        id = UUID.randomUUID().toString(),
+                        // 第七轮 review M6 修复：用稳定 id 替代 UUID.randomUUID()。
+                        // Worker 重试时 work request id (this.id) 不变，故同一周期内重试
+                        // 产生相同 id，Room @PrimaryKey + REPLACE 保证幂等。
+                        // 不同周期（PeriodicWorkRequest 下次触发）id 不同，各自一条 marker。
+                        id = "marker_s7_${this.id}",
                         type = UserActionType.FEEDBACK_OVERRIDE_APPLIED,
                         screen = "persona_update_co_evolve",
                         targetId = "batch_$started",

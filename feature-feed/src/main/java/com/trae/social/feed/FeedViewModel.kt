@@ -140,7 +140,11 @@ class FeedViewModel @Inject constructor(
                     screen = "feed",
                     targetId = null,
                     targetKind = "feed",
-                    extra = scenario5Extra(driven),
+                    // 第七轮 review B1 修复：必须传 includeMarker=true，使曝光打标事件携带
+                    // isScenarioMarker=true，computeScenarioStats 才能将其计入曝光分母。
+                    // 否则 TWEET_VIEW 既非 marker（无 isScenarioMarker）又非互动（不在
+                    // INTERACTION_TYPES）→ 曝光/互动两不沾 → delta 恒为 0。
+                    extra = scenario5Extra(driven, includeMarker = true),
                 )
             }.onFailure { Timber.w(it, "#146 场景 5 曝光打标失败") }
             _profileInterests.value = readAccess.interestVector()

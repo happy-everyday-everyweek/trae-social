@@ -90,10 +90,16 @@ fun ProfileChatScreen(
 
     val timeFmt = remember { SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()) }
 
-    // 新消息到达时滚动到底部
-    LaunchedEffect(messages.size) {
+    // 新消息到达或发送状态变化时滚动到底部
+    // 第七轮 review M12 修复：
+    // 1. 原索引 messages.size - 1 未考虑 LazyColumn 顶部 pendingPreviews 项的偏移，
+    //    有预览时滚到的是消息列表中间而非最后一条。现预览已移出 LazyColumn，索引无需偏移。
+    // 2. 增加 sending 触发：sending=true 时出现"思考中"指示器（最后一条 item），
+    //    需滚动到 messages.size（指示器索引），否则用户看不到加载状态。
+    LaunchedEffect(messages.size, sending) {
         if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+            val targetIndex = if (sending) messages.size else messages.size - 1
+            listState.animateScrollToItem(targetIndex)
         }
     }
     // 一次性 toast
@@ -154,16 +160,16 @@ fun ProfileChatScreen(
 
             SocialDivider()
 
-            // 消息流
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp),
-            ) {
-                // 待确认的回滚预览（置顶固定，不随消息流消失）
-                if (pendingPreviews.isNotEmpty()) {
-                    items(pendingPreviews, key = { "preview-${it.targetVersionId}" }) { preview ->
+            // 第七轮 review M12 修复：待确认的回滚预览移出 LazyColumn，置顶固定在消息流上方。
+            // 原实现将预览放在 LazyColumn 内部作为首部 item，新消息到达时 animateScrollToItem
+            // 滚到底部，预览随消息流滚出视口 → 用户看不到待确认的回滚卡片，无法确认/取消。
+            // 移出后预览始终可见，LazyColumn 仅含消息流 + sending 指示器，滚动索引也无需偏移。
+            if (pendingPreviews.isNotEmpty()) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    pendingPreviews.forEach { preview ->
                         RollbackPreviewCard(
                             preview = preview,
                             onConfirm = { viewModel.confirmRollback(preview) },
@@ -171,6 +177,16 @@ fun ProfileChatScreen(
                         )
                     }
                 }
+                SocialDivider()
+            }
+
+            // 消息流
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp),
+            ) {
                 if (messages.isEmpty()) {
                     item {
                         Text(

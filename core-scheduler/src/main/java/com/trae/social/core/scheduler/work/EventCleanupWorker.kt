@@ -40,6 +40,10 @@ class EventCleanupWorker @AssistedInject constructor(
             Timber.i("EventCleanupWorker 清理 %d 条过期事件（TTL=%d 天，cutoff=%d）", deleted, safeTtlDays, cutoff)
             logEvent(started, "success", "deleted=$deleted")
             Result.success(workDataOf(WorkerKeys.KEY_RESULT to "success", "deleted" to deleted))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // 第七轮 review M5 修复：CancellationException 必须重抛，否则 WorkManager 取消 Worker 时
+            // 协程无法正确传播取消信号，导致 doWork 卡在 catch(t: Throwable) 内继续执行返回成功。
+            throw e
         } catch (t: Throwable) {
             Timber.e(t, "EventCleanupWorker 执行失败")
             logEvent(started, "error", t.message)

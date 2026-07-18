@@ -319,7 +319,11 @@ class TweetGenerationWorker @AssistedInject constructor(
             runCatching {
                 userActionTracker.trackNow(
                     UserActionEvent(
-                        id = UUID.randomUUID().toString(),
+                        // 第七轮 review M6 修复：用稳定 id 替代 UUID.randomUUID()。
+                        // Worker 重试时 deduplicationKey 不变（来自 inputData），故同一生成槽位
+                        // 重试产生相同 id，Room @PrimaryKey + REPLACE 策略保证幂等（不产生重复 marker），
+                        // 避免 A/B 曝光计数被重试膨胀。
+                        id = "marker_s1_$deduplicationKey",
                         type = UserActionType.PUBLISH_TWEET,
                         screen = "tweet_generation",
                         targetId = tweet.id,

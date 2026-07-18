@@ -43,6 +43,17 @@ interface UserActionDao {
     @Query("SELECT COUNT(*) FROM user_action_events WHERE occurredAt >= :ts")
     suspend fun countSince(ts: Long): Int
 
+    /**
+     * #146 第七轮 review B1 修复：查询窗口内全部事件（无 scenarioId 过滤）。
+     *
+     * 原实现按 `extra LIKE %"scenarioId":N%` 8 次查询，无法捕获"真实用户互动事件缺 scenarioId"
+     * 的情况（场景 1/3/4 真实互动事件不带 scenarioId，无法被任何 scenarioId LIKE 命中）。
+     * 改为统一查询 + 调用方在内存中按 scenarioId 分组 + 按 targetId 隐式关联 marker 与
+     * interaction，使所有 8 场景 A/B delta 不再恒为 0。
+     */
+    @Query("SELECT * FROM user_action_events WHERE occurredAt >= :since ORDER BY occurredAt ASC")
+    suspend fun queryAllSince(since: Long): List<UserActionEventEntity>
+
     @Query("DELETE FROM user_action_events WHERE occurredAt < :ts")
     suspend fun deleteBefore(ts: Long): Int
 
