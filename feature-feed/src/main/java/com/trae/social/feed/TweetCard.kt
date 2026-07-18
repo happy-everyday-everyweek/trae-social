@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -76,6 +75,7 @@ import com.trae.social.designsystem.theme.LocalReduceMotion
 import com.trae.social.designsystem.theme.LocalSocialColors
 import com.trae.social.designsystem.theme.LocalSocialSpacing
 import com.trae.social.designsystem.theme.LocalSocialTypography
+import com.trae.social.designsystem.theme.minTouchTarget
 import java.util.Locale
 
 /**
@@ -177,8 +177,7 @@ fun TweetCard(
             Box {
                 IconButton(
                     onClick = { moreMenuExpanded = true },
-                    // #33：触控热区 32→44，满足 ≥44dp 无障碍标准
-                    modifier = Modifier.size(44.dp),
+                    modifier = Modifier.minTouchTarget(),
                 ) {
                     Icon(
                         imageVector = Icons.Default.MoreHoriz,
@@ -603,8 +602,7 @@ private fun InteractionButton(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
         modifier = Modifier
-            // #19/#33：触控热区 ≥44dp，满足无障碍最低标准，降低误触
-            .defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
+            .minTouchTarget()
             // #21：水波纹按压反馈
             .socialClickable(onClick = {
                 if (hapticOnPress) {

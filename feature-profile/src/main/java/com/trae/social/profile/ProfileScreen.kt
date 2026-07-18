@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -56,6 +55,7 @@ import com.trae.social.designsystem.components.SocialDivider
 import com.trae.social.designsystem.components.socialClickable
 import com.trae.social.designsystem.theme.LocalSocialSpacing
 import com.trae.social.designsystem.theme.LocalSocialTypography
+import com.trae.social.designsystem.theme.minTouchTarget
 import com.trae.social.designsystem.theme.socialColors
 
 /**
@@ -407,8 +407,7 @@ private fun InteractionButton(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
         modifier = Modifier
-            // #19/#33：触控热区 ≥44dp，满足无障碍最低标准
-            .defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
+            .minTouchTarget()
             .socialClickable(onClick = {
                 if (hapticOnPress) {
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
