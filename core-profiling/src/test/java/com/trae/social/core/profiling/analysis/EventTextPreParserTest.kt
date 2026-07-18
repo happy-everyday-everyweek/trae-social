@@ -336,10 +336,10 @@ class EventTextPreParserTest {
     private fun mkEndpoint(): LlmEndpointEntity = LlmEndpointEntity(
         id = "ep-test",
         displayName = "Test Endpoint",
-        protocol = "openai_compatible",
+        protocol = "openai_compat",
         baseUrl = "https://api.test.com",
         model = "test-model",
-        capabilities = "",
+        capabilities = "TEXT,JSON_MODE_NATIVE,STREAMING",
         orderIndex = 0,
         createdAt = now,
         updatedAt = now,
