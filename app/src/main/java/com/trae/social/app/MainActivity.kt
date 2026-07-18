@@ -62,7 +62,6 @@ import com.trae.social.onboarding.OnboardingNavHost
 import com.trae.social.profile.ApiKeyManagementScreen
 import com.trae.social.profile.DevOptionsScreen
 import com.trae.social.profile.FollowListScreen
-import com.trae.social.profile.FollowListType
 import com.trae.social.profile.ProfileChatScreen
 import com.trae.social.profile.ProfileScreen
 import com.trae.social.profile.SettingsScreen
@@ -374,7 +373,7 @@ private fun MainScaffold(
                     ProfileScreen(
                         onNavigateToSettings = { navController.navigate(AppRoutes.SETTINGS) },
                         onNavigateToFollowList = { type ->
-                            navController.navigate(AppRoutes.followList(type.name))
+                            navController.navigate(AppRoutes.followList(type))
                         },
                         modifier = Modifier.fillMaxSize(),
                     )
@@ -453,9 +452,8 @@ private fun MainScaffold(
                 ) { backStackEntry ->
                     // M1 修复：屏幕进入/离开埋点
                     ScreenTracking(route = AppRoutes.FOLLOW_LIST, builder = actionBuilder)
-                    val typeName = backStackEntry.arguments?.getString(AppRoutes.FOLLOW_LIST_TYPE_ARG) ?: "FOLLOWING"
-                    val type = runCatching { FollowListType.valueOf(typeName) }
-                        .getOrElse { FollowListType.FOLLOWING }
+                    val typeName = backStackEntry.arguments?.getString(AppRoutes.FOLLOW_LIST_TYPE_ARG)
+                    val type = AppRoutes.decodeFollowListType(typeName)
                     FollowListScreen(
                         type = type,
                         onBack = { navController.popBackStack() },
