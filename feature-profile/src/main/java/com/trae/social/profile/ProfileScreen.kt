@@ -199,14 +199,20 @@ private fun ProfileHeader(
     val typography = LocalSocialTypography.current
     val spacing = LocalSocialSpacing.current
     val account = state.account
+    // #235：ImageRequest remember，避免父组件重组时每次 new ImageRequest 触发
+    // Coil 重新发起图片请求（即便 URL 不变），浪费网络与磁盘缓存查找。
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val avatarRequest = remember(avatarUrl, context) {
+        coil.request.ImageRequest.Builder(context)
+            .data(avatarUrl)
+            .crossfade(true)
+            .build()
+    }
     // #20：资料区分段留白，头像与名称行顶部对齐，增加呼吸感与层次
     Column(Modifier.fillMaxWidth().padding(spacing.lg)) {
         Row(verticalAlignment = Alignment.Top) {
             AsyncImage(
-                model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
-                    .data(avatarUrl)
-                    .crossfade(true)
-                    .build(),
+                model = avatarRequest,
                 imageLoader = imageLoader,
                 contentDescription = "头像",
                 contentScale = ContentScale.Crop,
@@ -326,6 +332,9 @@ private fun ProfileTweetRow(
     val colors = socialColors()
     val typography = LocalSocialTypography.current
     val spacing = LocalSocialSpacing.current
+    // #235：ImageRequest remember，避免列表项重组时每次 new ImageRequest 触发
+    // Coil 重新发起图片请求（即便 URL 不变）。
+    val context = androidx.compose.ui.platform.LocalContext.current
     Column(
         Modifier
             .fillMaxWidth()
@@ -347,10 +356,15 @@ private fun ProfileTweetRow(
                 )
             }
             ProfileUtils.toImageUri(tweet.mediaPath)?.let { uri ->
+                val mediaRequest = remember(uri, context) {
+                    coil.request.ImageRequest.Builder(context)
+                        .data(uri)
+                        .crossfade(true)
+                        .build()
+                }
                 Spacer(Modifier.height(spacing.sm))
                 AsyncImage(
-                    model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
-                        .data(uri).crossfade(true).build(),
+                    model = mediaRequest,
                     imageLoader = imageLoader,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
@@ -454,6 +468,8 @@ private fun MediaTab(
     }
     // #8：收集所有媒体 URI，点击网格项时传入列表与下标，支持全屏查看器左右切换
     val uris = remember(media) { media.mapNotNull { ProfileUtils.toImageUri(it.mediaPath) } }
+    // #235：MediaTab 网格项 ImageRequest remember 上下文。
+    val context = androidx.compose.ui.platform.LocalContext.current
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
         modifier = Modifier.fillMaxSize().padding(2.dp),
@@ -461,6 +477,13 @@ private fun MediaTab(
         // #8：直接以 uris 为数据源并使用 itemsIndexed 精确定位点击下标，
         // 避免重复 URI 时 indexOf 返回首个匹配导致下标错位
         itemsIndexed(uris) { index, uri ->
+            // #235：网格项 ImageRequest remember，避免每次重组重新构造触发图片请求重启。
+            val gridRequest = remember(uri, context) {
+                coil.request.ImageRequest.Builder(context)
+                    .data(uri)
+                    .crossfade(true)
+                    .build()
+            }
             Box(
                 Modifier.padding(2.dp).height(120.dp)
                     .clip(RoundedCornerShape(8.dp))
@@ -469,8 +492,7 @@ private fun MediaTab(
                     .socialClickable { onImageClick(uris, index) },
             ) {
                 AsyncImage(
-                    model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
-                        .data(uri).crossfade(true).build(),
+                    model = gridRequest,
                     imageLoader = viewModel.imageLoader,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
