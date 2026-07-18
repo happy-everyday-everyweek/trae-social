@@ -128,14 +128,20 @@ class ProfileViewModel @Inject constructor(
 
     /**
      * 推文流（按作者 = 自身）。
+     *
+     * 作为 [mediaTweetsFlow] 的唯一上游——避免对同一 Room 查询
+     * `observeByAuthor(SELF_ID)` 建立第二份独立 StateFlow 订阅（#225）。
      */
     val tweetsFlow: StateFlow<List<TweetEntity>> = tweetRepository.observeByAuthor(SELF_ID)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /**
      * 媒体推文流（自身的含图推文）。
+     *
+     * #225 修复：派生自 [tweetsFlow] 而非重新订阅 `observeByAuthor(SELF_ID)`，
+     * 与 tweetsFlow 共享同一 Room 触发器订阅与 SQL 查询流。
      */
-    val mediaTweetsFlow: StateFlow<List<TweetEntity>> = tweetRepository.observeByAuthor(SELF_ID)
+    val mediaTweetsFlow: StateFlow<List<TweetEntity>> = tweetsFlow
         .map { list -> list.filter { !it.mediaPath.isNullOrBlank() } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
