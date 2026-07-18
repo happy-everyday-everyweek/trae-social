@@ -91,7 +91,7 @@ class UserProfileAggregator @Inject constructor(
         for (scenarioId in 1..8) {
             runCatching {
                 val stats = computeScenarioStats(scenarioId, allEvents)
-                if (stats.driven == 0 && stats.control == 0) return@runCatching
+                if (stats.drivenCount == 0 && stats.controlCount == 0) return@runCatching
                 deltas[scenarioId] = stats.delta
             }.onFailure { /* 单场景失败不影响其他 */ }
         }
