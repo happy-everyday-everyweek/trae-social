@@ -1,5 +1,6 @@
 package com.trae.social.profile
 
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.trae.social.core.data.dao.UserProfileFeedbackDao
@@ -29,7 +30,8 @@ import timber.log.Timber
  *
  * 暴露：
  * - [messages]：对话历史（最近 N 条），跨会话持久化（来自 [UserProfileFeedbackDao]）
- * - [activeVersion] / [snapshot] / [activeOverrides] / [recentVersions]：当前画像状态，顶部卡片展示
+ * - [profileSummary]：当前画像状态（激活版本 + 快照 + 生效覆盖），顶部摘要卡片展示
+ * - [recentVersions]：最近版本列表（"查看版本历史"按钮展开）
  * - [sending]：是否正在等待智能体回复（控制发送按钮禁用与 loading 态）
  * - [pendingPreviews]：待确认的回滚预览列表（智能体回复中携带）
  *
@@ -52,17 +54,15 @@ class ProfileChatViewModel @Inject constructor(
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
 
-    /** 当前激活的 LLM 画像版本（顶部摘要卡片展示）。 */
-    private val _activeVersion = MutableStateFlow<UserProfileVersion?>(null)
-    val activeVersion: StateFlow<UserProfileVersion?> = _activeVersion.asStateFlow()
-
-    /** 最新基础分析快照（顶部摘要卡片展示 evidence + confidence）。 */
-    private val _snapshot = MutableStateFlow<UserProfileSnapshot?>(null)
-    val snapshot: StateFlow<UserProfileSnapshot?> = _snapshot.asStateFlow()
-
-    /** 当前生效覆盖（顶部摘要卡片展示数量）。 */
-    private val _activeOverrides = MutableStateFlow<List<OverrideRecord>>(emptyList())
-    val activeOverrides: StateFlow<List<OverrideRecord>> = _activeOverrides.asStateFlow()
+    /**
+     * 顶部画像摘要卡片状态（#226 修复）。
+     *
+     * 此前 activeVersion / snapshot / activeOverrides 各自为独立 StateFlow，[refreshProfile]
+     * 串行更新 3 个流会触发 UI 连续 3 次重组。三者语义上属同一原子 UI 单元（顶部摘要卡片），
+     * 合并为单个 StateFlow 后 [refreshProfile] 一次性 emit 整个对象，仅触发 1 次重组。
+     */
+    private val _profileSummary = MutableStateFlow(ProfileSummaryState())
+    val profileSummary: StateFlow<ProfileSummaryState> = _profileSummary.asStateFlow()
 
     /** 最近版本列表（"查看版本历史"按钮展开）。 */
     private val _recentVersions = MutableStateFlow<List<VersionSummary>>(emptyList())
@@ -197,10 +197,20 @@ class ProfileChatViewModel @Inject constructor(
         _toast.value = null
     }
 
+    /**
+     * 一次性读取画像三件套并 emit 单个 [ProfileSummaryState]（#226 修复）。
+     *
+     * 合并前 3 个独立 `.value =` 各触发一次 StateFlow emit 与 UI 重组；
+     * 现在构造整个对象后一次性替换，UI 仅重组 1 次。
+     */
     private fun refreshProfile() {
-        _activeVersion.value = readAccess.activeVersion()
-        _snapshot.value = readAccess.latestSnapshot()
-        _activeOverrides.value = readAccess.activeOverrides()
+        viewModelScope.launch {
+            _profileSummary.value = ProfileSummaryState(
+                activeVersion = readAccess.activeVersion(),
+                snapshot = readAccess.latestSnapshot(),
+                activeOverrides = readAccess.activeOverrides(),
+            )
+        }
     }
 
     private fun loadHistory() {
@@ -259,6 +269,20 @@ class ProfileChatViewModel @Inject constructor(
         const val ROLE_USER = "USER"
     }
 }
+
+/**
+ * 顶部画像摘要卡片状态（#226 修复）。
+ *
+ * 合并 [UserProfileVersion] / [UserProfileSnapshot] / 生效覆盖（[OverrideRecord] 列表）——三者语义上属
+ * 同一原子 UI 单元（顶部摘要卡片），合并为单个数据类后 [ProfileChatViewModel.refreshProfile]
+ * 一次性 emit 整个对象，避免 3 次连续 `.value =` 触发 UI 3 次重组。
+ */
+@Immutable
+data class ProfileSummaryState(
+    val activeVersion: UserProfileVersion? = null,
+    val snapshot: UserProfileSnapshot? = null,
+    val activeOverrides: List<OverrideRecord> = emptyList(),
+)
 
 /**
  * 对话消息 UI 模型。
