@@ -185,17 +185,32 @@ class AnthropicCompatibleClient(
             .build()
     }
 
+    /**
+     * 判断异常是否为持久性 HTTP 错误（4xx 非 429）。
+     *
+     * Anthropic Java SDK 的具体异常（`BadRequestException` / `UnauthorizedException` /
+     * `PermissionDeniedException` / `NotFoundException` / `UnprocessableEntityException`
+     * / `RateLimitException` 等）均继承自 `com.anthropic.errors.AnthropicServiceException`，
+     * 统一暴露 `int statusCode()` 方法（已通过 javap 验证）。这里用反射读取，避免本
+     * 模块直接依赖 errors 子包。
+     *
+     * 旧实现用 `className.contains("Anthropic")` 匹配，但 SDK 异常简单名（如
+     * `BadRequestException`）不含 "Anthropic"，匹配结果依赖 className 取的是 simpleName
+     * 还是 qualifiedName 以及大小写敏感性，不够稳健（详见 PR #264 / #271 review）。
+     * 反射方式直接命中基类 `statusCode()` 方法，对所有 SDK 4xx 异常统一生效，且无类名拼写风险。
+     */
     private fun isPersistentHttpError(e: Throwable): Boolean {
-        val className = e::class.qualifiedName ?: e::class.simpleName.orEmpty()
-        if (!className.contains("Anthropic", ignoreCase = true)) return false
-        val code = extractHttpCode(e.message.orEmpty())
-        if (code != null) {
-            return code in 400..499 && code != 429
-        }
-        val regex = Regex("""\b4\d{2}\b""")
-        val match = regex.find(className) ?: regex.find(e.message.orEmpty())
-        return match != null && match.value != "429"
+        val code = extractSdkStatusCode(e) ?: extractHttpCode(e.message.orEmpty()) ?: return false
+        return code in 400..499 && code != 429
     }
+
+    /** 通过反射读取 SDK 异常的 `statusCode()` 方法。非 SDK 异常返回 null。 */
+    private fun extractSdkStatusCode(e: Throwable): Int? = runCatching {
+        val method = e::class.java.getMethod("statusCode")
+        // SDK 的 statusCode() 返回 int（autobox 为 Integer），统一按 Number 取值，
+        // 避免对 method.invoke(e) 二次调用产生的开销与潜在副作用。
+        (method.invoke(e) as? Number)?.toInt()
+    }.getOrNull()
 
     private fun extractHttpCode(message: String): Int? {
         val regex = Regex("""\b(4\d{2}|5\d{2})\b""")

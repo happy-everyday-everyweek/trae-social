@@ -14,10 +14,22 @@ package com.trae.social.core.data.config
  * @param id 持久化标识（存入 Room / DataStore）。
  * @param displayName UI 展示名。
  * @param defaultBaseUrl 该协议的官方默认 Base URL，未配置时使用。
+ * @param requiresApiKey 该协议是否要求 API Key 才能创建 client。
+ *   - `true`：API Key 缺失时 [com.trae.social.llm.EndpointRegistry] 直接跳过 client 创建
+ *     （避免发起注定 401 的请求浪费配额）。所有 Anthropic 兼容端点均需鉴权。
+ *   - `false`：API Key 缺失时仍尝试创建 client，让 SDK 自行处理空 Key
+ *     （OpenAI SDK builder 内部 `apiKey?.takeIf { it.isNotBlank() }?.let { apiKey(it) }`
+ *     会跳过 Authorization 头）。这覆盖了本地 Ollama 等无需鉴权的 OpenAI 兼容端点场景。
+ *     OpenAI / Deepseek / Moonshot 等需鉴权的端点会自然返回 401，由调用方分类提示。
  */
-enum class LlmProtocol(val id: String, val displayName: String, val defaultBaseUrl: String) {
-    OPENAI_COMPATIBLE("openai_compat", "OpenAI 兼容", "https://api.openai.com/v1/"),
-    ANTHROPIC_COMPATIBLE("anthropic_compat", "Anthropic 兼容", "https://api.anthropic.com/");
+enum class LlmProtocol(
+    val id: String,
+    val displayName: String,
+    val defaultBaseUrl: String,
+    val requiresApiKey: Boolean,
+) {
+    OPENAI_COMPATIBLE("openai_compat", "OpenAI 兼容", "https://api.openai.com/v1/", requiresApiKey = false),
+    ANTHROPIC_COMPATIBLE("anthropic_compat", "Anthropic 兼容", "https://api.anthropic.com/", requiresApiKey = true);
 
     companion object {
         fun fromId(id: String?): LlmProtocol? = values().find { it.id == id }

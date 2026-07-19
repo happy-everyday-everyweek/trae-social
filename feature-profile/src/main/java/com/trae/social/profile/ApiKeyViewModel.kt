@@ -62,7 +62,10 @@ class ApiKeyViewModel @Inject constructor(
                     protocol = protocol,
                     baseUrl = baseUrl,
                     model = model,
-                    capabilities = capabilitiesFor(protocol),
+                    // 按 protocol 区分能力，避免给 Anthropic 端点加 JSON_MODE_NATIVE
+                    // 导致 DefaultRulesetEngine 走原生 response_format 失败
+                    // （#151 review 反馈：DEFAULT_CAPABILITIES 覆盖迁移所得能力）
+                    capabilities = defaultCapabilitiesFor(protocol),
                     apiKey = apiKey.takeIf { it.isNotEmpty() },
                 )
             }.onSuccess {
@@ -82,13 +85,21 @@ class ApiKeyViewModel @Inject constructor(
     ) {
         viewModelScope.launch {
             runCatching {
+                // 读取现有端点的 capabilities 保留——避免 UI 编辑保存时用 DEFAULT_CAPABILITIES
+                // 覆盖迁移所得能力（如 Anthropic 端点不应有 JSON_MODE_NATIVE，
+                // OpenAI 端点应有 VISION_INPUT）。
+                // （#151 review 反馈：updateEndpoint 恒用 DEFAULT_CAPABILITIES 覆盖迁移所得能力）
+                val existing = configRepository.getEndpoint(id)
+                val capabilities = existing
+                    ?.let { ModelCapability.parseSet(it.capabilities) }
+                    ?: defaultCapabilitiesFor(protocol)
                 configRepository.updateEndpoint(
                     id = id,
                     displayName = displayName,
                     protocol = protocol,
                     baseUrl = baseUrl,
                     model = model,
-                    capabilities = capabilitiesFor(protocol),
+                    capabilities = capabilities,
                 )
             }.onSuccess {
                 cacheInvalidator.invalidateCache()
@@ -162,7 +173,12 @@ class ApiKeyViewModel @Inject constructor(
     }
 
     companion object {
-        /** 默认能力集合：所有端点均声明 TEXT + JSON_MODE_NATIVE + STREAMING。 */
+        /**
+         * 默认能力集合（OpenAI 兼容端点用）。
+         *
+         * **新代码应使用 [defaultCapabilitiesFor]** 按 protocol 区分能力，
+         * 避免给 Anthropic 端点加 `JSON_MODE_NATIVE` 导致引擎走原生 `response_format` 失败。
+         */
         val DEFAULT_CAPABILITIES: Set<ModelCapability> = setOf(
             ModelCapability.TEXT,
             ModelCapability.JSON_MODE_NATIVE,
@@ -170,13 +186,10 @@ class ApiKeyViewModel @Inject constructor(
         )
 
         /**
-         * Anthropic 兼容端点能力集合：仅 TEXT + STREAMING。
+         * Anthropic 兼容端点默认能力集合（无 JSON_MODE_NATIVE）。
          *
-         * Anthropic 不支持原生 `response_format`，若声明 [ModelCapability.JSON_MODE_NATIVE]
-         * 会导致 [com.trae.social.llm.DefaultRulesetEngine] 走原生 JSON mode 路径而失败，
-         * 故此处不包含 JSON_MODE_NATIVE（JSON 约束由引擎层在 system prompt 中追加）。
-         * 与 [com.trae.social.core.data.repository.ConfigRepository.migrateLegacyProviderConfigsLocked]
-         * 中 ANTHROPIC 槽位迁移赋值保持一致。
+         * Anthropic 不支持原生 `response_format`，由 [DefaultRulesetEngine] 走 prompt 降级。
+         * 提取为常量避免每次调用分配新 Set，与 [DEFAULT_CAPABILITIES] 保持对称。
          */
         val ANTHROPIC_CAPABILITIES: Set<ModelCapability> = setOf(
             ModelCapability.TEXT,
@@ -184,14 +197,16 @@ class ApiKeyViewModel @Inject constructor(
         )
 
         /**
-         * 按 [LlmProtocol] 选择能力集合。
+         * 按协议格式给出默认能力集合。
          *
-         * - [LlmProtocol.OPENAI_COMPATIBLE] → [DEFAULT_CAPABILITIES]
-         * - [LlmProtocol.ANTHROPIC_COMPATIBLE] → [ANTHROPIC_CAPABILITIES]
+         * - [LlmProtocol.OPENAI_COMPATIBLE]：`TEXT + JSON_MODE_NATIVE + STREAMING`
+         *   （OpenAI / Deepseek / Moonshot / 智谱 / SiliconFlow / Gemini OpenAI 兼容端点 / Ollama）
+         * - [LlmProtocol.ANTHROPIC_COMPATIBLE]：`TEXT + STREAMING`（无 JSON_MODE_NATIVE，
+         *   Anthropic 不支持原生 response_format，由 DefaultRulesetEngine 走 prompt 降级）
          */
-        fun capabilitiesFor(protocol: LlmProtocol): Set<ModelCapability> = when (protocol) {
-            LlmProtocol.ANTHROPIC_COMPATIBLE -> ANTHROPIC_CAPABILITIES
+        fun defaultCapabilitiesFor(protocol: LlmProtocol): Set<ModelCapability> = when (protocol) {
             LlmProtocol.OPENAI_COMPATIBLE -> DEFAULT_CAPABILITIES
+            LlmProtocol.ANTHROPIC_COMPATIBLE -> ANTHROPIC_CAPABILITIES
         }
     }
 }

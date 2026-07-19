@@ -20,10 +20,9 @@ import javax.inject.Singleton
  * **默认规则集行为**：
  * 1. **主模型降级链**：[chatSync] 在主模型失败（非持久性错误）后，依次尝试降级链上的下一个端点。
  *    持久性错误（4xx 非 429）不降级，直接抛出。
- * 2. **流式 partial-emit 中断**：[chat] 流式 emit 部分 token 后中断时（client 抛
- *    `IOException("streaming truncated after partial emit")`），引擎不丢弃已 emit 内容、
- *    也不自动重试——已 emit token 保留在上游 flow 中无法回撤，引擎将异常向上抛出终止当前 flow，
- *    由调用方决定如何提示用户重试。尚未 emit 时遭遇非持久性错误，降级到下一位端点重试流式。
+ * 2. **流式中断不降级**：[chat] 流式 emit 部分 token 后中断时，引擎直接抛出 `IOException`，
+ *    不进入下一端点的降级链——避免下游消费者收到「端点 A 部分内容 + 端点 B 完整内容」
+ *    的跨模型拼接。尚未 emit 时遭遇非持久性错误，降级到下一位端点重试流式。
  * 3. **JSON mode prompt 降级**：当请求 [ChatConfig.jsonMode]=true 但端点未声明 [ModelCapability.JSON_MODE_NATIVE]
  *    时，在 system prompt 中追加 JSON 约束指令（端点原生 response_format 由 client 内部处理）。
  * 4. **429 兼容**：SDK 抛出的 429 异常被转换为 [RateLimitedException] 向上传递，
@@ -42,7 +41,6 @@ class DefaultRulesetEngine @Inject constructor(
         config: ChatConfig,
         rulesetId: String?,
     ): Flow<String> = flow {
-        // TODO(#151): 接入 RulesetRegistry 后启用 rulesetId 选择非默认规则集
         val endpoints = registry.listEndpoints()
         if (endpoints.isEmpty()) {
             throw IllegalStateException("未配置任何 LLM 端点，无法发起对话")
@@ -51,15 +49,23 @@ class DefaultRulesetEngine @Inject constructor(
         for (endpoint in endpoints) {
             val client = registry.getClient(endpoint.id) ?: continue
             val prepared = prepareMessages(messages, config, endpoint)
+            var emitted = false
             try {
                 client.chat(prepared, config).collect { token ->
                     emit(token)
+                    emitted = true
                 }
                 return@flow
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
                 lastError = e
+                // 已 emit 部分 token 后中断（client 包装的 streaming truncated），
+                // 直接抛出不进入下一端点——避免跨模型内容拼接。
+                if (emitted) {
+                    Timber.w(e, "DefaultRulesetEngine.chat 流式 emit 后中断，不降级 endpoint=%s", endpoint.id)
+                    throw e
+                }
                 if (isPersistentError(e)) {
                     Timber.w(e, "DefaultRulesetEngine.chat 持久性错误，不降级 endpoint=%s", endpoint.id)
                     throw e
@@ -79,7 +85,6 @@ class DefaultRulesetEngine @Inject constructor(
         config: ChatConfig,
         rulesetId: String?,
     ): String {
-        // TODO(#151): 接入 RulesetRegistry 后启用 rulesetId 选择非默认规则集
         val endpoints = registry.listEndpoints()
         if (endpoints.isEmpty()) {
             throw IllegalStateException("未配置任何 LLM 端点，无法发起对话")
@@ -107,9 +112,20 @@ class DefaultRulesetEngine @Inject constructor(
         throw lastError ?: IllegalStateException("无可用端点")
     }
 
+    /**
+     * 连通性测试：向指定端点发送最小请求。
+     *
+     * 异常**向上抛出**而非吞掉——调用方（如 [com.trae.social.onboarding.OnboardingViewModel]）
+     * 用 `runCatching` 捕获后可分类 SDK 异常给出具体错误原因（401 / 403 / 5xx / 网络错误等）。
+     *
+     * 端点不存在 / client 创建失败时返回 false（非异常路径，调用方按 Boolean 处理）。
+     */
     override suspend fun ping(endpointId: String): Boolean {
         val client = registry.getClient(endpointId) ?: return false
-        return runCatching { client.ping() }.getOrDefault(false)
+        // 不吞异常：让调用方拿到 SDK 4xx / 5xx / IOException 后分类提示用户。
+        // 旧实现用 runCatching { ... }.getOrDefault(false) 导致 OnboardingViewModel.testConnection
+        // 无法区分 401 / 403 / 5xx / 网络错误（#151 review 反馈：错误分类能力回归）。
+        return client.ping()
     }
 
     /**
@@ -143,29 +159,23 @@ class DefaultRulesetEngine @Inject constructor(
     /**
      * 判断异常是否为持久性 HTTP 错误（4xx 非 429）。
      *
-     * 通过类名识别（含 "OpenAI" / "Anthropic"）+ HTTP 状态码判断，
-     * 避免本模块直接依赖 SDK errors 子包。
+     * OpenAI / Anthropic SDK 的具体异常类（`BadRequestException` / `UnauthorizedException` /
+     * `PermissionDeniedException` / `NotFoundException` / `UnprocessableEntityException` 等）
+     * 均继承自 `OpenAIServiceException` / `AnthropicServiceException`，统一暴露
+     * `int statusCode()` 方法。这里用反射读取该方法，避免本模块直接依赖 SDK errors 子包。
      *
-     * 注：SDK 异常类位于 `com.openai.errors` / `com.anthropic.errors` 包下，
-     * 简单名不含厂商前缀、包名小写，故 [String.contains] 必须 `ignoreCase = true`
-     * 才能命中 qualifiedName 中的包路径（与 OnboardingViewModel.classifyError 对齐）。
+     * 旧实现用 `className.contains("OpenAI"/"Anthropic")` 匹配，但 SDK 异常简单名不含
+     * 厂商前缀（如 `BadRequestException`），匹配结果依赖 className 取的是 simpleName
+     * 还是 qualifiedName 以及大小写敏感性，不够稳健。详见 PR #264 / #271 review。
      */
     private fun isPersistentError(e: Throwable): Boolean {
-        val className = e::class.qualifiedName ?: e::class.simpleName.orEmpty()
-        val isSdkError =
-            className.contains("OpenAI", ignoreCase = true) || className.contains("Anthropic", ignoreCase = true)
-        if (!isSdkError) return false
-        val code = extractHttpCode(e.message.orEmpty()) ?: extractHttpCode(className)
-            ?: return false
+        val code = extractSdkStatusCode(e) ?: extractHttpCode(e.message.orEmpty()) ?: return false
         return code in 400..499 && code != 429
     }
 
     private fun isRateLimited(e: Throwable): Boolean {
         if (e is RateLimitedException) return true
-        val message = e.message.orEmpty()
-        // SDK 类名识别
-        val className = e::class.qualifiedName ?: e::class.simpleName.orEmpty()
-        val code = extractHttpCode(message) ?: extractHttpCode(className) ?: return false
+        val code = extractSdkStatusCode(e) ?: extractHttpCode(e.message.orEmpty()) ?: return false
         return code == 429
     }
 
@@ -176,6 +186,22 @@ class DefaultRulesetEngine @Inject constructor(
             retryAfterSeconds = null,
         )
     }
+
+    /**
+     * 通过反射读取 SDK 异常的 `statusCode()` 方法（OpenAI / Anthropic SDK 同名）。
+     *
+     * 已通过 javap 验证：`com.openai.errors.OpenAIServiceException.statusCode() : int`
+     * 与 `com.anthropic.errors.AnthropicServiceException.statusCode() : int`，
+     * 子类（`BadRequestException` / `RateLimitException` 等）继承并 override 该方法。
+     *
+     * 非 SDK 异常（如 `IOException`）无此方法，返回 null 由调用方走 message 兜底。
+     */
+    private fun extractSdkStatusCode(e: Throwable): Int? = runCatching {
+        val method = e::class.java.getMethod("statusCode")
+        // SDK 的 statusCode() 返回 int（autobox 为 Integer），统一按 Number 取值，
+        // 避免对 method.invoke(e) 二次调用产生的开销与潜在副作用。
+        (method.invoke(e) as? Number)?.toInt()
+    }.getOrNull()
 
     private fun extractHttpCode(text: String): Int? {
         val regex = Regex("""\b(4\d{2}|5\d{2})\b""")

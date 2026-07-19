@@ -67,7 +67,14 @@ class EndpointRegistry @Inject constructor(
     /**
      * 按 endpointId 获取 client。不存在则懒创建并缓存。
      *
-     * 端点不存在 / API Key 缺失时返回 null（调用方应处理 null 情况）。
+     * 端点不存在 / **需鉴权协议的 API Key 缺失** 时返回 null（调用方应处理 null 情况）。
+     *
+     * **API Key 缺失快速失败（按协议区分）**：
+     * - [LlmProtocol.requiresApiKey]=true（如 ANTHROPIC_COMPATIBLE）且 API Key 缺失时
+     *   直接返回 null，避免发起注定 401 的网络请求浪费 RTT 与配额。
+     * - [LlmProtocol.requiresApiKey]=false（如 OPENAI_COMPATIBLE）时即使 API Key 缺失
+     *   也构造 client，让 SDK 自行处理空 Key（跳过 Authorization 头）。
+     *   这覆盖了本地 Ollama 等无需鉴权的 OpenAI 兼容端点场景（#271 review Major 3）。
      */
     suspend fun getClient(endpointId: String): LlmClient? {
         clients[endpointId]?.let { return it }
@@ -77,6 +84,11 @@ class EndpointRegistry @Inject constructor(
             val entity = configProvider.getEndpoint(endpointId) ?: return null
             val apiKey = runCatching { configProvider.getEndpointApiKey(endpointId) }
                 .getOrNull()
+            val protocol = LlmProtocol.fromId(entity.protocol)
+            if (protocol?.requiresApiKey == true && apiKey.isNullOrBlank()) {
+                Timber.w("EndpointRegistry 端点 API Key 缺失，跳过 client 创建 endpointId=%s protocol=%s", endpointId, protocol.id)
+                return null
+            }
             val config = EndpointConfig.fromEntity(entity, apiKey)
             val client = createClient(config) ?: return null
             clients[endpointId] = client

@@ -409,7 +409,7 @@ class ConfigRepository @Inject constructor(
      * - 已规范化的 URL（如 `https://api.openai.com/v1/`）原样返回
      *
      * 与 [LlmEndpointEntity.baseUrl] KDoc 声明的"已规范化为带 scheme 与结尾 /"一致，
-     * 之前 [addEndpoint] / [updateEndpoint] 入库前未做规范化，导致 SDK 拼接路径出错。
+     * 入库前必须调用以避免 SDK 拼接路径出错。
      */
     private fun normalizeBaseUrl(raw: String): String {
         val trimmed = raw.trim()

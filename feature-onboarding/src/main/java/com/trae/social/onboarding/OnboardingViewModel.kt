@@ -153,9 +153,10 @@ class OnboardingViewModel @Inject constructor(
      * 流程：
      * 1. 调 [ensureEndpoint] 创建或更新端点（写入端点表 + EncryptedSharedPreferences API Key）
      * 2. 失效 EndpointRegistry 缓存（强制按新配置重建 LlmClient）
-     * 3. 调用 [RulesetEngine.ping] 验证连通性，仅返回 Boolean
-     * 4. 失败时给出通用错误提示（#151 后移除直接调 chatSync 探测的分支，
-     *    因为 RulesetEngine 不再暴露 LlmClient 句柄；用户可在主界面手动验证）
+     * 3. 调用 [RulesetEngine.ping] 验证连通性。ping 返回 Boolean，
+     *    但若 ping 内部抛出 SDK 异常（401 / 403 / 429 / 5xx / 网络错误等），
+     *    会向上 propagate——这里 `runCatching` 捕获后用 [classifyError] 给出具体原因，
+     *    避免用户看到「连接失败」这种无信息错误（#151 review 反馈：错误分类能力回归）。
      */
     fun testConnection() {
         val current = _uiState.value
@@ -168,11 +169,17 @@ class OnboardingViewModel @Inject constructor(
                 val endpointId = ensureEndpoint(current)
                 cacheInvalidator.invalidateCache()
 
-                val success = runCatching { rulesetEngine.ping(endpointId) }
-                    .onFailure { Timber.w(it, "ping() 抛出异常") }
-                    .getOrDefault(false)
+                val result = runCatching { rulesetEngine.ping(endpointId) }
+                result.onFailure { t ->
+                    Timber.w(t, "ping() 抛出异常")
+                    // ping 内部 throw 的 SDK 异常在此分类为用户可读错误
+                    _uiState.update {
+                        it.copy(testStatus = TestStatus.Error(classifyError(t)))
+                    }
+                    return@launch
+                }
 
-                if (success) {
+                if (result.getOrDefault(false)) {
                     _uiState.update { it.copy(testStatus = TestStatus.Success) }
                 } else {
                     _uiState.update {
@@ -286,10 +293,14 @@ class OnboardingViewModel @Inject constructor(
 
     /**
      * 将异常分类为用户可读的错误原因。
+     *
+     * 不依赖 className 匹配作为 SDK 异常识别门控——本 PR 的核心论点即"className 匹配
+     * 依赖包名约定、不够稳健"。这里直接对任意异常尝试反射 `statusCode()`，命中即分类，
+     * 未命中再走 message 正则兜底。网络异常（UnknownHost / timeout / IOException）
+     * 优先于 HTTP code 分类，避免 IOException message 偶然含 3 位数字被误判为 HTTP 错误。
      */
     private fun classifyError(t: Throwable): String {
         val message = t.message.orEmpty()
-        val className = t::class.qualifiedName ?: t::class.simpleName.orEmpty()
         return when {
             t is UnknownHostException ||
                 message.contains("UnknownHost", ignoreCase = true) ->
@@ -301,43 +312,38 @@ class OnboardingViewModel @Inject constructor(
 
             t is IOException -> "网络错误：${message.ifBlank { "请检查网络连接" }}"
 
-            // #151 重构后：SDK 抛出的 OpenAI/Anthropic 异常类不在本模块依赖里，
-            // 通过类名识别 + HTTP 状态码 message 兜底
-            className.contains("OpenAI", ignoreCase = true) ||
-                className.contains("Anthropic", ignoreCase = true) ||
-                className.contains("HttpException") -> {
-                val code = extractHttpCode(t) ?: extractHttpCodeFromMessage(message)
+            else -> {
+                // 非网络异常：通常是 SDK 抛出的 HTTP 错误（OpenAIServiceException /
+                // AnthropicServiceException 子类）。先反射 statusCode()，再用 message 正则兜底。
+                val code = extractSdkStatusCode(t) ?: extractHttpCodeFromMessage(message)
                 when (code) {
                     401 -> "未授权（401）：API Key 无效或已过期"
                     403 -> "禁止访问（403）：API Key 无权限"
                     404 -> "端点不存在（404）：请检查 Base URL"
                     429 -> "请求频率过高（429）：稍后重试"
-                    null -> "HTTP 错误：${message.ifBlank { "未知状态码" }}"
+                    null -> "错误：${message.ifBlank { t::class.qualifiedName ?: t::class.simpleName ?: "未知错误" }}"
                     else -> "HTTP 错误（$code）"
                 }
             }
-
-            message.contains("401") -> "未授权（401）：API Key 无效或已过期"
-            message.contains("403") -> "禁止访问（403）：API Key 无权限"
-            message.contains("404") -> "端点不存在（404）：请检查 Base URL"
-            message.contains("429") -> "请求频率过高（429）：稍后重试"
-
-            else -> "错误：${message.ifBlank { className.ifBlank { "未知错误" } }}"
         }
     }
 
     /**
-     * 通过反射读取 SDK 异常的 [com.openai.errors.OpenAIServiceException.statusCode]/
-     * [com.anthropic.errors.AnthropicServiceException.statusCode]（两者均返回 Int）。
+     * 通过反射读取 SDK 异常的 `statusCode()` 方法（OpenAI / Anthropic SDK 同名）。
      *
-     * 注：SDK 暴露的是 `statusCode()` 而非 `code()`——OpenAI 的 `code()` 返回
-     * `Optional<String>`（错误码字符串，非 HTTP 状态码），Anthropic 则根本没有 `code()`。
-     * 旧实现 `getMethod("code")` 恒抛 NoSuchMethodException 被吞，导致 HTTP 状态码识别
-     * 退化为不可靠的 message 正则兜底。
+     * 已通过 javap 验证：
+     * - `com.openai.errors.OpenAIServiceException.statusCode() : int`
+     * - `com.anthropic.errors.AnthropicServiceException.statusCode() : int`
+     *
+     * 旧实现用 `getMethod("code")`，但 SDK 暴露的是 `statusCode()`，导致 `NoSuchMethodException`
+     * 被 `runCatching` 吞掉返回 null，HTTP 状态码识别退化为不可靠的 message 正则兜底
+     * （SDK 异常 message 通常是 JSON 错误体，不一定含独立 3 位数字）。详见 PR #264 review。
      */
-    private fun extractHttpCode(t: Throwable): Int? = runCatching {
+    private fun extractSdkStatusCode(t: Throwable): Int? = runCatching {
         val method = t::class.java.getMethod("statusCode")
-        (method.invoke(t) as? Int)
+        // SDK 的 statusCode() 返回 int（autobox 为 Integer），统一按 Number 取值，
+        // 避免对 method.invoke(t) 二次调用产生的开销与潜在副作用。
+        (method.invoke(t) as? Number)?.toInt()
     }.getOrNull()
 
     /** 从异常消息中提取 HTTP 状态码（如 "HTTP 401 Unauthorized"）。 */
