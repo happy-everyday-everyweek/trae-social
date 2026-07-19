@@ -44,11 +44,36 @@ internal fun Context.computeReduceMotion(): Boolean {
         Settings.Global.ANIMATOR_DURATION_SCALE,
         1f,
     )
-    if (scale <= 0f) return true
     val am = getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager
-        ?: return false
-    // 仅当辅助功能开启且触控探索开启时视为减弱动效
-    return am.isEnabled && am.isTouchExplorationEnabled
+    // #229：调用纯函数 computeReduceMotion(scale, a11yEnabled, touchExplorationEnabled)
+    // 以便单测在无 Robolectric 的情况下覆盖各分支逻辑。
+    return computeReduceMotion(
+        scale = scale,
+        a11yEnabled = am?.isEnabled == true,
+        touchExplorationEnabled = am?.isTouchExplorationEnabled == true,
+    )
+}
+
+/**
+ * #229：纯逻辑版本的减弱动效判定，便于单测。
+ *
+ * 规则：
+ * 1. 若 `ANIMATOR_DURATION_SCALE <= 0`（开发者选项「移除动画」），直接返回 true，
+ *    不再考虑辅助功能状态。
+ * 2. 否则仅当 AccessibilityManager 可用（非 null，由调用方保证）且
+ *    `isEnabled && isTouchExplorationEnabled` 同时为 true 时才返回 true。
+ *
+ * @param scale 系统动画时长缩放（Settings.Global.ANIMATOR_DURATION_SCALE），默认 1f
+ * @param a11yEnabled AccessibilityManager.isEnabled
+ * @param touchExplorationEnabled AccessibilityManager.isTouchExplorationEnabled
+ */
+internal fun computeReduceMotion(
+    scale: Float,
+    a11yEnabled: Boolean,
+    touchExplorationEnabled: Boolean,
+): Boolean {
+    if (scale <= 0f) return true
+    return a11yEnabled && touchExplorationEnabled
 }
 
 /**
