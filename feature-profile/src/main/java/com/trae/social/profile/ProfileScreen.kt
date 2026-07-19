@@ -91,6 +91,7 @@ fun ProfileScreen(
     // 切换、fullScreenState 变化、uiState 变化）都 new 一个新 lambda 实例向下传
     // 破坏子组件 TweetsTab/MediaTab/LikesTab skip。fullScreenState 是 by 委托的
     // State，闭包内写入会路由到原 State，无需把 fullScreenState 加进 key。
+    // lambda 仅捕获稳定的 MutableState 委托引用（fullScreenState），故无需 key
     val onImageClick: (List<String>, Int) -> Unit = remember {
         { images, index ->
             fullScreenState = FullScreenImageState(images, index)
