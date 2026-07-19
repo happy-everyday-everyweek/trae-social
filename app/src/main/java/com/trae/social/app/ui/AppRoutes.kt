@@ -1,5 +1,8 @@
 package com.trae.social.app.ui
 
+import android.net.Uri
+import com.trae.social.profile.FollowListType
+
 /**
  * 应用导航路由常量集中定义（P2 风格一致性修复）。
  *
@@ -45,6 +48,26 @@ object AppRoutes {
 
     /**
      * 构造关注列表路由（[FOLLOW_LIST_TYPE_ARG] 为枚举名称）。
+     *
+     * #213：对 [type] 做 [Uri.encode] 后再拼装，避免未来枚举值含 `/ ? & #` 等
+     * 保留字符导致路由匹配失败或参数被截断；读取侧用 [decodeFollowListType] 反解。
      */
-    fun followList(type: String): String = "followlist/$type"
+    fun followList(type: FollowListType): String =
+        "followlist/${Uri.encode(type.name)}"
+
+    /**
+     * 从路由参数还原 [FollowListType]，与 [followList] 配套使用。
+     *
+     * 字符串路由模式下 [NavType.StringType.parseValue] 直接返回原始捕获值
+     * （不会自动 URL 解码），需在此处 [Uri.decode] 还原 [followList] 中的
+     * [Uri.encode]。用 [runCatching] 兜底，避免含 `%` 但非合法 `%XX` 转义的
+     * 字符串在 [Uri.decode] 中抛出。
+     *
+     * 非法值降级为 [FollowListType.FOLLOWING]。
+     */
+    fun decodeFollowListType(raw: String?): FollowListType {
+        val name = raw?.let { runCatching { Uri.decode(it) }.getOrDefault(it) }
+        return runCatching { FollowListType.valueOf(name ?: "") }
+            .getOrElse { FollowListType.FOLLOWING }
+    }
 }
