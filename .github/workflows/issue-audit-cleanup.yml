@@ -1,0 +1,123 @@
+name: Issue Audit Cleanup
+
+# 触发条件：本 PR 合并到 main 后运行
+# 用途：补发 reopen 说明评论、关闭本应关闭但误开启的 issue
+# 背景：执行审查的 PAT 仅持有 issues=reopen 权限，无法直接 addComment / closeIssue；
+#       这里借助合并触发后默认 GITHUB_TOKEN（issues: write）完成评论与关闭动作。
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  apply-audit:
+    # 仅在 PR 真正合并（非直接关闭）时执行
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reopen comments & close issues
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            // 11 个不应被关闭、已重新打开的 issue（补发说明评论）
+            const reopenIssues = [
+              { number: 11,  file: 'reopen_11.md'  },
+              { number: 33,  file: 'reopen_33.md'  },
+              { number: 34,  file: 'reopen_34.md'  },
+              { number: 39,  file: 'reopen_39.md'  },
+              { number: 84,  file: 'reopen_84.md'  },
+              { number: 87,  file: 'reopen_87.md'  },
+              { number: 93,  file: 'reopen_93.md'  },
+              { number: 94,  file: 'reopen_94.md'  },
+              { number: 95,  file: 'reopen_95.md'  },
+              { number: 114, file: 'reopen_114.md' },
+              { number: 115, file: 'reopen_115.md' },
+            ];
+
+            // 10 个本应关闭但当前仍 open 的 issue（补发关闭说明 + 关闭）
+            // 注意：#1 / #2 为审查过程中误开启，需重新关闭
+            const closeIssues = [
+              { number: 1,   file: null,                          reason: 'not_planned', note: '审查过程中误开启，回滚为 closed' },
+              { number: 2,   file: null,                          reason: 'not_planned', note: '审查过程中误开启，回滚为 closed' },
+              { number: 155, file: 'close_155.md', reason: 'completed' },
+              { number: 158, file: 'close_158.md', reason: 'completed' },
+              { number: 169, file: 'close_169.md', reason: 'completed' },
+              { number: 170, file: 'close_170.md', reason: 'completed' },
+              { number: 201, file: 'close_201.md', reason: 'completed' },
+              { number: 202, file: 'close_202.md', reason: 'completed' },
+              { number: 203, file: 'close_203.md', reason: 'completed' },
+              { number: 204, file: 'close_204.md', reason: 'completed' },
+            ];
+
+            const commentsDir = path.join('.trae', 'audit', 'comments');
+
+            core.info(`=== Reopen issue comments ===`);
+            for (const item of reopenIssues) {
+              const fp = path.join(commentsDir, item.file);
+              let body;
+              try {
+                body = fs.readFileSync(fp, 'utf8');
+              } catch (e) {
+                core.error(`读取评论文件失败 ${fp}: ${e.message}`);
+                continue;
+              }
+              try {
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: item.number, body,
+                });
+                core.info(`已为 #${item.number} 添加 reopen 说明评论`);
+              } catch (e) {
+                core.error(`为 #${item.number} 添加评论失败: ${e.message}`);
+              }
+            }
+
+            core.info(`=== Close issues ===`);
+            for (const item of closeIssues) {
+              // 先补发关闭说明评论
+              if (item.file) {
+                const fp = path.join(commentsDir, item.file);
+                try {
+                  const body = fs.readFileSync(fp, 'utf8');
+                  await github.rest.issues.createComment({
+                    owner, repo, issue_number: item.number, body,
+                  });
+                  core.info(`已为 #${item.number} 添加关闭说明评论`);
+                } catch (e) {
+                  core.error(`为 #${item.number} 添加关闭评论失败: ${e.message}`);
+                }
+              } else if (item.note) {
+                try {
+                  await github.rest.issues.createComment({
+                    owner, repo, issue_number: item.number, body: `> ${item.note}`,
+                  });
+                  core.info(`已为 #${item.number} 添加说明: ${item.note}`);
+                } catch (e) {
+                  core.error(`为 #${item.number} 添加说明评论失败: ${e.message}`);
+                }
+              }
+              // 再执行关闭
+              try {
+                await github.rest.issues.update({
+                  owner, repo, issue_number: item.number,
+                  state: 'closed', state_reason: item.reason,
+                });
+                core.info(`已关闭 #${item.number} (reason=${item.reason})`);
+              } catch (e) {
+                core.error(`关闭 #${item.number} 失败: ${e.message}`);
+              }
+            }
+
+            core.info('Issue audit cleanup 完成。');
