@@ -13,7 +13,7 @@ import com.trae.social.core.profiling.capture.UserActionEventBuilder
 import com.trae.social.core.profiling.capture.UserActionTracker
 import com.trae.social.core.profiling.feedback.FeedbackController
 import com.trae.social.core.profiling.feedback.UserProfileReadAccess
-import com.trae.social.profile.di.ProfileImageLoader
+import com.trae.social.designsystem.image.SvgImageLoader
 import coil.ImageLoader
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.util.UUID
@@ -41,7 +41,7 @@ class FollowListViewModel @Inject constructor(
     // #146 A/E 场景 6 followRecommend
     private val feedbackController: FeedbackController,
     private val readAccess: UserProfileReadAccess,
-    @ProfileImageLoader val imageLoader: ImageLoader,
+    @SvgImageLoader val imageLoader: ImageLoader,
 ) : ViewModel() {
 
     /** #146 B：关注/取关埋点构建器。 */

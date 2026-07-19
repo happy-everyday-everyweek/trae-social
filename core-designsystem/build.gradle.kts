@@ -2,6 +2,8 @@ plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.hilt)
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -53,6 +55,11 @@ dependencies {
     // Avatar 图片加载与 SVG 支持
     implementation(libs.coil.compose)
     implementation(libs.coil.svg)
+
+    // Hilt：在 designsystem 提供 @SvgImageLoader 共享限定符（#221）
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.compiler)
+
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)

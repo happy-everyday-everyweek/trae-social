@@ -21,7 +21,7 @@ import com.trae.social.core.profiling.capture.UserActionTracker
 import com.trae.social.core.data.model.UserActionType
 import com.trae.social.core.profiling.feedback.FeedbackController
 import com.trae.social.core.profiling.feedback.UserProfileReadAccess
-import com.trae.social.feed.di.FeedImageLoader
+import com.trae.social.designsystem.image.SvgImageLoader
 import coil.ImageLoader
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
@@ -60,7 +60,7 @@ class FeedViewModel @Inject constructor(
     // #146 A/E 场景 5（feedBoost）：信息流读侧消费用户画像，暴露兴趣供 UI 展示"为你推荐"标签
     private val readAccess: UserProfileReadAccess,
     private val feedbackController: FeedbackController,
-    @FeedImageLoader val imageLoader: ImageLoader,
+    @SvgImageLoader val imageLoader: ImageLoader,
 ) : ViewModel() {
 
     /** #146 B：信息流交互埋点构建器（session 由 SessionManager 提供，冷启动兜底 "unknown"）。 */
