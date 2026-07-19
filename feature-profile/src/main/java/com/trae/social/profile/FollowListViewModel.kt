@@ -182,7 +182,14 @@ class FollowListViewModel @Inject constructor(
     }
 
     /**
-     * 切换对某账号的关注状态（关注/取关），写库后刷新本地集合与列表。
+     * 切换对某账号的关注状态（关注/取关），写库后乐观更新本地集合与列表。
+     *
+     * #211：原先写库后调用 load(type) 会先切 Loading 再切 Success，造成列表整体闪烁、
+     * 滚动位置丢失，且按钮文案短暂滞后。改为：
+     * - 写库成功后乐观更新 [_followingIds]，按钮文案立即响应；
+     * - 同时乐观更新本地 accounts 列表（FOLLOWING 取关移除、RECOMMENDED 关注后移除），
+     *   不切 Loading 态，避免闪烁；
+     * - FOLLOWERS 列表不受 toggle 影响（仅按钮状态变化）。
      *
      * 第七轮 review B1 修复：在 RECOMMENDED 列表里的 FOLLOW/UNFOLLOW 埋点需带上
      * scenarioId=6 / drivenByProfile / group，使 computeScenarioStats 能将"真实用户关注"
@@ -210,7 +217,7 @@ class FollowListViewModel @Inject constructor(
             extra = extraBuilder,
         )
         viewModelScope.launch {
-            runCatching {
+            val result = runCatching {
                 if (isFollowing) {
                     followRelationDao.delete(ProfileViewModel.SELF_ID, accountId)
                 } else {
@@ -222,8 +229,40 @@ class FollowListViewModel @Inject constructor(
                         )
                     )
                 }
-            }.onFailure { Timber.w(it, "切换关注状态失败") }
-            load(type)
+            }
+            if (result.isFailure) {
+                Timber.w(result.exceptionOrNull(), "切换关注状态失败")
+                return@launch
+            }
+            // #211：乐观更新 _followingIds，按钮文案立即响应
+            _followingIds.value = if (isFollowing) {
+                _followingIds.value - accountId
+            } else {
+                _followingIds.value + accountId
+            }
+            // #211：乐观更新本地 accounts 列表，不切 Loading 态以避免闪烁
+            val currentState = _uiState.value
+            if (currentState is FollowListUiState.Success) {
+                val updatedAccounts = when (type) {
+                    FollowListType.FOLLOWING -> {
+                        // 关注列表：取关则从列表移除（关注则不应出现在 FOLLOWING 列表的 toggle，但兼容处理）
+                        if (isFollowing) currentState.accounts.filter { it.id != accountId }
+                        else currentState.accounts
+                    }
+                    FollowListType.RECOMMENDED -> {
+                        // 推荐列表：关注后从推荐移除（取关不应发生在 RECOMMENDED，但兼容处理）
+                        if (!isFollowing) currentState.accounts.filter { it.id != accountId }
+                        else currentState.accounts
+                    }
+                    FollowListType.FOLLOWERS -> {
+                        // 粉丝列表：toggle 不影响列表（仅按钮状态变化）
+                        currentState.accounts
+                    }
+                }
+                if (updatedAccounts !== currentState.accounts) {
+                    _uiState.value = FollowListUiState.Success(updatedAccounts)
+                }
+            }
         }
     }
 
