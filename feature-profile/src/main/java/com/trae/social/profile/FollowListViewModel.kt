@@ -58,6 +58,15 @@ class FollowListViewModel @Inject constructor(
     val followingIds: StateFlow<Set<String>> = _followingIds.asStateFlow()
 
     /**
+     * 主 review 第 1 轮 M2 修复：in-flight toggle 去重集合。
+     *
+     * 记录 DB 写盘尚未完成的 accountId，阻止同一账号在 DB 写完成前重复 toggle。
+     * toggleFollow 在主线程同步 add，DB 写完成后在 finally 中 remove；
+     * viewModelScope 默认 Dispatchers.Main.immediate，无需额外同步。
+     */
+    private val inflightToggles: MutableSet<String> = mutableSetOf()
+
+    /**
      * #146 A/E 场景 6：最近一次 RECOMMENDED 列表的 driven 分组结果。
      *
      * 第七轮 review B1 修复：toggleFollow 落 FOLLOW 埋点时需带上 scenarioId=6 / drivenByProfile / group，
@@ -229,8 +238,22 @@ class FollowListViewModel @Inject constructor(
         } else {
             _followingIds.value + accountId
         }
-        // 乐观更新本地 accounts 列表，不切 Loading 态以避免闪烁
+        // 乐观更新本地 accounts 列表，不切 Loading 态以避免闪烁。
+        // 乐观更新前先保留被移除的账号对象，DB 失败时用于回滚——否则回滚时
+        // rollbackState.accounts 已是被乐观更新后的列表，find 找不到原账号对象，
+        // 无法把它加回去。
         val currentState = _uiState.value
+        val removedAccount: AccountEntity? = if (currentState is FollowListUiState.Success) {
+            when (type) {
+                FollowListType.FOLLOWING -> if (isFollowing) {
+                    currentState.accounts.find { it.id == accountId }
+                } else null
+                FollowListType.RECOMMENDED -> if (!isFollowing) {
+                    currentState.accounts.find { it.id == accountId }
+                } else null
+                FollowListType.FOLLOWERS -> null
+            }
+        } else null
         if (currentState is FollowListUiState.Success) {
             val updatedAccounts = when (type) {
                 FollowListType.FOLLOWING -> {
@@ -290,15 +313,23 @@ class FollowListViewModel @Inject constructor(
                     _followingIds.value - accountId
                 }
                 val rollbackState = _uiState.value
-                if (rollbackState is FollowListUiState.Success) {
-                    val restoredAccounts = when (type) {
+                if (rollbackState is FollowListUiState.Success && removedAccount != null) {
+                    val restoredAccounts: List<AccountEntity> = when (type) {
                         FollowListType.FOLLOWING -> {
-                            if (isFollowing) rollbackState.accounts + (rollbackState.accounts.find { it.id == accountId } ?: emptyList())
-                            else rollbackState.accounts
+                            // 取关失败回滚：把账号加回 FOLLOWING 列表
+                            if (isFollowing && rollbackState.accounts.none { it.id == accountId }) {
+                                rollbackState.accounts + removedAccount
+                            } else {
+                                rollbackState.accounts
+                            }
                         }
                         FollowListType.RECOMMENDED -> {
-                            if (!isFollowing) rollbackState.accounts // 关注失败回滚：保持原状（账号本就在推荐中）
-                            else rollbackState.accounts
+                            // 关注失败回滚：把账号加回 RECOMMENDED 列表
+                            if (!isFollowing && rollbackState.accounts.none { it.id == accountId }) {
+                                rollbackState.accounts + removedAccount
+                            } else {
+                                rollbackState.accounts
+                            }
                         }
                         FollowListType.FOLLOWERS -> rollbackState.accounts
                     }
