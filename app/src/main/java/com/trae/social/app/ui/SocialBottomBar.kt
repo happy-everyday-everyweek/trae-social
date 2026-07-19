@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.trae.social.designsystem.components.GlassBlurContainer
 import com.trae.social.designsystem.components.socialClickable
@@ -207,6 +208,8 @@ private fun TabItem(
             text = spec.label,
             style = typography.caption2,
             color = contentColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
         // #22：选中态小圆点缩放进场（未选中时 scale=0 不可见，保持 4dp 占位避免高度跳动）
         Box(
