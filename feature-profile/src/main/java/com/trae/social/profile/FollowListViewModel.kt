@@ -77,21 +77,25 @@ class FollowListViewModel @Inject constructor(
 
     fun load(type: FollowListType) {
         viewModelScope.launch {
+            // 主 review 第 3 轮修复（竞态保护完整化）：第 2 轮只跳过 _followingIds 覆盖，
+            // 但 _uiState 仍无条件切到 Loading 再用 DB 旧状态覆盖 Success——会丢失
+            // toggleFollow 的乐观更新（用户点"取消关注 A"后下拉刷新会看到 A 又出现在
+            // FOLLOWING 列表，但按钮态是"关注"，UI 不一致）。
+            // 改为：hasInflight 时直接 return，让乐观更新保持；inflight 完成后 UI 可主动
+            // 触发下一次 load 拿到 DB 最新状态。
+            if (inflightToggles.isNotEmpty()) {
+                Timber.d("load 跳过：有 inflight toggle=%s，避免覆盖乐观更新", inflightToggles)
+                return@launch
+            }
             _uiState.value = FollowListUiState.Loading
             // 先刷新"我关注了谁"集合，供按钮状态使用。
-            // 主 review 第 2 轮修复：若此时有 inflight toggle，跳过 _followingIds 覆盖——
-            // DB 查询返回的是 toggle 写盘前的旧状态（或写盘后的新状态，取决于时序），
-            // 整体覆盖会丢弃 toggleFollow 的乐观更新。等 inflight 完成后再 load 才安全。
-            val hasInflight = inflightToggles.isNotEmpty()
-            if (!hasInflight) {
-                _followingIds.value = try {
-                    followRelationDao.getFollowing(AccountIds.USER_SELF_ID).map { it.followeeId }.toSet()
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (t: Throwable) {
-                    Timber.w(t, "加载 followingIds 失败")
-                    emptySet()
-                }
+            _followingIds.value = try {
+                followRelationDao.getFollowing(AccountIds.USER_SELF_ID).map { it.followeeId }.toSet()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Timber.w(t, "加载 followingIds 失败")
+                emptySet()
             }
             val accounts = try {
                 when (type) {

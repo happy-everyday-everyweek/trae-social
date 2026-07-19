@@ -172,6 +172,16 @@ class DefaultRulesetEngine @Inject constructor(
      * 主 review 第 2 轮修复：原实现 `ChatMessage(msg.role, msg.textContent() + "\n\n" + JSON_MODE_HINT)`
      * 会丢弃原 SYSTEM 消息的非文本 content（图像/音频/视频块）。改为复制原 content 列表，
      * 把 JSON_MODE_HINT 作为新 Text 块追加到尾部，保留多模态内容。
+     *
+     * 主 review 第 3 轮修复（回归修复）：第 2 轮的"新 Text 块追加"方案与下游 client
+     * 序列化不兼容——OpenAiCompatibleClient.toOpenAiMessageParam 的 SYSTEM 分支与
+     * AnthropicCompatibleClient.buildParams 的 systemText 拼接都用 `ChatMessage.textContent()`，
+     * 而 `textContent()` 只取首个 Text 块（`content.firstNotNullOfOrNull { ... }`），
+     * 导致作为第二个 Text 块追加的 JSON_MODE_HINT 被完全丢弃，等价于 jsonMode 降级失效。
+     * 改为把 JSON_MODE_HINT 拼到原 SYSTEM 消息**首个 Text 块**尾部：
+     * - 纯文本 SYSTEM（绝大多数调用方）：仍保持单一 Text 块，textContent() 完整返回
+     * - 多模态 SYSTEM（含图像/音频/视频）：首个 Text 块尾部追加约束，多模态块原样保留
+     * - 原 SYSTEM 无 Text 块（极端情况，仅多模态）：前置新 Text(JSON_MODE_HINT) 块
      */
     private fun prepareMessages(
         messages: List<ChatMessage>,
@@ -188,8 +198,23 @@ class DefaultRulesetEngine @Inject constructor(
         }
         return messages.mapIndexed { idx, msg ->
             if (idx == systemIdx) {
-                // 保留原 content（可能含多模态块），把 JSON_MODE_HINT 作为新 Text 块追加
-                ChatMessage(msg.role, msg.content + ContentPart.Text(JSON_MODE_HINT))
+                val firstTextIdx = msg.content.indexOfFirst { it is ContentPart.Text }
+                if (firstTextIdx < 0) {
+                    // 原 SYSTEM 无 Text 块（仅多模态），前置 JSON_MODE_HINT 作为新 Text 块
+                    ChatMessage(msg.role, listOf(ContentPart.Text(JSON_MODE_HINT)) + msg.content)
+                } else {
+                    // 把 JSON_MODE_HINT 拼到首个 Text 块尾部，保留其余 content 不变。
+                    // 这样下游 client 用 textContent()（取首个 Text 块）能拿到完整 system prompt
+                    // （原 prompt + JSON 约束），多模态块也原样保留在 content 列表里。
+                    val newContent = msg.content.mapIndexed { partIdx, part ->
+                        if (partIdx == firstTextIdx && part is ContentPart.Text) {
+                            ContentPart.Text(part.text + "\n\n" + JSON_MODE_HINT)
+                        } else {
+                            part
+                        }
+                    }
+                    ChatMessage(msg.role, newContent)
+                }
             } else {
                 msg
             }

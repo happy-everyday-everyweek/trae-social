@@ -102,12 +102,14 @@ class EndpointRegistry @Inject constructor(
             val entity = configProvider.getEndpoint(endpointId) ?: return null
             // 主 review 第 2 轮修复：原 runCatching 会吞 CancellationException，协程取消被
             // 误判为 API Key 读取失败返回 null。改为 try/catch 显式重抛 CancellationException。
+            // 主 review 第 3 轮修复：catch (Throwable) 会吞 Error（OOM / StackOverflow），
+            // 与同文件订阅处（init 块）的"Error 自然传播"策略一致，改为 catch (Exception)。
             val apiKey = try {
                 configProvider.getEndpointApiKey(endpointId)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
-            } catch (t: Throwable) {
-                Timber.w(t, "EndpointRegistry.getEndpointApiKey 失败 endpointId=%s", endpointId)
+            } catch (e: Exception) {
+                Timber.w(e, "EndpointRegistry.getEndpointApiKey 失败 endpointId=%s", endpointId)
                 null
             }
             // API Key 缺失快速失败（按协议区分）：需鉴权协议 + Key 缺失 → 跳过 client 创建，
@@ -132,12 +134,13 @@ class EndpointRegistry @Inject constructor(
      */
     suspend fun getDefaultClient(): LlmClient? {
         // 主 review 第 2 轮修复：原 runCatching 会吞 CancellationException。
+        // 主 review 第 3 轮修复：catch (Throwable) 改为 catch (Exception) 让 Error 自然传播。
         val endpoints = try {
             configProvider.listEndpoints()
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
-        } catch (t: Throwable) {
-            Timber.w(t, "EndpointRegistry.getDefaultClient: listEndpoints 失败")
+        } catch (e: Exception) {
+            Timber.w(e, "EndpointRegistry.getDefaultClient: listEndpoints 失败")
             return null
         }
         val primary = endpoints.firstOrNull() ?: return null
@@ -149,12 +152,13 @@ class EndpointRegistry @Inject constructor(
      */
     suspend fun listEndpoints(): List<LlmEndpointEntity> {
         // 主 review 第 2 轮修复：原 runCatching 会吞 CancellationException。
+        // 主 review 第 3 轮修复：catch (Throwable) 改为 catch (Exception) 让 Error 自然传播。
         return try {
             configProvider.listEndpoints()
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
-        } catch (t: Throwable) {
-            Timber.w(t, "EndpointRegistry.listEndpoints 失败")
+        } catch (e: Exception) {
+            Timber.w(e, "EndpointRegistry.listEndpoints 失败")
             emptyList()
         }
     }
@@ -164,12 +168,13 @@ class EndpointRegistry @Inject constructor(
      */
     suspend fun getEndpoint(id: String): LlmEndpointEntity? {
         // 主 review 第 2 轮修复：原 runCatching 会吞 CancellationException。
+        // 主 review 第 3 轮修复：catch (Throwable) 改为 catch (Exception) 让 Error 自然传播。
         return try {
             configProvider.getEndpoint(id)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
-        } catch (t: Throwable) {
-            Timber.w(t, "EndpointRegistry.getEndpoint 失败 id=%s", id)
+        } catch (e: Exception) {
+            Timber.w(e, "EndpointRegistry.getEndpoint 失败 id=%s", id)
             null
         }
     }
