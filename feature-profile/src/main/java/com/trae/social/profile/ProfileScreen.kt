@@ -201,8 +201,9 @@ private fun ProfileHeader(
     val account = state.account
     // #235：ImageRequest remember，避免父组件重组时每次 new ImageRequest 触发
     // Coil 重新发起图片请求（即便 URL 不变），浪费网络与磁盘缓存查找。
+    // context 由 LocalContext 提供，组合内稳定，不需作为 key。
     val context = androidx.compose.ui.platform.LocalContext.current
-    val avatarRequest = remember(avatarUrl, context) {
+    val avatarRequest = remember(avatarUrl) {
         coil.request.ImageRequest.Builder(context)
             .data(avatarUrl)
             .crossfade(true)
@@ -333,7 +334,7 @@ private fun ProfileTweetRow(
     val typography = LocalSocialTypography.current
     val spacing = LocalSocialSpacing.current
     // #235：ImageRequest remember，避免列表项重组时每次 new ImageRequest 触发
-    // Coil 重新发起图片请求（即便 URL 不变）。
+    // Coil 重新发起图片请求（即便 URL 不变）。context 由 LocalContext 提供，组合内稳定，不需作为 key。
     val context = androidx.compose.ui.platform.LocalContext.current
     Column(
         Modifier
@@ -356,7 +357,7 @@ private fun ProfileTweetRow(
                 )
             }
             ProfileUtils.toImageUri(tweet.mediaPath)?.let { uri ->
-                val mediaRequest = remember(uri, context) {
+                val mediaRequest = remember(uri) {
                     coil.request.ImageRequest.Builder(context)
                         .data(uri)
                         .crossfade(true)
@@ -469,6 +470,7 @@ private fun MediaTab(
     // #8：收集所有媒体 URI，点击网格项时传入列表与下标，支持全屏查看器左右切换
     val uris = remember(media) { media.mapNotNull { ProfileUtils.toImageUri(it.mediaPath) } }
     // #235：MediaTab 网格项 ImageRequest remember 上下文。
+    // context 由 LocalContext 提供，组合内稳定，不需作为 key。
     val context = androidx.compose.ui.platform.LocalContext.current
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
@@ -478,7 +480,7 @@ private fun MediaTab(
         // 避免重复 URI 时 indexOf 返回首个匹配导致下标错位
         itemsIndexed(uris) { index, uri ->
             // #235：网格项 ImageRequest remember，避免每次重组重新构造触发图片请求重启。
-            val gridRequest = remember(uri, context) {
+            val gridRequest = remember(uri) {
                 coil.request.ImageRequest.Builder(context)
                     .data(uri)
                     .crossfade(true)

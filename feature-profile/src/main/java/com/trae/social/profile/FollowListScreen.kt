@@ -124,9 +124,9 @@ private fun FollowAccountRow(
     val typography = LocalSocialTypography.current
     val context = LocalContext.current
     // #235：ImageRequest remember，避免列表项重组时每次 new ImageRequest 触发
-    // Coil 重新发起图片请求（即便 URL 不变）。
+    // Coil 重新发起图片请求（即便 URL 不变）。context 由 LocalContext 提供，组合内稳定，不需作为 key。
     val avatarUri = ProfileUtils.avatarUriFromSeed(account.avatarSeed)
-    val avatarRequest = remember(avatarUri, context) {
+    val avatarRequest = remember(avatarUri) {
         ImageRequest.Builder(context)
             .data(avatarUri)
             .crossfade(true)
