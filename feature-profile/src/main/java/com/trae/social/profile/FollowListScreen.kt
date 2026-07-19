@@ -27,6 +27,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -122,6 +123,15 @@ private fun FollowAccountRow(
     val colors = socialColors()
     val typography = LocalSocialTypography.current
     val context = LocalContext.current
+    // #235：ImageRequest remember，避免列表项重组时每次 new ImageRequest 触发
+    // Coil 重新发起图片请求（即便 URL 不变）。context 由 LocalContext 提供，组合内稳定，不需作为 key。
+    val avatarUri = ProfileUtils.avatarUriFromSeed(account.avatarSeed)
+    val avatarRequest = remember(avatarUri) {
+        ImageRequest.Builder(context)
+            .data(avatarUri)
+            .crossfade(true)
+            .build()
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -133,10 +143,7 @@ private fun FollowAccountRow(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
             AsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(ProfileUtils.avatarUriFromSeed(account.avatarSeed))
-                    .crossfade(true)
-                    .build(),
+                model = avatarRequest,
                 imageLoader = imageLoader,
                 contentDescription = "头像",
                 contentScale = ContentScale.Crop,
