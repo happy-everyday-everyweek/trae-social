@@ -49,7 +49,12 @@ class DefaultRulesetEngine @Inject constructor(
         var lastError: Throwable? = null
         var anySkipped = false
         for (endpoint in endpoints) {
-            val client = registry.getClient(endpoint.id) ?: run {
+            // 主 review 第 1 轮 m-2 / m-6 修复：getClient 返回 null 表示端点不可用
+            // （API Key 缺失或协议不支持）。原实现用 `?: run { continue }` 跳过，
+            // 但 continue 在 inline lambda 中是 Kotlin 实验特性，CI 用的 Kotlin
+            // 版本未启用该特性。改为 if-null 早跳过，语义等价。
+            val client = registry.getClient(endpoint.id)
+            if (client == null) {
                 anySkipped = true
                 continue
             }
@@ -109,7 +114,9 @@ class DefaultRulesetEngine @Inject constructor(
         var lastError: Throwable? = null
         var anySkipped = false
         for (endpoint in endpoints) {
-            val client = registry.getClient(endpoint.id) ?: run {
+            // m-2 / m-6 修复：同 chat()，避免 continue 在 inline lambda 中的实验特性。
+            val client = registry.getClient(endpoint.id)
+            if (client == null) {
                 anySkipped = true
                 continue
             }
