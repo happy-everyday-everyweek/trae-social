@@ -176,7 +176,7 @@ class FeedbackAgentPromptBuilder {
             val rawActions = (obj["actions"] as? JsonArray) ?: JsonArray(emptyList())
 
             val parsedActions = rawActions.mapNotNull { el ->
-                parseAction(el as? JsonObject) ?: return@mapNotNull null
+                parseAction(el as? JsonObject)
             }.mapNotNull { it.sanitize() }
 
             // 澄清时强制清空 actions（避免 LLM 同时输出澄清与动作）
@@ -240,7 +240,14 @@ class FeedbackAgentPromptBuilder {
                 // （大小写敏感）。LLM 实际输出常是 "True" / "TRUE" / "True." 等变体，
                 // 会被静默丢弃返回 null → needsClarification 等关键字段退到默认 false。
                 // 先 lowercase + trim 再解析，覆盖常见 LLM 输出变体。
-                runCatching { it.content.trim().lowercase().toBooleanStrict() }.getOrNull()
+                //
+                // 主 review 第 2 轮修复：toBooleanStrict 仍拒绝 "true." / "yes" / "1" 等变体。
+                // 改用显式 when 归一化，覆盖 LLM 常见输出格式。
+                when (it.content.trim().lowercase().trimEnd('.', ',', '。', '，')) {
+                    "true", "yes", "1" -> true
+                    "false", "no", "0" -> false
+                    else -> null
+                }
             }
 
         private fun JsonObject.doubleField(key: String): Double? =

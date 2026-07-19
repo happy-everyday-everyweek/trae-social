@@ -655,14 +655,6 @@ private fun TimelineError(message: String) {
 }
 
 /**
- * 构造支持 SVG 解码的 ImageLoader（feature 模块内独立持有，避免改动 app 全局配置）。
- *
- * 主 review 第 1 轮 M3 修复：已删除。改为通过 [TimelineViewModel.imageLoader] 注入
- * 共享 [@SvgImageLoader] 单例（core-designsystem 提供），避免 feature 模块各自
- * 构造 ImageLoader 造成重复磁盘缓存与线程池。详见 [TimelineViewModel]。
- */
-
-/**
  * 将 TweetEntity.mediaPath（asset 相对路径）转换为 Coil 可加载的地址。
  * 已是完整协议头（http/https/file/content）时原样返回，否则补 "file:///android_asset/" 前缀。
  * IMPL-39：mediaPath 可能是逗号分隔的多图列表，取第一张显示。

@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -68,9 +69,17 @@ class TimelineViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            _selfProfile.value = runCatching {
+            // 主 review 第 2 轮修复：原 runCatching 会吞 CancellationException，
+            // 协程取消（如用户离开页面）被误判为账号不存在，_selfProfile.value = null
+            // 污染 ViewModel 状态。改为 try/catch 显式重抛 CancellationException。
+            _selfProfile.value = try {
                 accountRepository.getById(SELF_ID)
-            }.getOrNull()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Timber.w(t, "加载自身账号失败")
+                null
+            }
         }
     }
 

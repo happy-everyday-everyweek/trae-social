@@ -60,6 +60,8 @@ class EndpointRegistry @Inject constructor(
         // 任何异常（如 ConfigRepository 内部 SharedFlow 异常）都会终止订阅协程，
         // 此后用户改 API Key / 增删端点缓存都不会失效，"改了 Key 但还在用旧的"。
         // 改为 while(isActive) + 内层 try/catch，异常后延迟 1s 重订阅。
+        // 主 review 第 2 轮修复：catch (Throwable) 会吞 Error（OOM），改为 catch (Exception)
+        // 让 Error 自然传播，避免 OOM 时还尝试 delay+重订阅加剧崩溃。
         scope.launch {
             while (isActive) {
                 try {
@@ -68,8 +70,8 @@ class EndpointRegistry @Inject constructor(
                     }
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
-                } catch (t: Throwable) {
-                    Timber.e(t, "EndpointRegistry 订阅端点变更失败，1s 后重试")
+                } catch (e: Exception) {
+                    Timber.e(e, "EndpointRegistry 订阅端点变更失败，1s 后重试")
                     try {
                         delay(1000)
                     } catch (e: kotlinx.coroutines.CancellationException) {
@@ -98,14 +100,25 @@ class EndpointRegistry @Inject constructor(
             // Double-check after acquiring lock
             clients[endpointId]?.let { return it }
             val entity = configProvider.getEndpoint(endpointId) ?: return null
-            val apiKey = runCatching { configProvider.getEndpointApiKey(endpointId) }
-                .getOrNull()
+            // 主 review 第 2 轮修复：原 runCatching 会吞 CancellationException，协程取消被
+            // 误判为 API Key 读取失败返回 null。改为 try/catch 显式重抛 CancellationException。
+            val apiKey = try {
+                configProvider.getEndpointApiKey(endpointId)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Timber.w(t, "EndpointRegistry.getEndpointApiKey 失败 endpointId=%s", endpointId)
+                null
+            }
+            // API Key 缺失快速失败（按协议区分）：需鉴权协议 + Key 缺失 → 跳过 client 创建，
+            // 避免发起注定 401 的网络请求浪费 RTT 与配额。
+            // 无需鉴权协议（如本地 Ollama）即使 Key 缺失也构造 client（#271 review Major 3）。
             val protocol = LlmProtocol.fromId(entity.protocol)
             if (protocol?.requiresApiKey == true && apiKey.isNullOrBlank()) {
                 Timber.w("EndpointRegistry 端点 API Key 缺失，跳过 client 创建 endpointId=%s protocol=%s", endpointId, protocol.id)
                 return null
             }
-            val config = EndpointConfig.fromEntity(entity, apiKey)
+            val config = EndpointConfig.fromEntity(entity, apiKey) ?: return null
             val client = createClient(config) ?: return null
             clients[endpointId] = client
             client
@@ -118,11 +131,15 @@ class EndpointRegistry @Inject constructor(
      * 端点列表为空时返回 null（调用方应处理：通常引导用户配置端点）。
      */
     suspend fun getDefaultClient(): LlmClient? {
-        val endpoints = runCatching { configProvider.listEndpoints() }
-            .getOrElse { e ->
-                Timber.w(e, "EndpointRegistry.listEndpoints 失败")
-                return null
-            }
+        // 主 review 第 2 轮修复：原 runCatching 会吞 CancellationException。
+        val endpoints = try {
+            configProvider.listEndpoints()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Timber.w(t, "EndpointRegistry.getDefaultClient: listEndpoints 失败")
+            return null
+        }
         val primary = endpoints.firstOrNull() ?: return null
         return getClient(primary.id)
     }
@@ -131,14 +148,30 @@ class EndpointRegistry @Inject constructor(
      * 列出所有端点（按 orderIndex 升序）。供 UI / 引擎选择降级链使用。
      */
     suspend fun listEndpoints(): List<LlmEndpointEntity> {
-        return runCatching { configProvider.listEndpoints() }.getOrDefault(emptyList())
+        // 主 review 第 2 轮修复：原 runCatching 会吞 CancellationException。
+        return try {
+            configProvider.listEndpoints()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Timber.w(t, "EndpointRegistry.listEndpoints 失败")
+            emptyList()
+        }
     }
 
     /**
      * 按 id 获取端点（不走缓存，每次读 Room）。
      */
     suspend fun getEndpoint(id: String): LlmEndpointEntity? {
-        return runCatching { configProvider.getEndpoint(id) }.getOrNull()
+        // 主 review 第 2 轮修复：原 runCatching 会吞 CancellationException。
+        return try {
+            configProvider.getEndpoint(id)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Timber.w(t, "EndpointRegistry.getEndpoint 失败 id=%s", id)
+            null
+        }
     }
 
     /**

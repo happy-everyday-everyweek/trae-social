@@ -19,4 +19,10 @@ import java.io.IOException
 class RateLimitedException(
     message: String,
     val retryAfterSeconds: Long? = null,
-) : IOException(message)
+    /**
+     * 触发限流的原始异常（OpenAI / Anthropic SDK 的 RateLimitException 等）。
+     *
+     * 主 review 第 2 轮修复：保留原始 stacktrace 便于排查 429 来源。
+     */
+    cause: Throwable? = null,
+) : IOException(message, cause)

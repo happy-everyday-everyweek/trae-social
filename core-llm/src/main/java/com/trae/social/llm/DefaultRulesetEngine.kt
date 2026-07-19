@@ -73,7 +73,7 @@ class DefaultRulesetEngine @Inject constructor(
                 return@flow
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: Throwable) {
+            } catch (e: Exception) {
                 lastError = e
                 // 主 review 第 1 轮 m-1 修复：RateLimited 优先于 emitted 判定——
                 // 已 emit 部分 token 后遭遇 429 也应转 RateLimitedException 向上传递，
@@ -121,17 +121,22 @@ class DefaultRulesetEngine @Inject constructor(
                 continue
             }
             val prepared = prepareMessages(messages, config, endpoint)
-            val result = runCatching { client.chatSync(prepared, config) }
-            result.onSuccess { return it }
-            result.onFailure { e ->
-                if (e is CancellationException) throw e
+            // 主 review 第 2 轮修复：原 runCatching 会吞 CancellationException（破坏协程取消语义）
+            // 和 Error（OOM 被吞继续降级，加剧崩溃）。改为 try/catch 显式重抛 CancellationException，
+            // catch (Exception) 让 Error 自然传播。判定顺序与 chat() 对齐：先 isRateLimited 后 isPersistentError。
+            try {
+                val result = client.chatSync(prepared, config)
+                return result
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
                 lastError = e
+                if (isRateLimited(e)) {
+                    throw toRateLimited(e)
+                }
                 if (isPersistentError(e)) {
                     Timber.w(e, "DefaultRulesetEngine.chatSync 持久性错误，不降级 endpoint=%s", endpoint.id)
                     throw e
-                }
-                if (isRateLimited(e)) {
-                    throw toRateLimited(e)
                 }
                 Timber.w(e, "DefaultRulesetEngine.chatSync 失败，尝试降级到下一端点 endpoint=%s", endpoint.id)
                 // 继续下一端点
@@ -163,6 +168,10 @@ class DefaultRulesetEngine @Inject constructor(
      *
      * 端点声明 [ModelCapability.JSON_MODE_NATIVE] 时由 client 内部走原生 `response_format`，
      * 引擎层不做额外处理。
+     *
+     * 主 review 第 2 轮修复：原实现 `ChatMessage(msg.role, msg.textContent() + "\n\n" + JSON_MODE_HINT)`
+     * 会丢弃原 SYSTEM 消息的非文本 content（图像/音频/视频块）。改为复制原 content 列表，
+     * 把 JSON_MODE_HINT 作为新 Text 块追加到尾部，保留多模态内容。
      */
     private fun prepareMessages(
         messages: List<ChatMessage>,
@@ -179,7 +188,8 @@ class DefaultRulesetEngine @Inject constructor(
         }
         return messages.mapIndexed { idx, msg ->
             if (idx == systemIdx) {
-                ChatMessage(msg.role, msg.textContent() + "\n\n" + JSON_MODE_HINT)
+                // 保留原 content（可能含多模态块），把 JSON_MODE_HINT 作为新 Text 块追加
+                ChatMessage(msg.role, msg.content + ContentPart.Text(JSON_MODE_HINT))
             } else {
                 msg
             }
@@ -203,10 +213,14 @@ class DefaultRulesetEngine @Inject constructor(
      * 命中 401），误判为持久性 HTTP 错误直接抛出不降级。这与 OnboardingViewModel.classifyError
      * 的分层逻辑对齐——网络错误应允许降级到下一端点重试。
      * RateLimitedException 是 IOException 子类，已在 [isRateLimited] 中优先判定，不会走到这里。
+     *
+     * 主 review 第 2 轮修复：移除 message 正则兜底（extractHttpCode）——非 SDK 异常的
+     * message 含 3 位数字（如 "Port 443 in use" / "error at line 503"）会被误判为 HTTP 4xx/5xx。
+     * 仅信任反射结果，反射未命中（非 SDK 异常）一律返回 false（按可恢复错误处理，允许降级重试）。
      */
     private fun isPersistentError(e: Throwable): Boolean {
         if (e is IOException) return false
-        val code = extractSdkStatusCode(e) ?: extractHttpCode(e.message.orEmpty()) ?: return false
+        val code = extractSdkStatusCode(e) ?: return false
         return code in 400..499 && code != 429
     }
 
@@ -214,15 +228,17 @@ class DefaultRulesetEngine @Inject constructor(
         if (e is RateLimitedException) return true
         // IOException（UnknownHost / SocketTimeout 等）的 message 偶然含 "429" 不应被误判为限流。
         if (e is IOException) return false
-        val code = extractSdkStatusCode(e) ?: extractHttpCode(e.message.orEmpty()) ?: return false
+        val code = extractSdkStatusCode(e) ?: return false
         return code == 429
     }
 
     private fun toRateLimited(e: Throwable): RateLimitedException {
         if (e is RateLimitedException) return e
+        // 主 review 第 2 轮修复：传入原始异常作为 cause，保留 stacktrace 便于排查 429 来源。
         return RateLimitedException(
             message = e.message ?: "LLM 提供商返回 429 限流",
             retryAfterSeconds = null,
+            cause = e,
         )
     }
 
@@ -233,7 +249,7 @@ class DefaultRulesetEngine @Inject constructor(
      * 与 `com.anthropic.errors.AnthropicServiceException.statusCode() : int`，
      * 子类（`BadRequestException` / `RateLimitException` 等）继承并 override 该方法。
      *
-     * 非 SDK 异常（如 `IOException`）无此方法，返回 null 由调用方走 message 兜底。
+     * 非 SDK 异常（如 `IOException`）无此方法，返回 null 由调用方走可恢复错误降级路径。
      */
     private fun extractSdkStatusCode(e: Throwable): Int? = runCatching {
         val method = e::class.java.getMethod("statusCode")
@@ -241,11 +257,6 @@ class DefaultRulesetEngine @Inject constructor(
         // 避免对 method.invoke(e) 二次调用产生的开销与潜在副作用。
         (method.invoke(e) as? Number)?.toInt()
     }.getOrNull()
-
-    private fun extractHttpCode(text: String): Int? {
-        val regex = Regex("""\b(4\d{2}|5\d{2})\b""")
-        return regex.find(text)?.value?.toIntOrNull()
-    }
 
     private companion object {
         const val JSON_MODE_HINT =

@@ -77,14 +77,32 @@ class ProfileViewModel @Inject constructor(
 
     private fun loadProfile() {
         viewModelScope.launch {
-            val account = runCatching { accountRepository.getById(SELF_ID) }
-                .getOrElse { Timber.w(it, "加载自身账号失败"); null }
+            // 主 review 第 2 轮修复：原 runCatching 会吞 CancellationException。
+            val account = try {
+                accountRepository.getById(SELF_ID)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Timber.w(t, "加载自身账号失败"); null
+            }
             if (account == null) {
                 _uiState.value = ProfileUiState.Empty
                 return@launch
             }
-            val following = runCatching { followRelationDao.countFollowing(SELF_ID) }.getOrElse { 0 }
-            val followers = runCatching { followRelationDao.countFollowers(SELF_ID) }.getOrElse { 0 }
+            val following = try {
+                followRelationDao.countFollowing(SELF_ID)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Timber.w(t, "加载关注数失败"); 0
+            }
+            val followers = try {
+                followRelationDao.countFollowers(SELF_ID)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Timber.w(t, "加载粉丝数失败"); 0
+            }
             _uiState.value = ProfileUiState.Success(
                 account = account,
                 followingCount = following,
@@ -95,8 +113,15 @@ class ProfileViewModel @Inject constructor(
 
     private fun loadActivityLevel() {
         viewModelScope.launch {
-            _activityLevel.value = runCatching { configRepository.getAiActivityLevel() }
-                .getOrElse { AiActivityLevel.MEDIUM }
+            // 主 review 第 2 轮修复：原 runCatching 会吞 CancellationException。
+            val level = try {
+                configRepository.getAiActivityLevel()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Timber.w(t, "加载活跃度档位失败"); AiActivityLevel.MEDIUM
+            }
+            _activityLevel.value = level
         }
     }
 
@@ -112,18 +137,23 @@ class ProfileViewModel @Inject constructor(
      */
     private fun loadInitialLikedTweetIds() {
         viewModelScope.launch {
-            runCatching {
+            // 主 review 第 2 轮修复：原 runCatching 会吞 CancellationException。
+            val likedIds = try {
                 // #103：查询 interactions 表中当前用户已执行的 LIKE 互动，
                 // 替代此前 likeCount > 0 的启发式判断
                 interactionRepository.getLikedTweetIdsByAccount(SELF_ID)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Timber.w(t, "恢复已点赞状态失败")
+                null
             }
-                .onSuccess { likedIds ->
-                    // #140：仅当用户尚未手动切换点赞时才用 DB 结果覆盖
-                    if (!userToggledLike) {
-                        _likedTweetIds.value = likedIds.toSet()
-                    }
+            if (likedIds != null) {
+                // #140：仅当用户尚未手动切换点赞时才用 DB 结果覆盖
+                if (!userToggledLike) {
+                    _likedTweetIds.value = likedIds.toSet()
                 }
-                .onFailure { Timber.w(it, "恢复已点赞状态失败") }
+            }
         }
     }
 
@@ -165,9 +195,15 @@ class ProfileViewModel @Inject constructor(
 
     fun setActivityLevel(level: AiActivityLevel) {
         viewModelScope.launch {
-            runCatching { configRepository.setAiActivityLevel(level) }
-                .onSuccess { _activityLevel.value = level }
-                .onFailure { Timber.w(it, "切换活跃度档位失败") }
+            // 主 review 第 2 轮修复：原 runCatching 会吞 CancellationException。
+            try {
+                configRepository.setAiActivityLevel(level)
+                _activityLevel.value = level
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Timber.w(t, "切换活跃度档位失败")
+            }
         }
     }
 
@@ -179,6 +215,16 @@ class ProfileViewModel @Inject constructor(
      *
      * 竞态修复：回滚前对比当前状态，仅在状态仍符合本次预期时回滚，
      * 避免快速“点赞 -> 取消”时第一次请求的回滚误将已取消的推文重新标记为已点赞。
+     *
+     * 主 review 第 2 轮修复：
+     * - **CancellationException 重抛**：原 runCatching 会吞 CancellationException，
+     *   viewModelScope 取消时会把取消误判为点赞失败触发回滚，污染 StateFlow 值。
+     *   改为 try/catch 显式重抛 CancellationException。
+     * - **DELETE 侧对称保护**：原 M5 修复只检查 INSERT 侧 IGNORE 返回值，
+     *   DELETE 侧 `deleteLikeInteraction` 返回 Unit 无法判断是否实际删除。
+     *   当 _likedTweetIds 与 DB 不同步时（误包含某 tweetId 但 DB 中无 LIKE 记录），
+     *   会无条件 updateLikeCount(-1) 导致计数错误甚至负数。改为先查 DB 是否有 LIKE 记录，
+     *   无则跳过计数更新。
      */
     fun toggleLike(tweetId: String) {
         val wasLiked = tweetId in _likedTweetIds.value
@@ -192,7 +238,7 @@ class ProfileViewModel @Inject constructor(
         }
         viewModelScope.launch {
             val delta = if (wasLiked) -1 else 1
-            runCatching {
+            try {
                 // M7 修复：同步写入/删除 interactions 表的 LIKE 记录，
                 // 使 #103 的 loadInitialLikedTweetIds 能正确恢复点赞状态
                 //
@@ -201,9 +247,20 @@ class ProfileViewModel @Inject constructor(
                 // 此时若继续 updateLikeCount(+1) 会重复计数（likeCount 在原 LIKE 写入时已 +1）。
                 // 改为检查返回值：IGNORE 时跳过计数更新；本地乐观状态（已 +tweetId）与 DB
                 // 现状一致，无需回滚。
+                //
+                // 主 review 第 2 轮修复：DELETE 侧对称保护——先查 DB 是否有 LIKE 记录，
+                // 无则跳过计数更新，避免 _likedTweetIds 误包含某 tweetId 但 DB 无记录时
+                // 无条件 -1 导致 likeCount 错误。
                 val shouldUpdateCount = if (wasLiked) {
-                    interactionRepository.deleteLikeInteraction(tweetId, SELF_ID)
-                    true
+                    val existing = interactionRepository.getLikedTweetIdsByAccount(SELF_ID)
+                        .contains(tweetId)
+                    if (existing) {
+                        interactionRepository.deleteLikeInteraction(tweetId, SELF_ID)
+                        true
+                    } else {
+                        // DB 中无此 LIKE 记录，likeCount 未曾因此 +1，无需 -1
+                        false
+                    }
                 } else {
                     val now = System.currentTimeMillis()
                     val insertedRowId = interactionRepository.scheduleInteraction(
@@ -223,18 +280,20 @@ class ProfileViewModel @Inject constructor(
                 if (shouldUpdateCount) {
                     tweetRepository.updateLikeCount(tweetId, delta)
                 }
-            }.onFailure {
-                    Timber.w(it, "更新点赞计数失败，回滚本地状态")
-                    // 仅在当前状态仍符合本次预期时回滚，避免与后续 toggle 竞态误覆盖
-                    val currentState = _likedTweetIds.value
-                    if (wasLiked && tweetId !in currentState) {
-                        // 之前已点赞 -> 本次取消，回滚为已点赞
-                        _likedTweetIds.value = currentState + tweetId
-                    } else if (!wasLiked && tweetId in currentState) {
-                        // 之前未点赞 -> 本次点赞，回滚为未点赞
-                        _likedTweetIds.value = currentState - tweetId
-                    }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Timber.w(t, "更新点赞计数失败，回滚本地状态")
+                // 仅在当前状态仍符合本次预期时回滚，避免与后续 toggle 竞态误覆盖
+                val currentState = _likedTweetIds.value
+                if (wasLiked && tweetId !in currentState) {
+                    // 之前已点赞 -> 本次取消，回滚为已点赞
+                    _likedTweetIds.value = currentState + tweetId
+                } else if (!wasLiked && tweetId in currentState) {
+                    // 之前未点赞 -> 本次点赞，回滚为未点赞
+                    _likedTweetIds.value = currentState - tweetId
                 }
+            }
         }
     }
 
@@ -258,8 +317,9 @@ class ProfileViewModel @Inject constructor(
      */
     fun retweetTweet(tweetId: String) {
         viewModelScope.launch {
-            runCatching {
-                val original = tweetRepository.getById(tweetId) ?: return@runCatching
+            // 主 review 第 2 轮修复：原 runCatching 会吞 CancellationException。
+            try {
+                val original = tweetRepository.getById(tweetId) ?: return@launch
                 val now = System.currentTimeMillis()
                 val retweet = TweetEntity(
                     id = UUID.randomUUID().toString(),
@@ -288,7 +348,11 @@ class ProfileViewModel @Inject constructor(
                         executedAt = now,
                     )
                 )
-            }.onFailure { Timber.w(it, "转发失败") }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Timber.w(t, "转发失败")
+            }
         }
     }
 
