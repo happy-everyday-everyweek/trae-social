@@ -8,8 +8,11 @@ import androidx.room.PrimaryKey
 /**
  * 推文实体。信息流、时间线、个人主页均基于此表查询。
  *
- * 索引：createdAt（分页排序）、authorId（按作者查询）、deduplicationKey（唯一去重）。
+ * 索引：createdAt（分页排序）、deduplicationKey（唯一去重）、(authorId, createdAt) 复合索引。
  * IMPL-22：authorId 外键关联 accounts.id，删除账号时级联删除其推文。
+ *
+ * #227：原 `Index(value = ["authorId"])` 单列索引已被复合索引 `(authorId, createdAt)`
+ * 的最左前缀覆盖（SQLite 最左前缀原则），删除以避免 INSERT/UPDATE 写放大。
  *
  * @param deduplicationKey 调度去重键（accountId + windowStart + sequenceNo），唯一约束
  * @param isAiGenerated 是否为 AI 生成（RISK-12：UI 标识）
@@ -18,9 +21,9 @@ import androidx.room.PrimaryKey
     tableName = "tweets",
     indices = [
         Index(value = ["createdAt"]),
-        Index(value = ["authorId"]),
         Index(value = ["deduplicationKey"], unique = true),
         // #108：复合索引，优化 countByAuthorSince/countByAuthorInWindow/getByAuthor 查询
+        // #227：最左前缀覆盖原 authorId 单列索引，不再单独声明
         Index(value = ["authorId", "createdAt"])
     ],
     foreignKeys = [
