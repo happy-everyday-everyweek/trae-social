@@ -194,10 +194,10 @@ class AnthropicCompatibleClient(
      * 统一暴露 `int statusCode()` 方法（已通过 javap 验证）。这里用反射读取，避免本
      * 模块直接依赖 errors 子包。
      *
-     * 旧实现用 `className.contains("Anthropic")` 大小写敏感匹配，但 SDK 异常位于
-     * `com.anthropic.errors` 包，简单名不含 "Anthropic"、包名为小写 `anthropic`，
-     * 恒返回 false（详见 PR #264 review）。反射方式直接命中基类 `statusCode()` 方法，
-     * 对所有 SDK 4xx 异常统一生效，且无类名拼写风险。
+     * 旧实现用 `className.contains("Anthropic")` 匹配，但 SDK 异常简单名（如
+     * `BadRequestException`）不含 "Anthropic"，匹配结果依赖 className 取的是 simpleName
+     * 还是 qualifiedName 以及大小写敏感性，不够稳健（详见 PR #264 / #271 review）。
+     * 反射方式直接命中基类 `statusCode()` 方法，对所有 SDK 4xx 异常统一生效，且无类名拼写风险。
      */
     private fun isPersistentHttpError(e: Throwable): Boolean {
         val code = extractSdkStatusCode(e) ?: extractHttpCode(e.message.orEmpty()) ?: return false

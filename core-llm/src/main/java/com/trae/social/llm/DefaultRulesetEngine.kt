@@ -164,9 +164,9 @@ class DefaultRulesetEngine @Inject constructor(
      * 均继承自 `OpenAIServiceException` / `AnthropicServiceException`，统一暴露
      * `int statusCode()` 方法。这里用反射读取该方法，避免本模块直接依赖 SDK errors 子包。
      *
-     * 旧实现用 `className.contains("OpenAI"/"Anthropic")` 大小写敏感匹配，但 SDK 异常
-     * 简单名不含厂商前缀、包名为小写 `com.openai.errors` / `com.anthropic.errors`，
-     * 恒返回 false，导致持久性错误被错误降级遍历所有端点。详见 PR #264 review。
+     * 旧实现用 `className.contains("OpenAI"/"Anthropic")` 匹配，但 SDK 异常简单名不含
+     * 厂商前缀（如 `BadRequestException`），匹配结果依赖 className 取的是 simpleName
+     * 还是 qualifiedName 以及大小写敏感性，不够稳健。详见 PR #264 / #271 review。
      */
     private fun isPersistentError(e: Throwable): Boolean {
         val code = extractSdkStatusCode(e) ?: extractHttpCode(e.message.orEmpty()) ?: return false

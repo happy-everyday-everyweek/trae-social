@@ -68,8 +68,10 @@ class EndpointRegistry @Inject constructor(
 ```
 
 - `ConcurrentHashMap<String, LlmClient>` + `Mutex` 双重检查懒创建。
-- **API Key 缺失快速失败**：`getClient` 在端点未配置 API Key 时直接返回 null，
-  不构造 SDK client，避免发起注定 401 的请求浪费 RTT 与配额（与旧 AuthInterceptor 一致）。
+- **API Key 缺失按协议区分**：`getClient` 在 `LlmProtocol.requiresApiKey=true`（如
+  `ANTHROPIC_COMPATIBLE`）且 API Key 缺失时直接返回 null，避免发起注定 401 的请求；
+  `requiresApiKey=false`（如 `OPENAI_COMPATIBLE`）时即使 API Key 缺失也构造 client，
+  让 SDK 自行处理空 Key（跳过 Authorization 头），覆盖本地 Ollama 等无需鉴权的端点场景。
 - **自动失效缓存**：`init` 中订阅 `EndpointConfigProvider.observeEndpointChanges()`，
   任何端点 CRUD / reorder / API Key 变更后清空缓存重建。
 - 内部 `CoroutineScope(SupervisorJob() + Dispatchers.IO)` 为 `@Singleton` 进程级作用域。
@@ -135,7 +137,9 @@ private const val JSON_MODE_HINT =
 ```kotlin
 private fun extractSdkStatusCode(e: Throwable): Int? = runCatching {
     val method = e::class.java.getMethod("statusCode")
-    (method.invoke(e) as? Int) ?: (method.invoke(e) as? Number)?.toInt()
+    // SDK 的 statusCode() 返回 int（autobox 为 Integer），统一按 Number 取值，
+    // 避免对 method.invoke(e) 二次调用产生的开销与潜在副作用。
+    (method.invoke(e) as? Number)?.toInt()
 }.getOrNull()
 ```
 
@@ -144,7 +148,7 @@ private fun extractSdkStatusCode(e: Throwable): Int? = runCatching {
   子类（`BadRequestException` / `UnauthorizedException` / `RateLimitException` 等）继承并 override。
 - 旧实现用 `className.contains("OpenAI"/"Anthropic")` 大小写敏感匹配，但 SDK 异常位于
   `com.openai.errors` / `com.anthropic.errors` 包，简单名不含厂商前缀、包名为小写，
-  恒返回 false（详见 PR #264 review）。反射方式直接命中基类方法，无类名拼写风险。
+  依赖包名约定不够稳健（详见 PR #264 review）。反射方式直接命中基类方法，无类名拼写风险。
 - 非 SDK 异常（如 `IOException`）无此方法，返回 null 由调用方走 message 正则兜底
   `Regex("""\b(4\d{2}|5\d{2})\b""")`。
 
@@ -349,15 +353,23 @@ data class EndpointConfig(
 ## LlmProtocol 枚举
 
 ```kotlin
-enum class LlmProtocol(val id: String, val displayName: String, val defaultBaseUrl: String) {
-    OPENAI_COMPATIBLE("openai_compat", "OpenAI 兼容", "https://api.openai.com/v1/"),
-    ANTHROPIC_COMPATIBLE("anthropic_compat", "Anthropic 兼容", "https://api.anthropic.com/");
+enum class LlmProtocol(
+    val id: String,
+    val displayName: String,
+    val defaultBaseUrl: String,
+    val requiresApiKey: Boolean,
+) {
+    OPENAI_COMPATIBLE("openai_compat", "OpenAI 兼容", "https://api.openai.com/v1/", requiresApiKey = false),
+    ANTHROPIC_COMPATIBLE("anthropic_compat", "Anthropic 兼容", "https://api.anthropic.com/", requiresApiKey = true);
 }
 ```
 
 - 把「提供商」与「API 协议格式」解耦：用户配置的端点只需声明走哪种协议格式，不必绑定到特定提供商。
 - 不再保留 GEMINI_COMPATIBLE：Gemini 走 OPENAI_COMPATIBLE 的官方兼容端点
   `https://generativelanguage.googleapis.com/v1beta/openai/`，由 OpenAI SDK 统一承载。
+- `requiresApiKey` 控制 `EndpointRegistry.getClient` 在 API Key 缺失时的行为：
+  `ANTHROPIC_COMPATIBLE` 强制要求（缺失即跳过 client 创建），`OPENAI_COMPATIBLE` 不强制
+  （覆盖本地 Ollama 等无需鉴权的端点场景）。
 
 ## ModelCapability 枚举
 

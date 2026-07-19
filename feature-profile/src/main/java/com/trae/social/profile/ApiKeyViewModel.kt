@@ -186,6 +186,17 @@ class ApiKeyViewModel @Inject constructor(
         )
 
         /**
+         * Anthropic 兼容端点默认能力集合（无 JSON_MODE_NATIVE）。
+         *
+         * Anthropic 不支持原生 `response_format`，由 [DefaultRulesetEngine] 走 prompt 降级。
+         * 提取为常量避免每次调用分配新 Set，与 [DEFAULT_CAPABILITIES] 保持对称。
+         */
+        val ANTHROPIC_CAPABILITIES: Set<ModelCapability> = setOf(
+            ModelCapability.TEXT,
+            ModelCapability.STREAMING,
+        )
+
+        /**
          * 按协议格式给出默认能力集合。
          *
          * - [LlmProtocol.OPENAI_COMPATIBLE]：`TEXT + JSON_MODE_NATIVE + STREAMING`
@@ -195,10 +206,7 @@ class ApiKeyViewModel @Inject constructor(
          */
         fun defaultCapabilitiesFor(protocol: LlmProtocol): Set<ModelCapability> = when (protocol) {
             LlmProtocol.OPENAI_COMPATIBLE -> DEFAULT_CAPABILITIES
-            LlmProtocol.ANTHROPIC_COMPATIBLE -> setOf(
-                ModelCapability.TEXT,
-                ModelCapability.STREAMING,
-            )
+            LlmProtocol.ANTHROPIC_COMPATIBLE -> ANTHROPIC_CAPABILITIES
         }
     }
 }

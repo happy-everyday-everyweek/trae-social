@@ -10,13 +10,11 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import androidx.room.withTransaction
 import com.trae.social.core.data.config.AiActivityLevel
 import com.trae.social.core.data.config.LlmProtocol
 import com.trae.social.core.data.config.LlmProvider
 import com.trae.social.core.data.config.ModelCapability
 import com.trae.social.core.data.dao.LlmEndpointDao
-import com.trae.social.core.data.db.AppDatabase
 import com.trae.social.core.data.di.SecurePreferences
 import com.trae.social.core.data.entity.LlmEndpointEntity
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -53,7 +51,6 @@ private val Context.socialDataStore: DataStore<Preferences> by preferencesDataSt
 class ConfigRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     @SecurePreferences private val secureSharedPreferences: android.content.SharedPreferences,
-    private val database: AppDatabase,
     private val llmEndpointDao: LlmEndpointDao,
 ) {
 
@@ -376,20 +373,13 @@ class ConfigRepository @Inject constructor(
     /**
      * 事务重写端点排序。orderedIds 按新顺序给出 id 列表。
      *
-     * 用 [database.withTransaction] 把 `shiftAllOrderIndex` + N 次 `setOrderIndex` 包成
-     * 原子操作——避免中途崩溃导致 orderIndex 处于 shift 后的偏移态，下次启动排序错乱。
-     * （#151 review 反馈：reorderEndpoints 未包 Room 事务）
+     * 实际重排逻辑封装在 [LlmEndpointDao.reorder] 的 `@Transaction` 默认方法内，
+     * 保证 shift + 多次 setOrderIndex 要么全部提交要么全部回滚，
+     * 不会因中途失败留下 orderIndex 不一致的中间状态。
      */
     suspend fun reorderEndpoints(orderedIds: List<String>) {
         if (orderedIds.isEmpty()) return
-        // 用 offset 避免重排过程中 unique 冲突（虽然 orderIndex 非 unique，但保险起见）
-        val shift = orderedIds.size + 10
-        database.withTransaction {
-            llmEndpointDao.shiftAllOrderIndex(shift)
-            orderedIds.forEachIndexed { idx, id ->
-                llmEndpointDao.setOrderIndex(id, idx)
-            }
-        }
+        llmEndpointDao.reorder(orderedIds)
         _endpointChanges.tryEmit(Unit)
     }
 
