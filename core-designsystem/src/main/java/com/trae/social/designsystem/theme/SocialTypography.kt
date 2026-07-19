@@ -122,7 +122,8 @@ val DefaultSocialTypography = SocialTypography(
  *
  * #195：提供 [DefaultSocialTypography] 作为 default，使 `@Preview`、单测与非
  * `SocialTheme` 包裹的临时组合能正常渲染，与 `LocalSocialSpacing`/`LocalSocialShapes`
- * 行为一致。正式 UI 仍应通过 [SocialTheme] 提供排版。
+ * 行为一致。正式 UI 必须通过 [SocialTheme] 提供排版；此 default 仅供 @Preview 与
+ * 单测使用，生产环境漏包 SocialTheme 不会崩溃但会用默认排版。
  */
 val LocalSocialTypography = staticCompositionLocalOf<SocialTypography> {
     DefaultSocialTypography
