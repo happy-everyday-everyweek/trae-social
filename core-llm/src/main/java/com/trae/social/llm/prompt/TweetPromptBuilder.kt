@@ -1,5 +1,6 @@
 package com.trae.social.llm.prompt
 
+import com.trae.social.core.data.entity.AccountEntity
 import com.trae.social.llm.ChatMessage
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -48,7 +49,31 @@ class TweetPromptBuilder {
         val emojiPreference: List<String>,
         val typoRate: Double,
         val recentMood: String,
-    )
+    ) {
+        companion object {
+            /**
+             * #219：从 [AccountEntity] 构建 [PersonaInput] 的统一入口。
+             *
+             * 此前 InteractionWorker / PendingInteractionWorker / TweetGenerationWorker
+             * 各自手动复制了相同的 11 字段映射（含 `catchphrase.joinToString("、")`
+             * 与 `recentMood.ifBlank { "平和" }` 兑底细节），任一字段调整需改多处且易遗漏。
+             * 抽到此 companion 后调用方统一使用 `PersonaInput.from(account)`。
+             */
+            fun from(account: AccountEntity): PersonaInput = PersonaInput(
+                displayName = account.displayName,
+                profession = account.profession,
+                ageRange = account.ageRange,
+                culturalBackground = account.culturalBackground,
+                worldview = account.worldview,
+                values = account.values,
+                languageStyle = account.languageStyle,
+                catchphrase = account.catchphrase.joinToString("、"),
+                emojiPreference = account.emojiPreference,
+                typoRate = account.typoRate,
+                recentMood = account.recentMood.ifBlank { "平和" },
+            )
+        }
+    }
 
     /**
      * 推文生成结果。
