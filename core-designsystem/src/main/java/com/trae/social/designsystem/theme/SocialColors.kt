@@ -78,9 +78,14 @@ val DarkSocialColors = SocialColors(
 
 /**
  * 通过 CompositionLocal 暴露当前配色，供深层组件直接读取。
+ *
+ * #195：提供 [LightSocialColors] 作为 default，使 `@Preview`、单测与非 `SocialTheme`
+ * 包裹的临时组合能正常渲染，与 `LocalSocialSpacing`/`LocalSocialShapes` 保持一致。
+ * 正式 UI 必须通过 [SocialTheme] 提供配色；此 default 仅供 @Preview 与单测使用，
+ * 生产环境漏包 SocialTheme 不会崩溃但会用浅色配色。
  */
 val LocalSocialColors = staticCompositionLocalOf<SocialColors> {
-    error("SocialColors 未提供，请在 SocialTheme 中包裹内容")
+    LightSocialColors
 }
 
 /**
