@@ -8,7 +8,6 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.trae.social.core.data.config.AiActivityLevel
-import com.trae.social.core.data.entity.SchedulerLogEntity
 import com.trae.social.core.data.entity.TweetEntity
 import com.trae.social.core.data.repository.AccountRepository
 import com.trae.social.core.data.repository.ConfigRepository
@@ -393,6 +392,9 @@ class TweetGenerationWorker @AssistedInject constructor(
 
     /**
      * 写一条调度日志。
+     *
+     * #218：实现抽到 [SchedulerLogger.log]，此处保留薄包装仅供本 Worker 内部调用，
+     * 统一注入 action = `"tweet_generation"`。
      */
     private suspend fun logSchedulerEvent(
         accountId: String,
@@ -400,18 +402,7 @@ class TweetGenerationWorker @AssistedInject constructor(
         status: String,
         error: String?,
     ) {
-        runCatching {
-            logDao.insert(
-                SchedulerLogEntity(
-                    timestamp = System.currentTimeMillis(),
-                    accountId = accountId,
-                    action = "tweet_generation",
-                    result = status,
-                    durationMs = System.currentTimeMillis() - startedAt,
-                    errorMessage = error,
-                )
-            )
-        }.onFailure { Timber.w(it, "写调度日志失败") }
+        SchedulerLogger.log(logDao, "tweet_generation", accountId, startedAt, status, error)
     }
 
     /**
