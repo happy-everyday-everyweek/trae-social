@@ -84,6 +84,9 @@ fun PublishScreen(
     var selectedCaptureIndex by remember { mutableStateOf(-1) }
     var showPublishAnimation by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
+    // #236：tabs 数组用 remember 保持引用稳定，避免 spread 操作符每次重组生成新 Array
+    // 导致 Compose skip 用引用相等性判断失效，CapsuleTab 仍被强制重组。
+    val publishTabs = remember { arrayOf("相机", "编辑器") }
 
     // 监听发布完成事件：触发飞入动画，动画结束后回调 onPublished
     LaunchedEffect(viewModel) {
@@ -130,7 +133,7 @@ fun PublishScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 CapsuleTab(
-                    tabs = listOf("相机", "编辑器"),
+                    tabs = *publishTabs,
                     selectedIndex = selectedTab,
                     onTabSelected = { selectedTab = it },
                 )

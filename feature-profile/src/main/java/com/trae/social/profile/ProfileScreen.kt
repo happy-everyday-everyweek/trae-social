@@ -91,6 +91,9 @@ fun ProfileScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val selectedTab by viewModel.selectedTab.collectAsStateWithLifecycle()
     val colors = socialColors()
+    // #236：tabs 数组用 remember 保持引用稳定，避免 spread 操作符每次重组生成新 Array
+    // 导致 Compose skip 用引用相等性判断失效，CapsuleTab 仍被强制重组。
+    val profileTabs = remember { ProfileTab.values().map { it.label }.toTypedArray() }
     // #8：全屏大图查看器状态（媒体网格与推文图片共用）
     var fullScreenState by remember { mutableStateOf<FullScreenImageState?>(null) }
     // #233：onImageClick 用 remember 缓存，避免每次 ProfileScreen 重组（selectedTab
@@ -146,7 +149,7 @@ fun ProfileScreen(
                 }
                 SocialDivider()
                 CapsuleTab(
-                    tabs = ProfileTab.values().map { it.label },
+                    tabs = *profileTabs,
                     selectedIndex = selectedTab.ordinal,
                     onTabSelected = { viewModel.selectTab(ProfileTab.values()[it]) },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = spacing.lg, vertical = spacing.sm),
