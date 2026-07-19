@@ -118,9 +118,11 @@ fun ApiKeyManagementScreen(
                     onDisplayNameChange = { displayNameDrafts[cfg.id] = it },
                     onSaveKey = {
                         viewModel.setApiKey(cfg.id, it)
-                        // 主 review 第 1 轮 M4 修复：保存 API Key 后清除输入草稿，
-                        // 避免"已保存的 Key 仍停留在输入框"造成困惑，也避免重复点击保存。
-                        apiKeyDrafts.remove(cfg.id)
+                        // 主 review 第 2 轮修复：回退第 1 轮 M4 的 apiKeyDrafts.remove(cfg.id)。
+                        // setApiKey 是 fire-and-forget（内部 viewModelScope.launch + runCatching，
+                        // 失败仅 Timber.w，无 UI 反馈）。M4 同步清草稿会导致保存失败时用户输入丢失
+                        // 且无错误提示。保留草稿让用户可重试；保存成功后 loadAll 会刷新
+                        // cfg.apiKeyPreview，UI 显示"当前: sk-xxx"提示已保存，用户可手动清空输入框。
                     },
                     onSaveEndpoint = {
                         viewModel.updateEndpoint(
@@ -130,12 +132,10 @@ fun ApiKeyManagementScreen(
                             baseUrl = baseUrlDrafts[cfg.id] ?: cfg.baseUrl,
                             model = modelDrafts[cfg.id] ?: cfg.model,
                         )
-                        // 主 review 第 1 轮 M4 修复：保存端点配置后清除 displayName /
-                        // baseUrl / model 草稿，让 UI 回落到新持久化的 cfg.* 值
-                        // （loadAll 后 state.endpoints 会携带新值，否则草稿会遮盖新值）。
-                        displayNameDrafts.remove(cfg.id)
-                        baseUrlDrafts.remove(cfg.id)
-                        modelDrafts.remove(cfg.id)
+                        // 主 review 第 2 轮修复：回退第 1 轮 M4 的草稿清除（同 onSaveKey 理由）。
+                        // 保留草稿让用户可在保存失败时重试；保存成功后 loadAll 会刷新 cfg.*
+                        // （baseUrl/model/displayName），但草稿会遮盖 cfg.*——这是可接受的：
+                        // 用户看到的草稿即其输入值，与已保存值一致（保存成功时），或可重试（失败时）。
                     },
                     onSetPrimary = { viewModel.moveToFront(cfg.id) },
                     onDelete = { viewModel.deleteEndpoint(cfg.id) },

@@ -214,11 +214,23 @@ class ProfileChatViewModel @Inject constructor(
      */
     private fun refreshProfile() {
         viewModelScope.launch {
-            _profileSummary.value = ProfileSummaryState(
-                activeVersion = readAccess.activeVersion(),
-                snapshot = readAccess.latestSnapshot(),
-                activeOverrides = readAccess.activeOverrides(),
-            )
+            // 主 review 第 2 轮修复：原实现裸调用三个 readAccess suspend 方法，
+            // 任一抛异常会导致协程崩溃（虽然 SupervisorJob 不影响兄弟协程，
+            // 但异常会传播到默认 CoroutineExceptionHandler，Android 主线程可能 crash）。
+            // 与同文件 send/confirmRollback/resetAllOverrides 的 M3 修复模式保持一致。
+            val summary = try {
+                ProfileSummaryState(
+                    activeVersion = readAccess.activeVersion(),
+                    snapshot = readAccess.latestSnapshot(),
+                    activeOverrides = readAccess.activeOverrides(),
+                )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Timber.w(t, "refreshProfile 失败")
+                return@launch
+            }
+            _profileSummary.value = summary
         }
     }
 

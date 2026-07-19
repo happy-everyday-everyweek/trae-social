@@ -168,6 +168,10 @@ class DefaultRulesetEngine @Inject constructor(
      *
      * 端点声明 [ModelCapability.JSON_MODE_NATIVE] 时由 client 内部走原生 `response_format`，
      * 引擎层不做额外处理。
+     *
+     * 主 review 第 2 轮修复：原实现 `ChatMessage(msg.role, msg.textContent() + "\n\n" + JSON_MODE_HINT)`
+     * 会丢弃原 SYSTEM 消息的非文本 content（图像/音频/视频块）。改为复制原 content 列表，
+     * 把 JSON_MODE_HINT 作为新 Text 块追加到尾部，保留多模态内容。
      */
     private fun prepareMessages(
         messages: List<ChatMessage>,
@@ -184,7 +188,8 @@ class DefaultRulesetEngine @Inject constructor(
         }
         return messages.mapIndexed { idx, msg ->
             if (idx == systemIdx) {
-                ChatMessage(msg.role, msg.textContent() + "\n\n" + JSON_MODE_HINT)
+                // 保留原 content（可能含多模态块），把 JSON_MODE_HINT 作为新 Text 块追加
+                ChatMessage(msg.role, msg.content + ContentPart.Text(JSON_MODE_HINT))
             } else {
                 msg
             }

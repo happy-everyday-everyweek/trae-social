@@ -78,14 +78,20 @@ class FollowListViewModel @Inject constructor(
     fun load(type: FollowListType) {
         viewModelScope.launch {
             _uiState.value = FollowListUiState.Loading
-            // 先刷新"我关注了谁"集合，供按钮状态使用
-            _followingIds.value = try {
-                followRelationDao.getFollowing(AccountIds.USER_SELF_ID).map { it.followeeId }.toSet()
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (t: Throwable) {
-                Timber.w(t, "加载 followingIds 失败")
-                emptySet()
+            // 先刷新"我关注了谁"集合，供按钮状态使用。
+            // 主 review 第 2 轮修复：若此时有 inflight toggle，跳过 _followingIds 覆盖——
+            // DB 查询返回的是 toggle 写盘前的旧状态（或写盘后的新状态，取决于时序），
+            // 整体覆盖会丢弃 toggleFollow 的乐观更新。等 inflight 完成后再 load 才安全。
+            val hasInflight = inflightToggles.isNotEmpty()
+            if (!hasInflight) {
+                _followingIds.value = try {
+                    followRelationDao.getFollowing(AccountIds.USER_SELF_ID).map { it.followeeId }.toSet()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (t: Throwable) {
+                    Timber.w(t, "加载 followingIds 失败")
+                    emptySet()
+                }
             }
             val accounts = try {
                 when (type) {
@@ -272,36 +278,24 @@ class FollowListViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
+            var dbWriteSuccess = false
             try {
                 if (isFollowing) {
                     followRelationDao.delete(AccountIds.USER_SELF_ID, accountId)
+                    dbWriteSuccess = true
                 } else {
-                    followRelationDao.insert(
+                    // 主 review 第 2 轮修复：检查 insert 返回值。
+                    // FollowRelationDao.insert 用 OnConflictStrategy.IGNORE，DB 中已存在关系时
+                    // 返回 -1（未实际插入）。此时不应发 FOLLOW 埋点（避免 A/B 场景 6 delta 高估）。
+                    val insertedRowId = followRelationDao.insert(
                         FollowRelationEntity(
                             followerId = AccountIds.USER_SELF_ID,
                             followeeId = accountId,
                             createdAt = System.currentTimeMillis(),
                         )
                     )
+                    dbWriteSuccess = insertedRowId != -1L
                 }
-                // DB 写成功后才发埋点（M2 修复）：避免 IGNORE 静默丢弃时埋点多发
-                val extraBuilder = mutableMapOf<String, kotlinx.serialization.json.JsonElement>(
-                    "listType" to kotlinx.serialization.json.JsonPrimitive(type.name),
-                )
-                if (type == FollowListType.RECOMMENDED) {
-                    scenario6Driven?.let { driven ->
-                        extraBuilder["scenarioId"] = kotlinx.serialization.json.JsonPrimitive(6)
-                        extraBuilder["drivenByProfile"] = kotlinx.serialization.json.JsonPrimitive(driven)
-                        extraBuilder["group"] = kotlinx.serialization.json.JsonPrimitive(if (driven) "driven" else "control")
-                    }
-                }
-                actionBuilder.emit(
-                    type = if (isFollowing) UserActionType.UNFOLLOW else UserActionType.FOLLOW,
-                    screen = "followlist",
-                    targetId = accountId,
-                    targetKind = "account",
-                    extra = extraBuilder,
-                )
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (t: Throwable) {
@@ -339,6 +333,36 @@ class FollowListViewModel @Inject constructor(
                 }
             } finally {
                 inflightToggles.remove(accountId)
+            }
+            // 主 review 第 2 轮修复：emit 移出 try 块——DB 写成功后才发埋点，
+            // 且埋点失败不应触发上面的回滚（DB 已写成功，回滚会导致 UI 与 DB 不一致）。
+            // 当前 actionBuilder.emit 内部用 channel.trySend 不抛异常，移出 try 后语义更清晰：
+            // 只有 DB 写成功（dbWriteSuccess=true）才发埋点，IGNORE（dbWriteSuccess=false）静默跳过。
+            if (dbWriteSuccess) {
+                val extraBuilder = mutableMapOf<String, kotlinx.serialization.json.JsonElement>(
+                    "listType" to kotlinx.serialization.json.JsonPrimitive(type.name),
+                )
+                if (type == FollowListType.RECOMMENDED) {
+                    scenario6Driven?.let { driven ->
+                        extraBuilder["scenarioId"] = kotlinx.serialization.json.JsonPrimitive(6)
+                        extraBuilder["drivenByProfile"] = kotlinx.serialization.json.JsonPrimitive(driven)
+                        extraBuilder["group"] = kotlinx.serialization.json.JsonPrimitive(if (driven) "driven" else "control")
+                    }
+                }
+                try {
+                    actionBuilder.emit(
+                        type = if (isFollowing) UserActionType.UNFOLLOW else UserActionType.FOLLOW,
+                        screen = "followlist",
+                        targetId = accountId,
+                        targetKind = "account",
+                        extra = extraBuilder,
+                    )
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (t: Throwable) {
+                    // 埋点失败不影响业务（DB 已写成功），仅记录日志
+                    Timber.w(t, "toggleFollow 埋点失败 accountId=%s", accountId)
+                }
             }
         }
     }

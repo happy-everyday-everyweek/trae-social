@@ -136,6 +136,9 @@ class OnboardingViewModel @Inject constructor(
      * 切换时自动重置 Base URL 与模型为该提供商的推荐默认值。
      * pendingEndpointId 一并重置，确保下次测试时按新 provider 重新创建端点
      * （而非复用旧 provider 创建的端点）。
+     *
+     * 主 review 第 2 轮修复：同时清空 saveError。用户在保存失败后切换 provider，
+     * 旧 saveError 不再适用（新 provider 还没尝试保存），保留会误导 UI 显示"重试"按钮。
      */
     fun selectProvider(provider: LlmProvider) {
         _uiState.update { current ->
@@ -146,23 +149,25 @@ class OnboardingViewModel @Inject constructor(
                 apiKey = "",
                 testStatus = TestStatus.Idle,
                 pendingEndpointId = null,
+                saveError = null,
             )
         }
     }
 
     /** 更新 API Key 输入。 */
     fun updateApiKey(key: String) {
-        _uiState.update { it.copy(apiKey = key.trim(), testStatus = TestStatus.Idle) }
+        // 主 review 第 2 轮修复：用户修改输入时清空 saveError——旧保存错误已不适用。
+        _uiState.update { it.copy(apiKey = key.trim(), testStatus = TestStatus.Idle, saveError = null) }
     }
 
     /** 更新 Base URL 输入。 */
     fun updateBaseUrl(url: String) {
-        _uiState.update { it.copy(baseUrl = url.trim(), testStatus = TestStatus.Idle) }
+        _uiState.update { it.copy(baseUrl = url.trim(), testStatus = TestStatus.Idle, saveError = null) }
     }
 
     /** 更新模型名输入。 */
     fun updateModel(model: String) {
-        _uiState.update { it.copy(model = model.trim(), testStatus = TestStatus.Idle) }
+        _uiState.update { it.copy(model = model.trim(), testStatus = TestStatus.Idle, saveError = null) }
     }
 
     /**
@@ -180,7 +185,9 @@ class OnboardingViewModel @Inject constructor(
         val current = _uiState.value
         if (current.testStatus is TestStatus.Loading) return
 
-        _uiState.update { it.copy(testStatus = TestStatus.Loading) }
+        // 主 review 第 2 轮修复：进入新一轮测试时清空 saveError——旧保存错误与本次测试无关，
+        // 保留会导致 UI 在测试成功后仍显示"保存失败：..."和"重试"按钮。
+        _uiState.update { it.copy(testStatus = TestStatus.Loading, saveError = null) }
 
         viewModelScope.launch {
             try {
