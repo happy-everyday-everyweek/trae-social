@@ -105,6 +105,9 @@ class AnthropicCompatibleClient(
             try {
                 val full = chatSync(messages, config)
                 if (full.isNotEmpty()) emit(full)
+            } catch (e: CancellationException) {
+                // 主 review 第 2 轮修复：协程取消不应被记成"降级失败"错误日志，直接重抛。
+                throw e
             } catch (fallbackError: Exception) {
                 Timber.w(fallbackError, "降级 chatSync 也失败")
                 throw fallbackError
@@ -151,7 +154,8 @@ class AnthropicCompatibleClient(
     ): MessageCreateParams {
         val builder = MessageCreateParams.builder()
             .model(endpoint.model)
-            .maxTokens(config.maxTokens.toLong())
+            // 主 review 第 2 轮修复：maxTokens 强制 >=1，避免传 0 或负数触发 SDK 400。
+            .maxTokens(config.maxTokens.toLong().coerceAtLeast(1L))
             .temperature(config.temperature.toDouble().coerceIn(0.0, 1.0))
 
         val systemText = messages
@@ -214,10 +218,13 @@ class AnthropicCompatibleClient(
      *
      * 主 review 第 1 轮 M-4 修复：IOException 一律不视为持久性错误，
      * 避免 message 含 3 位数字（如 IP 地址 10.0.0.401）被误判为 HTTP 4xx。
+     *
+     * 主 review 第 2 轮修复：移除 message 正则兜底（extractHttpCode）——非 SDK 异常的
+     * message 含 3 位数字会被误判为 HTTP 4xx。仅信任反射结果。
      */
     private fun isPersistentHttpError(e: Throwable): Boolean {
         if (e is IOException) return false
-        val code = extractSdkStatusCode(e) ?: extractHttpCode(e.message.orEmpty()) ?: return false
+        val code = extractSdkStatusCode(e) ?: return false
         return code in 400..499 && code != 429
     }
 
@@ -228,9 +235,4 @@ class AnthropicCompatibleClient(
         // 避免对 method.invoke(e) 二次调用产生的开销与潜在副作用。
         (method.invoke(e) as? Number)?.toInt()
     }.getOrNull()
-
-    private fun extractHttpCode(message: String): Int? {
-        val regex = Regex("""\b(4\d{2}|5\d{2})\b""")
-        return regex.find(message)?.value?.toIntOrNull()
-    }
 }

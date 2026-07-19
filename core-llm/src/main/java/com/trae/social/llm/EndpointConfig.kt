@@ -3,6 +3,7 @@ package com.trae.social.llm
 import com.trae.social.core.data.config.LlmProtocol
 import com.trae.social.core.data.config.ModelCapability
 import com.trae.social.core.data.entity.LlmEndpointEntity
+import timber.log.Timber
 
 /**
  * 端点配置的运行时视图（#151）。
@@ -40,9 +41,18 @@ data class EndpointConfig(
     companion object {
         /**
          * 从持久化 entity + API Key 构造运行时配置。
+         *
+         * 主 review 第 2 轮修复：原实现对未知 protocol id 静默 fallback 到 [LlmProtocol.OPENAI_COMPATIBLE]，
+         * 与 m-6 修复（createClient 的 else 分支返回 null）语义冲突——上游 fallback 后 else 分支永远
+         * 不可达，相当于死代码。改为返回 null，由 [EndpointRegistry.getClient] 跳过该端点
+         * （与 m-2 的 anySkipped 语义对齐），避免用 OpenAI SDK 调用非 OpenAI 端点引发难定位错误。
          */
-        fun fromEntity(entity: LlmEndpointEntity, apiKey: String?): EndpointConfig {
-            val protocol = LlmProtocol.fromId(entity.protocol) ?: LlmProtocol.OPENAI_COMPATIBLE
+        fun fromEntity(entity: LlmEndpointEntity, apiKey: String?): EndpointConfig? {
+            val protocol = LlmProtocol.fromId(entity.protocol)
+                ?: run {
+                    Timber.w("EndpointConfig.fromEntity 未知 protocol=%s，跳过端点 endpointId=%s", entity.protocol, entity.id)
+                    return null
+                }
             return EndpointConfig(
                 id = entity.id,
                 displayName = entity.displayName,

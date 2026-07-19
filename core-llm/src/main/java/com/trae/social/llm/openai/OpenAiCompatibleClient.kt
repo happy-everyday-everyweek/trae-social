@@ -117,6 +117,9 @@ class OpenAiCompatibleClient(
             try {
                 val full = chatSync(messages, config)
                 if (full.isNotEmpty()) emit(full)
+            } catch (e: CancellationException) {
+                // 主 review 第 2 轮修复：协程取消不应被记成"降级失败"错误日志，直接重抛。
+                throw e
             } catch (fallbackError: Exception) {
                 Timber.w(fallbackError, "降级 chatSync 也失败")
                 throw fallbackError
@@ -160,8 +163,11 @@ class OpenAiCompatibleClient(
     ): ChatCompletionCreateParams {
         val builder = ChatCompletionCreateParams.builder()
             .model(endpoint.model)
-            .maxTokens(config.maxTokens.toLong())
-            .temperature(config.temperature.toDouble())
+            // 主 review 第 2 轮修复：maxTokens 强制 >=1，避免传 0 或负数触发 SDK 400。
+            .maxTokens(config.maxTokens.toLong().coerceAtLeast(1L))
+            // 主 review 第 2 轮修复：OpenAI 允许 temperature ∈ [0, 2]，超出返回 400 被判持久性错误
+            // 直接抛出不降级。显式 coerceIn 避免无谓 400（与 Anthropic 端 coerceIn(0.0, 1.0) 对齐）。
+            .temperature(config.temperature.toDouble().coerceIn(0.0, 2.0))
 
         // JSON mode 原生支持（端点声明 JSON_MODE_NATIVE 才用原生方式）
         if (config.jsonMode && ModelCapability.JSON_MODE_NATIVE in endpoint.capabilities) {
@@ -251,10 +257,14 @@ class OpenAiCompatibleClient(
      *
      * 主 review 第 1 轮 M-4 修复：IOException 一律不视为持久性错误，
      * 避免 message 含 3 位数字（如 IP 地址 10.0.0.401）被误判为 HTTP 4xx。
+     *
+     * 主 review 第 2 轮修复：移除 message 正则兜底（extractHttpCode）——非 SDK 异常的
+     * message 含 3 位数字（如 "Port 443 in use"）会被误判为 HTTP 4xx。仅信任反射结果，
+     * 反射未命中（非 SDK 异常）一律返回 false（按可恢复错误处理，允许降级重试）。
      */
     private fun isPersistentHttpError(e: Throwable): Boolean {
         if (e is IOException) return false
-        val code = extractSdkStatusCode(e) ?: extractHttpCode(e.message.orEmpty()) ?: return false
+        val code = extractSdkStatusCode(e) ?: return false
         return code in 400..499 && code != 429
     }
 
@@ -265,9 +275,4 @@ class OpenAiCompatibleClient(
         // 避免对 method.invoke(e) 二次调用产生的开销与潜在副作用。
         (method.invoke(e) as? Number)?.toInt()
     }.getOrNull()
-
-    private fun extractHttpCode(message: String): Int? {
-        val regex = Regex("""\b(4\d{2}|5\d{2})\b""")
-        return regex.find(message)?.value?.toIntOrNull()
-    }
 }
