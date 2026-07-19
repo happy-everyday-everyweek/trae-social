@@ -7,12 +7,11 @@ import org.junit.Test
 /**
  * #229：computeReduceMotion 纯函数分支覆盖。
  *
- * 5 个分支：
- * 1. ANIMATOR_DURATION_SCALE <= 0 → true（无视 a11y 状态）
+ * 4 个分支：
+ * 1. ANIMATOR_DURATION_SCALE <= 0 → true（无视 a11y 状态，含 scale = 0 边界）
  * 2. scale > 0 且 a11y 未启用 → false
  * 3. scale > 0 且 a11y enabled 但 touchExploration 关闭 → false
  * 4. scale > 0 且 a11y enabled 且 touchExploration enabled → true
- * 5. scale = 0 边界 → true
  */
 class ComputeReduceMotionTest {
 
@@ -32,21 +31,20 @@ class ComputeReduceMotionTest {
 
     @Test
     fun scalePositive_a11yDisabled_returnsFalse() {
-        // 分支 2/3：scale > 0 且 a11y 未启用 → false
+        // 分支 2：scale > 0 且 a11y 未启用 → false
         assertFalse(computeReduceMotion(scale = 1f, a11yEnabled = false, touchExplorationEnabled = false))
-        // a11y enabled 但 touchExploration 关闭 → false
-        assertFalse(computeReduceMotion(scale = 1f, a11yEnabled = true, touchExplorationEnabled = false))
     }
 
     @Test
     fun scalePositive_touchExplorationDisabled_returnsFalse() {
-        // 分支 4：a11y enabled 但 touchExploration 关闭 → false
+        // 分支 3：a11y enabled 但 touchExploration 关闭 → false
         assertFalse(computeReduceMotion(scale = 0.5f, a11yEnabled = true, touchExplorationEnabled = false))
+        assertFalse(computeReduceMotion(scale = 1f, a11yEnabled = true, touchExplorationEnabled = false))
     }
 
     @Test
     fun scalePositive_a11yAndTouchExplorationEnabled_returnsTrue() {
-        // 分支 5：scale > 0 且 a11y enabled 且 touchExploration enabled → true
+        // 分支 4：scale > 0 且 a11y enabled 且 touchExploration enabled → true
         assertTrue(computeReduceMotion(scale = 1f, a11yEnabled = true, touchExplorationEnabled = true))
     }
 
