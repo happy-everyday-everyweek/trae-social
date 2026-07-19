@@ -24,9 +24,9 @@ data class TweetWithAuthor(
          * #212：将 TweetWithAuthor 序列化为 Bundle 可保存的 Map<String, Any?>，
          * 使用 key 而非位置索引，避免字段重排导致的保存/恢复错位。
          */
-        val Saver: Saver<TweetWithAuthor, Any> = mapSaver(
+        val Saver: Saver<TweetWithAuthor?, Any> = mapSaver(
             save = {
-                val t = it.tweet
+                val t = it!!.tweet
                 mapOf(
                     "id" to t.id,
                     "authorId" to t.authorId,

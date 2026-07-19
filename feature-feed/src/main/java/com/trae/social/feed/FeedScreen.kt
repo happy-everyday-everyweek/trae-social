@@ -217,10 +217,10 @@ private data class FullScreenImageTarget(
  * #212：FullScreenImageTarget 的 Saver。imageUris 转 ArrayList<String> 以兼容 Bundle 序列化。
  * 改用 mapSaver（key-based），避免字段顺序耦合导致的保存/恢复错位。
  */
-private val FullScreenImageTargetSaver: Saver<FullScreenImageTarget, Any> = mapSaver(
+private val FullScreenImageTargetSaver: Saver<FullScreenImageTarget?, Any> = mapSaver(
     save = {
         mapOf(
-            "imageUris" to ArrayList(it.imageUris),
+            "imageUris" to ArrayList(it!!.imageUris),
             "initialIndex" to it.initialIndex,
         )
     },
