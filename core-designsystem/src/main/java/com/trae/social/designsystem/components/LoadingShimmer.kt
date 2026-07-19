@@ -31,11 +31,6 @@ import com.trae.social.designsystem.theme.LocalSocialColors
 private const val HIGHLIGHT_WIDTH_PX = 300f
 
 /**
- * 默认动画范围上限（px）。组件宽度尚未测量时（首帧）使用，避免 targetValue=0 导致动画卡死。
- */
-private const val DEFAULT_RANGE_PX = 1000f
-
-/**
  * Shimmer 占位组件，用于图片与列表项的加载态。
  *
  * 使用主题色（secondaryBackground / tertiaryBackground）构建渐变高光扫光动画，
@@ -52,7 +47,7 @@ fun LoadingShimmer(
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 8.dp,
 ) {
-    // #215：跟踪组件实测宽度，未测量时回退到默认范围
+    // #215：跟踪组件实测宽度，未测量时 shimmerBrush 返回静态渐变
     var widthPx by remember { mutableIntStateOf(0) }
     Box(
         modifier = modifier
@@ -67,34 +62,42 @@ fun LoadingShimmer(
 /**
  * 构造一个水平扫光的渐变 Brush，可用于任意背景。
  *
- * #215：[widthPx] 为组件实测宽度，未传入或为 0 时回退到默认 1000px 范围。
- * 动画 targetValue = widthPx + [HIGHLIGHT_WIDTH_PX]，使高光能完整扫过整个组件
- * 后再 Restart 回到 0，避免宽组件右侧覆盖不全、Restart 时跳变。
+ * #215：[widthPx] 为组件实测宽度。宽度为 0（首帧尚未测量）时返回静态渐变，
+ * 避免用错误的默认范围启动动画、测量后跳变到真实范围。
+ * 宽度 > 0 时动画 targetValue = widthPx + [HIGHLIGHT_WIDTH_PX]，使高光能完整扫过
+ * 整个组件后再 Restart 回到 0，避免宽组件右侧覆盖不全、Restart 时跳变。
  *
  * @param widthPx 调用方组件的实测宽度（px），0 表示尚未测量
  */
 @Composable
 fun shimmerBrush(widthPx: Int = 0): Brush {
+    val colors = LocalSocialColors.current
+    val gradientColors = listOf(
+        colors.secondaryBackground,
+        colors.tertiaryBackground,
+        colors.secondaryBackground,
+    )
+    // #215：宽度为 0（尚未测量）时返回静态渐变，避免首帧用错误范围动画、测量后跳变
+    if (widthPx <= 0) {
+        return Brush.linearGradient(
+            colors = gradientColors,
+            start = Offset(0f, 0f),
+            end = Offset(HIGHLIGHT_WIDTH_PX, 0f),
+        )
+    }
     val transition = rememberInfiniteTransition(label = "shimmer")
-    // #215：宽度为 0 时（首帧或未测量）回退到默认范围，避免 targetValue=0 卡死
-    val range = if (widthPx > 0) widthPx.toFloat() + HIGHLIGHT_WIDTH_PX else DEFAULT_RANGE_PX
     val translateAnim by transition.animateFloat(
         initialValue = 0f,
-        targetValue = range,
+        targetValue = widthPx.toFloat() + HIGHLIGHT_WIDTH_PX,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 1200, easing = LinearEasing),
             repeatMode = RepeatMode.Restart,
         ),
         label = "shimmerTranslate",
     )
-    val colors = LocalSocialColors.current
     // 基色为次级背景，高光为三级背景（暗色模式下三级更亮，明色模式下三级更亮）
     return Brush.linearGradient(
-        colors = listOf(
-            colors.secondaryBackground,
-            colors.tertiaryBackground,
-            colors.secondaryBackground,
-        ),
+        colors = gradientColors,
         start = Offset(translateAnim - HIGHLIGHT_WIDTH_PX, 0f),
         end = Offset(translateAnim, 0f),
     )
