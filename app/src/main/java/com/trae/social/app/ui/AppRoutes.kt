@@ -58,8 +58,12 @@ object AppRoutes {
     /**
      * 从路由参数还原 [FollowListType]，与 [followList] 配套使用。
      *
-     * 接收 [NavType.StringType] 原始值（不会自动 URL 解码），先 [Uri.decode] 再
-     * `valueOf`，非法值降级为 [FollowListType.FOLLOWING]。
+     * 字符串路由模式下 [NavType.StringType.parseValue] 直接返回原始捕获值
+     * （不会自动 URL 解码），需在此处 [Uri.decode] 还原 [followList] 中的
+     * [Uri.encode]。用 [runCatching] 兜底，避免含 `%` 但非合法 `%XX` 转义的
+     * 字符串在 [Uri.decode] 中抛出。
+     *
+     * 非法值降级为 [FollowListType.FOLLOWING]。
      */
     fun decodeFollowListType(raw: String?): FollowListType {
         val name = raw?.let { runCatching { Uri.decode(it) }.getOrDefault(it) }
