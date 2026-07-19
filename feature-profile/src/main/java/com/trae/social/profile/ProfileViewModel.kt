@@ -78,12 +78,15 @@ class ProfileViewModel @Inject constructor(
     private fun loadProfile() {
         viewModelScope.launch {
             // 主 review 第 2 轮修复：原 runCatching 会吞 CancellationException。
+            // 主 review 第 6 轮修复：catch (Throwable) → catch (Exception) 让 Error（OOM 等）
+            // 自然传播，避免 OOM 后还继续覆盖 UI 状态加剧崩溃，与同模块 ApiKeyViewModel /
+            // FollowListViewModel 策略一致。本文件 8 处 catch 同步统一。
             val account = try {
                 accountRepository.getById(SELF_ID)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
-            } catch (t: Throwable) {
-                Timber.w(t, "加载自身账号失败"); null
+            } catch (e: Exception) {
+                Timber.w(e, "加载自身账号失败"); null
             }
             if (account == null) {
                 _uiState.value = ProfileUiState.Empty
@@ -93,15 +96,15 @@ class ProfileViewModel @Inject constructor(
                 followRelationDao.countFollowing(SELF_ID)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
-            } catch (t: Throwable) {
-                Timber.w(t, "加载关注数失败"); 0
+            } catch (e: Exception) {
+                Timber.w(e, "加载关注数失败"); 0
             }
             val followers = try {
                 followRelationDao.countFollowers(SELF_ID)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
-            } catch (t: Throwable) {
-                Timber.w(t, "加载粉丝数失败"); 0
+            } catch (e: Exception) {
+                Timber.w(e, "加载粉丝数失败"); 0
             }
             _uiState.value = ProfileUiState.Success(
                 account = account,
@@ -118,8 +121,8 @@ class ProfileViewModel @Inject constructor(
                 configRepository.getAiActivityLevel()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
-            } catch (t: Throwable) {
-                Timber.w(t, "加载活跃度档位失败"); AiActivityLevel.MEDIUM
+            } catch (e: Exception) {
+                Timber.w(e, "加载活跃度档位失败"); AiActivityLevel.MEDIUM
             }
             _activityLevel.value = level
         }
@@ -144,8 +147,8 @@ class ProfileViewModel @Inject constructor(
                 interactionRepository.getLikedTweetIdsByAccount(SELF_ID)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
-            } catch (t: Throwable) {
-                Timber.w(t, "恢复已点赞状态失败")
+            } catch (e: Exception) {
+                Timber.w(e, "恢复已点赞状态失败")
                 null
             }
             if (likedIds != null) {
@@ -201,8 +204,8 @@ class ProfileViewModel @Inject constructor(
                 _activityLevel.value = level
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
-            } catch (t: Throwable) {
-                Timber.w(t, "切换活跃度档位失败")
+            } catch (e: Exception) {
+                Timber.w(e, "切换活跃度档位失败")
             }
         }
     }
@@ -282,8 +285,8 @@ class ProfileViewModel @Inject constructor(
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
-            } catch (t: Throwable) {
-                Timber.w(t, "更新点赞计数失败，回滚本地状态")
+            } catch (e: Exception) {
+                Timber.w(e, "更新点赞计数失败，回滚本地状态")
                 // 仅在当前状态仍符合本次预期时回滚，避免与后续 toggle 竞态误覆盖
                 val currentState = _likedTweetIds.value
                 if (wasLiked && tweetId !in currentState) {
@@ -350,8 +353,8 @@ class ProfileViewModel @Inject constructor(
                 )
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
-            } catch (t: Throwable) {
-                Timber.w(t, "转发失败")
+            } catch (e: Exception) {
+                Timber.w(e, "转发失败")
             }
         }
     }

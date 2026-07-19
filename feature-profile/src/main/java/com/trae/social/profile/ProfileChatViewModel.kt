@@ -104,10 +104,10 @@ class ProfileChatViewModel @Inject constructor(
                 feedbackAgent.handle(trimmed)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
-            } catch (t: Throwable) {
-                Timber.w(t, "FeedbackAgent.handle 失败")
+            } catch (e: Exception) {
+                Timber.w(e, "FeedbackAgent.handle 失败")
                 AgentReply(
-                    text = "智能体暂时不可用：${t.message ?: "未知错误"}",
+                    text = "智能体暂时不可用：${e.message ?: "未知错误"}",
                     appliedActions = emptyList(),
                     rollbackPreviews = emptyList(),
                     degraded = true,
@@ -130,9 +130,9 @@ class ProfileChatViewModel @Inject constructor(
                 feedbackAgent.confirmRollback(preview, reason = "用户在对话中确认回滚")
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
-            } catch (t: Throwable) {
-                Timber.w(t, "confirmRollback 失败")
-                _toast.value = "回滚失败：${t.message ?: "未知错误"}"
+            } catch (e: Exception) {
+                Timber.w(e, "confirmRollback 失败")
+                _toast.value = "回滚失败：${e.message ?: "未知错误"}"
                 return@launch
             }
             _pendingPreviews.value = _pendingPreviews.value.filterNot { it.targetVersionId == preview.targetVersionId }
@@ -166,9 +166,9 @@ class ProfileChatViewModel @Inject constructor(
                 adjuster.resetAll()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
-            } catch (t: Throwable) {
-                Timber.w(t, "resetAllOverrides 失败")
-                _toast.value = "重置失败：${t.message ?: "未知错误"}"
+            } catch (e: Exception) {
+                Timber.w(e, "resetAllOverrides 失败")
+                _toast.value = "重置失败：${e.message ?: "未知错误"}"
                 return@launch
             }
             _pendingPreviews.value = emptyList()
@@ -193,8 +193,8 @@ class ProfileChatViewModel @Inject constructor(
                 versionStore.recentSummaries(RECENT_VERSIONS_LIMIT)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
-            } catch (t: Throwable) {
-                Timber.w(t, "refreshRecentVersions 失败")
+            } catch (e: Exception) {
+                Timber.w(e, "refreshRecentVersions 失败")
                 emptyList()
             }
             _recentVersions.value = versions
@@ -226,8 +226,8 @@ class ProfileChatViewModel @Inject constructor(
                 )
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
-            } catch (t: Throwable) {
-                Timber.w(t, "refreshProfile 失败")
+            } catch (e: Exception) {
+                Timber.w(e, "refreshProfile 失败")
                 return@launch
             }
             _profileSummary.value = summary
@@ -241,8 +241,8 @@ class ProfileChatViewModel @Inject constructor(
                 feedbackDao.recent(HISTORY_LIMIT)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
-            } catch (t: Throwable) {
-                Timber.w(t, "loadHistory 失败")
+            } catch (e: Exception) {
+                Timber.w(e, "loadHistory 失败")
                 emptyList()
             }
                 .sortedBy { it.createdAt }
@@ -266,21 +266,31 @@ class ProfileChatViewModel @Inject constructor(
     private fun UserProfileFeedbackEntity.toChatMessage(): ChatMessage = if (role == ROLE_USER) {
         ChatMessage.user(content, createdAt)
     } else {
+        // 主 review 第 6 轮修复：原 runCatching{}.getOrDefault() 会静默吞异常且无日志，
+        // JSON schema 变更导致解析失败时完全无迹可循。改为 try/catch + Timber.w，
+        // 与同模块 FollowListViewModel.loadRecommendedAccounts 的同步调用策略一致。
+        // catch (Exception) 而非 Throwable，让 Error（OOM）自然传播。
         val applied = appliedActions?.let {
-            runCatching {
+            try {
                 ProfileMappers.json.decodeFromString(
                     kotlinx.serialization.builtins.ListSerializer(OverrideRecord.serializer()),
                     it,
                 )
-            }.getOrDefault(emptyList())
+            } catch (e: Exception) {
+                Timber.w(e, "toChatMessage: appliedActions 解析失败 id=%s", id)
+                emptyList()
+            }
         } ?: emptyList()
         val previews = rollbackPreviews?.let {
-            runCatching {
+            try {
                 ProfileMappers.json.decodeFromString(
                     kotlinx.serialization.builtins.ListSerializer(RollbackPreview.serializer()),
                     it,
                 )
-            }.getOrDefault(emptyList())
+            } catch (e: Exception) {
+                Timber.w(e, "toChatMessage: rollbackPreviews 解析失败 id=%s", id)
+                emptyList()
+            }
         } ?: emptyList()
         ChatMessage.assistant(
             AgentReply(
