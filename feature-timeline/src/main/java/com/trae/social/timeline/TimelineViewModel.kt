@@ -1,5 +1,6 @@
 package com.trae.social.timeline
 
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.trae.social.core.data.entity.AccountEntity
@@ -133,7 +134,12 @@ sealed interface TimelineUiState {
 
 /**
  * 单日分组：日期 + 标签 + 该日图片项列表。
+ *
+ * #231：标注 @Immutable。`items` 为 `List<TimelineItem>`，本身会被 Compose 推断为
+ * Unstable 导致 TimelineGroup 不可 skip。该类由 ViewModel 一次性构造后下发，集合
+ * 内容不再变，可安全标注 @Immutable。
  */
+@Immutable
 data class TimelineGroup(
     val date: LocalDate,
     val dateLabel: String,
@@ -147,7 +153,10 @@ data class TimelineGroup(
  * @param text 单行摘要文本（UI 层省略号截断）
  * @param timeLabel 发布时间（HH:mm）
  * @param fullText 完整推文文本，大图浏览器展示
+ *
+ * #231：标注 @Immutable，所有字段为不可变 String。
  */
+@Immutable
 data class TimelineItem(
     val tweetId: String,
     val mediaPath: String,

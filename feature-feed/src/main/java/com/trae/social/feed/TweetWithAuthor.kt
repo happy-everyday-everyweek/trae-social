@@ -1,5 +1,6 @@
 package com.trae.social.feed
 
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.mapSaver
 import com.trae.social.core.data.entity.TweetEntity
@@ -12,7 +13,11 @@ import com.trae.social.core.data.entity.TweetEntity
  *
  * #212：实现 [Saver]，使 FeedScreen 的 commentTarget / retweetTarget 在屏幕旋转或
  * 系统回收后可被 rememberSaveable 恢复，避免已打开的弹层被意外关闭。
+ *
+ * #231：标注 @Immutable，避免 Compose 稳定性推断将其判为 Unstable 导致
+ * 列表项 skip 失效。所有字段均为不可变类型（String / TweetEntity）。
  */
+@Immutable
 data class TweetWithAuthor(
     val tweet: TweetEntity,
     val authorName: String,
