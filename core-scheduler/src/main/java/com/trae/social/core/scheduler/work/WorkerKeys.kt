@@ -29,6 +29,35 @@ object WorkerKeys {
 }
 
 /**
+ * Worker 跨模块共享的运行期约束常量。
+ *
+ * 历史上 `MAX_RUN_ATTEMPTS` / `ACQUIRE_TIMEOUT_MS` / `MAX_COMMENT_LENGTH` 在每个
+ * Worker 的 companion object 中重复定义，任一处修改未同步会导致配置漂移
+ * （典型风险：超时配置漂移会让部分 Worker 被 WorkManager 强杀）。
+ * 统一在此声明，各 Worker 引用之；业务专属常量仍保留在各自 companion object。
+ */
+object WorkerConstants {
+    /**
+     * Worker 最大重试次数。超过后转为 Result.failure()。
+     *
+     * 与 [WorkerPolicies.backoffPolicy] 配合：指数退避初始 10s，3 次封顶。
+     */
+    const val MAX_RUN_ATTEMPTS = 3
+
+    /**
+     * 限流等待超时（8 分钟），低于 WorkManager 默认 10 分钟超时。
+     *
+     * 避免 SchedulerRateLimiter 长时间阻塞导致 Worker 被 WM 强杀。
+     */
+    const val ACQUIRE_TIMEOUT_MS = 8L * 60L * 1000L
+
+    /**
+     * AI 生成评论的字数上限。
+     */
+    const val MAX_COMMENT_LENGTH = 100
+}
+
+/**
  * 各 Worker 的统一标签，便于取消/查询。
  */
 object WorkerTags {
