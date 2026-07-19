@@ -194,11 +194,7 @@ class ApiKeyViewModel @Inject constructor(
          *   Anthropic 不支持原生 response_format，由 DefaultRulesetEngine 走 prompt 降级）
          */
         fun defaultCapabilitiesFor(protocol: LlmProtocol): Set<ModelCapability> = when (protocol) {
-            LlmProtocol.OPENAI_COMPATIBLE -> setOf(
-                ModelCapability.TEXT,
-                ModelCapability.JSON_MODE_NATIVE,
-                ModelCapability.STREAMING,
-            )
+            LlmProtocol.OPENAI_COMPATIBLE -> DEFAULT_CAPABILITIES
             LlmProtocol.ANTHROPIC_COMPATIBLE -> setOf(
                 ModelCapability.TEXT,
                 ModelCapability.STREAMING,

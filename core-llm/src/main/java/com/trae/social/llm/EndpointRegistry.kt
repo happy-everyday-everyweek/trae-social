@@ -72,7 +72,7 @@ class EndpointRegistry @Inject constructor(
      * **API Key 缺失快速失败**：当端点未配置 API Key 时直接返回 null，不构造 SDK client，
      * 避免发起注定 401 的网络请求浪费 RTT 与配额（与旧 AuthInterceptor 行为一致，
      * 旧 AuthInterceptor 在 Key 为空时直接抛 IOException 不发起网络调用）。
-     * （#151 review 反馈：缺失 API Key 时不再快速失败）
+     * （#151 review 反馈：缺失 API Key 时应快速失败而非构造 client 后失败）
      */
     suspend fun getClient(endpointId: String): LlmClient? {
         clients[endpointId]?.let { return it }

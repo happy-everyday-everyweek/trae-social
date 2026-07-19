@@ -346,7 +346,9 @@ class OnboardingViewModel @Inject constructor(
      */
     private fun extractHttpCode(t: Throwable): Int? = runCatching {
         val method = t::class.java.getMethod("statusCode")
-        (method.invoke(t) as? Int) ?: (method.invoke(t) as? Number)?.toInt()
+        // SDK 的 statusCode() 返回 int（autobox 为 Integer），统一按 Number 取值，
+        // 避免对 method.invoke(t) 二次调用产生的开销与潜在副作用。
+        (method.invoke(t) as? Number)?.toInt()
     }.getOrNull()
 
     /** 从异常消息中提取 HTTP 状态码（如 "HTTP 401 Unauthorized"）。 */

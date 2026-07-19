@@ -323,7 +323,7 @@ class ConfigRepository @Inject constructor(
                 id = endpointId,
                 displayName = displayName.ifBlank { protocol.displayName },
                 protocol = protocol.id,
-                baseUrl = baseUrl,
+                baseUrl = normalizeBaseUrl(baseUrl),
                 model = model,
                 capabilities = ModelCapability.run { capabilities.toStorageString() },
                 orderIndex = nextOrder,
@@ -354,7 +354,7 @@ class ConfigRepository @Inject constructor(
             current.copy(
                 displayName = displayName,
                 protocol = protocol.id,
-                baseUrl = baseUrl,
+                baseUrl = normalizeBaseUrl(baseUrl),
                 model = model,
                 capabilities = ModelCapability.run { capabilities.toStorageString() },
                 updatedAt = System.currentTimeMillis(),
@@ -409,6 +409,31 @@ class ConfigRepository @Inject constructor(
         val key = secureSharedPreferences.getString(endpointApiKeyEntry(endpointId), null) ?: return null
         if (key.length <= 8) return "***"
         return key.take(4) + "***" + key.takeLast(4)
+    }
+
+    /**
+     * 规范化 Base URL：确保以 `http(s)://` 开头、以 `/` 结尾。
+     *
+     * - 裸域名（如 `api.openai.com`）自动补 `https://` 前缀和 `/` 后缀
+     * - 已带 scheme 但无结尾 `/`（如 `https://api.openai.com/v1`）补 `/`
+     * - 已规范化的 URL（如 `https://api.openai.com/v1/`）原样返回
+     *
+     * 与 [LlmEndpointEntity.baseUrl] KDoc 声明的"已规范化为带 scheme 与结尾 /"一致，
+     * 入库前必须调用以避免 SDK 拼接路径出错。
+     */
+    private fun normalizeBaseUrl(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return trimmed
+        // 补 scheme：不以 http:// 或 https:// 开头时默认补 https://
+        val withScheme = if (trimmed.startsWith("http://", ignoreCase = true) ||
+            trimmed.startsWith("https://", ignoreCase = true)
+        ) {
+            trimmed
+        } else {
+            "https://$trimmed"
+        }
+        // 补结尾 /
+        return if (withScheme.endsWith("/")) withScheme else "$withScheme/"
     }
 
     // ------------------------------------------------------------------

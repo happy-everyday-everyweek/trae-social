@@ -198,7 +198,9 @@ class DefaultRulesetEngine @Inject constructor(
      */
     private fun extractSdkStatusCode(e: Throwable): Int? = runCatching {
         val method = e::class.java.getMethod("statusCode")
-        (method.invoke(e) as? Int) ?: (method.invoke(e) as? Number)?.toInt()
+        // SDK 的 statusCode() 返回 int（autobox 为 Integer），统一按 Number 取值，
+        // 避免对 method.invoke(e) 二次调用产生的开销与潜在副作用。
+        (method.invoke(e) as? Number)?.toInt()
     }.getOrNull()
 
     private fun extractHttpCode(text: String): Int? {
