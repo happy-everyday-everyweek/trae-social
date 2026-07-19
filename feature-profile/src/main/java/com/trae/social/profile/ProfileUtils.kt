@@ -62,8 +62,11 @@ internal object ProfileUtils {
 
     /**
      * 格式化计数（>=10000 显示为"x.x万"）。
+     *
+     * 显式指定 [Locale.ROOT]：避免在某些语言环境（如德语/法语区）下默认 Locale
+     * 使用逗号作为小数分隔符，导致输出 "x,x万" 与中文语境不一致（#163）。
      */
     fun formatCount(count: Int): String =
-        if (count >= 10000) "${String.format(Locale.getDefault(), "%.1f", count / 10000.0)}万"
+        if (count >= 10000) "${String.format(Locale.ROOT, "%.1f", count / 10000.0)}万"
         else count.toString()
 }
