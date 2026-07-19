@@ -105,7 +105,8 @@ class MainActivity : ComponentActivity() {
 
     // #210：singleTask 模式下二次启动走 onNewIntent 而非 onCreate，
     // 通过该 StateFlow 将新 Intent 透传给 Compose 层（NavHost），未来接入深链时观察此流即可路由。
-    val newIntentFlow: MutableStateFlow<Intent?> = MutableStateFlow(null)
+    private val _newIntentFlow = MutableStateFlow<Intent?>(null)
+    val newIntentFlow: StateFlow<Intent?> = _newIntentFlow
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -134,7 +135,7 @@ class MainActivity : ComponentActivity() {
             }
         })
         // #210：onCreate 路径下首次 Intent 也写入 newIntentFlow，保证 Compose 层观察到的初始值一致
-        newIntentFlow.value = intent
+        _newIntentFlow.value = intent
         setContent {
             // #12：读取主题偏好覆写系统深色模式；偏好变更时此处会重组
             val darkTheme = ThemePreferences.isDarkTheme(isSystemInDarkTheme())
@@ -157,7 +158,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        newIntentFlow.value = intent
+        _newIntentFlow.value = intent
     }
 }
 
@@ -181,6 +182,7 @@ private fun SocialApp(
 
     // #210：观察 newIntentFlow，当前无深链 intent-filter，预留 hook；
     // 未来接入深链时在此处解析 intent.data/extras 并 navController.navigate(...)。
+    // TODO 深链接入后需做"已消费"去重，避免旋转重复 navigate
     LaunchedEffect(newIntentFlow) {
         newIntentFlow.collect { intent ->
             if (intent != null) {
