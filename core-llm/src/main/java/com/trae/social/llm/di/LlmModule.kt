@@ -1,95 +1,41 @@
 package com.trae.social.llm.di
 
-import com.trae.social.llm.LlmConfigProvider
-import com.trae.social.llm.LlmHttp
-import com.trae.social.llm.interceptor.AuthInterceptor
-import com.trae.social.llm.interceptor.LoggingInterceptor
-import com.trae.social.llm.interceptor.RetryInterceptor
+import com.trae.social.llm.DefaultRulesetEngine
+import com.trae.social.llm.RulesetEngine
+import dagger.Binds
 import dagger.Module
-import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
-import kotlinx.serialization.json.Json
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import retrofit2.Retrofit
-import retrofit2.converter.kotlinx.serialization.asConverterFactory
-import java.util.concurrent.TimeUnit
-import javax.inject.Named
 import javax.inject.Singleton
 
 /**
- * core-llm 模块的 Hilt 依赖注入配置。
+ * core-llm 模块的 Hilt 依赖注入配置（#151 重构）。
  *
- * 提供：
- * - 全局共享 [OkHttpClient]（含 Auth / Retry / Logging 拦截器链）；
- * - 按 provider 限定的 @Named [Retrofit] 实例（使用默认 Base URL）；
- * - [Json] 序列化器。
+ * 重构后不再需要全局共享 OkHttpClient / Retrofit / Json——各 SDK client
+ * （[com.trae.social.llm.openai.OpenAiCompatibleClient] /
+ * [com.trae.social.llm.anthropic.AnthropicCompatibleClient]）内部自行构造
+ * OkHttpClient 并直接调用官方 Java SDK，鉴权头与重试均由 SDK 内置处理，
+ * 旧 [com.trae.social.llm.interceptor.AuthInterceptor] /
+ * [com.trae.social.llm.interceptor.RetryInterceptor] /
+ * [com.trae.social.llm.interceptor.LoggingInterceptor] 已移除。
  *
- * IMPL-26：移除 HTTP 层 [com.trae.social.llm.interceptor.RateLimitInterceptor]，
- * 限流统一由 core-scheduler 的 [com.trae.social.core.scheduler.ratelimit.SchedulerRateLimiter]
- * 在调度入口处执行，避免双层限流导致 HIGH 档位仍被 30 RPM 封顶。
+ * 本模块仅做接口到实现的绑定：
+ * - [EndpointConfigProvider] → app 模块的 [com.trae.social.app.di.AppEndpointConfigProvider]
+ *   （由 app 模块的 [com.trae.social.app.di.AssetProviderModule] 提供）
+ * - [RulesetEngine] → [DefaultRulesetEngine]
  *
- * IMPL-32：拦截器顺序 Auth → Retry → Logging，使 Logging 在 Retry 内部，
- * 每次重试尝试都会被记录，提升可观测性。
+ * [com.trae.social.llm.EndpointRegistry] 为 `@Singleton class @Inject constructor`，
+ * Hilt 自动构造，无需在此显式 @Provides。
  *
- * 注意：[LlmConfigProvider] 需由 app 模块通过独立 Hilt Module 提供，
- * 否则编译期 Hilt 会报缺失绑定。
+ * 注意：[EndpointConfigProvider] 的具体实现绑定声明位于 app 模块的 AssetProviderModule，
+ * 因为其实现类 [com.trae.social.app.di.AppEndpointConfigProvider] 依赖 app 模块的
+ * [com.trae.social.core.data.repository.ConfigRepository]。
  */
 @Module
 @InstallIn(SingletonComponent::class)
-object LlmModule {
+abstract class LlmModule {
 
-    @Provides
+    @Binds
     @Singleton
-    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
-    fun provideJson(): Json = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-        // 请求体中所有非 null 字段（含默认值）都需序列化，避免 API 使用其自身默认值
-        encodeDefaults = true
-        // null 字段（如 response_format / system）不序列化
-        explicitNulls = false
-    }
-
-    @Provides
-    @Singleton
-    fun provideOkHttpClient(
-        configProvider: LlmConfigProvider,
-    ): OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(LlmHttp.CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .readTimeout(LlmHttp.READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .writeTimeout(LlmHttp.WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        // IMPL-32：Auth → Retry → Logging，Logging 在 Retry 内部记录每次尝试
-        .addInterceptor(AuthInterceptor(configProvider))
-        .addInterceptor(RetryInterceptor())
-        .addInterceptor(LoggingInterceptor())
-        .build()
-
-    @Provides
-    @Named("openai")
-    @Singleton
-    fun provideOpenAiRetrofit(client: OkHttpClient, json: Json): Retrofit =
-        buildRetrofit(LlmHttp.OPENAI_BASE_URL, client, json)
-
-    @Provides
-    @Named("anthropic")
-    @Singleton
-    fun provideAnthropicRetrofit(client: OkHttpClient, json: Json): Retrofit =
-        buildRetrofit(LlmHttp.ANTHROPIC_BASE_URL, client, json)
-
-    @Provides
-    @Named("gemini")
-    @Singleton
-    fun provideGeminiRetrofit(client: OkHttpClient, json: Json): Retrofit =
-        buildRetrofit(LlmHttp.GEMINI_BASE_URL, client, json)
-
-    private fun buildRetrofit(baseUrl: String, client: OkHttpClient, json: Json): Retrofit {
-        val contentType = "application/json".toMediaType()
-        return Retrofit.Builder()
-            .baseUrl(baseUrl)
-            .client(client)
-            .addConverterFactory(json.asConverterFactory(contentType))
-            .build()
-    }
+    abstract fun bindRulesetEngine(impl: DefaultRulesetEngine): RulesetEngine
 }

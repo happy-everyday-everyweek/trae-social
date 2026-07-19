@@ -1,16 +1,15 @@
 package com.trae.social.core.profiling.analysis
 
-import com.trae.social.core.data.config.LlmProvider
 import com.trae.social.core.data.dao.UserActionDao
 import com.trae.social.core.data.entity.CommentEntity
 import com.trae.social.core.data.entity.TweetEntity
+import com.trae.social.core.data.entity.LlmEndpointEntity
 import com.trae.social.core.data.model.UserActionEvent
 import com.trae.social.core.data.model.UserActionType
 import com.trae.social.core.data.repository.CommentRepository
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.data.repository.TweetRepository
-import com.trae.social.llm.LlmClient
-import com.trae.social.llm.LlmProviderRegistry
+import com.trae.social.llm.RulesetEngine
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
@@ -34,14 +33,14 @@ import org.junit.Test
  */
 class EventTextPreParserTest {
 
-    private val llmRegistry: LlmProviderRegistry = mockk()
+    private val rulesetEngine: RulesetEngine = mockk()
     private val tweetRepository: TweetRepository = mockk()
     private val commentRepository: CommentRepository = mockk()
     private val userActionDao: UserActionDao = mockk(relaxed = true)
     private val configRepository: ConfigRepository = mockk()
 
     private val parser = EventTextPreParser(
-        llmRegistry = llmRegistry,
+        rulesetEngine = rulesetEngine,
         tweetRepository = tweetRepository,
         commentRepository = commentRepository,
         userActionDao = userActionDao,
@@ -62,8 +61,8 @@ class EventTextPreParserTest {
         val llmResponse = """[{"index":0,"textTopic":"摄影","textTopics":["胶片"],"textSentiment":"positive","textIntent":"share"}]"""
 
         coEvery { tweetRepository.getById("tweet-1") } returns tweet
-        coEvery { configRepository.getDefaultProvider() } returns LlmProvider.OPENAI
-        coEvery { llmRegistry.getClient(LlmProvider.OPENAI) } returns mkLlmClient(llmResponse)
+        coEvery { configRepository.listEndpoints() } returns listOf(mkEndpoint())
+        coEvery { rulesetEngine.chatSync(any(), any()) } returns llmResponse
 
         val result = parser.enrichWithTextSignals(listOf(event))
 
@@ -93,8 +92,8 @@ class EventTextPreParserTest {
         val llmResponse = """[{"index":0,"textTopic":"美食","textTopics":[],"textSentiment":"positive","textIntent":"recommendation"}]"""
 
         coEvery { commentRepository.getByTweetAndAuthor("tweet-2", "user-self") } returns comments
-        coEvery { configRepository.getDefaultProvider() } returns LlmProvider.OPENAI
-        coEvery { llmRegistry.getClient(LlmProvider.OPENAI) } returns mkLlmClient(llmResponse)
+        coEvery { configRepository.listEndpoints() } returns listOf(mkEndpoint())
+        coEvery { rulesetEngine.chatSync(any(), any()) } returns llmResponse
 
         val result = parser.enrichWithTextSignals(listOf(event))
 
@@ -119,7 +118,7 @@ class EventTextPreParserTest {
         val result = parser.enrichWithTextSignals(listOf(event))
         assertEquals(1, result.size)
         assertEquals("旅行", result[0].extra["textTopic"]?.let { (it as JsonPrimitive).content })
-        coVerify(exactly = 0) { llmRegistry.getClient(any()) }
+        coVerify(exactly = 0) { rulesetEngine.chatSync(any(), any()) }
         coVerify(exactly = 0) { tweetRepository.getById(any()) }
     }
 
@@ -133,10 +132,9 @@ class EventTextPreParserTest {
             occurredAt = now,
         )
         coEvery { tweetRepository.getById("tweet-3b") } returns mkTweet("tweet-3b", "some text")
-        coEvery { configRepository.getDefaultProvider() } returns LlmProvider.OPENAI
-        coEvery { llmRegistry.getClient(LlmProvider.OPENAI) } returns mkLlmClient(
+        coEvery { configRepository.listEndpoints() } returns listOf(mkEndpoint())
+        coEvery { rulesetEngine.chatSync(any(), any()) } returns
             """[{"index":0,"textTopic":null,"textTopics":[],"textSentiment":"positive","textIntent":"share"}]"""
-        )
 
         val result = parser.enrichWithTextSignals(listOf(event))
         assertEquals(1, result.size)
@@ -150,11 +148,11 @@ class EventTextPreParserTest {
         // 第二轮：同一事件不应再调用 LLM（textParsed=true 缓存命中）
         val result2 = parser.enrichWithTextSignals(listOf(result[0]))
         assertEquals(1, result2.size)
-        coVerify(exactly = 1) { llmRegistry.getClient(any()) }
+        coVerify(exactly = 1) { rulesetEngine.chatSync(any(), any()) }
     }
 
     @Test
-    fun `LLM provider 未配置时优雅降级返回原始事件`() = runTest {
+    fun `LLM 端点未配置时优雅降级返回原始事件`() = runTest {
         val event = mkEvent(
             id = "e4",
             type = UserActionType.PUBLISH_TWEET,
@@ -162,12 +160,12 @@ class EventTextPreParserTest {
             occurredAt = now,
         )
         coEvery { tweetRepository.getById("tweet-4") } returns mkTweet("tweet-4", "some text")
-        coEvery { configRepository.getDefaultProvider() } returns null
+        coEvery { configRepository.listEndpoints() } returns emptyList()
 
         val result = parser.enrichWithTextSignals(listOf(event))
         assertEquals(1, result.size)
         assertNull(result[0].extra["textTopic"])
-        coVerify(exactly = 0) { llmRegistry.getClient(any()) }
+        coVerify(exactly = 0) { rulesetEngine.chatSync(any(), any()) }
     }
 
     @Test
@@ -181,7 +179,7 @@ class EventTextPreParserTest {
         val result = parser.enrichWithTextSignals(listOf(viewEvent))
         assertEquals(1, result.size)
         assertNull(result[0].extra["textTopic"])
-        coVerify(exactly = 0) { llmRegistry.getClient(any()) }
+        coVerify(exactly = 0) { rulesetEngine.chatSync(any(), any()) }
     }
 
     @Test
@@ -197,7 +195,7 @@ class EventTextPreParserTest {
         val result = parser.enrichWithTextSignals(listOf(event))
         assertEquals(1, result.size)
         assertNull(result[0].extra["textTopic"])
-        coVerify(exactly = 0) { llmRegistry.getClient(any()) }
+        coVerify(exactly = 0) { rulesetEngine.chatSync(any(), any()) }
     }
 
     @Test
@@ -209,8 +207,8 @@ class EventTextPreParserTest {
             occurredAt = now,
         )
         coEvery { tweetRepository.getById("tweet-7") } returns mkTweet("tweet-7", "text")
-        coEvery { configRepository.getDefaultProvider() } returns LlmProvider.OPENAI
-        coEvery { llmRegistry.getClient(LlmProvider.OPENAI) } returns mkLlmClient("not a json")
+        coEvery { configRepository.listEndpoints() } returns listOf(mkEndpoint())
+        coEvery { rulesetEngine.chatSync(any(), any()) } returns "not a json"
 
         val result = parser.enrichWithTextSignals(listOf(event))
         assertEquals(1, result.size)
@@ -226,11 +224,10 @@ class EventTextPreParserTest {
         coEvery { tweetRepository.getById("tweet-8b") } returns mkTweet("tweet-8b", "分享我的摄影作品")
         coEvery { commentRepository.getByTweetAndAuthor("tweet-8c", "user-self") } returns
             listOf(mkComment("c8", "tweet-8c", "拍得真好", now))
-        coEvery { configRepository.getDefaultProvider() } returns LlmProvider.OPENAI
-        coEvery { llmRegistry.getClient(LlmProvider.OPENAI) } returns mkLlmClient(
+        coEvery { configRepository.listEndpoints() } returns listOf(mkEndpoint())
+        coEvery { rulesetEngine.chatSync(any(), any()) } returns
             """[{"index":0,"textTopic":"摄影","textTopics":[],"textSentiment":"positive","textIntent":"share"},
                {"index":1,"textTopic":"摄影","textTopics":[],"textSentiment":"positive","textIntent":"opinion"}]"""
-        )
 
         val result = parser.enrichWithTextSignals(listOf(viewEvent, publishEvent, commentEvent))
         assertEquals(3, result.size)
@@ -250,10 +247,9 @@ class EventTextPreParserTest {
         // LLM 只返回了 index=0，漏掉了 index=1
         coEvery { tweetRepository.getById("tweet-9a") } returns mkTweet("tweet-9a", "摄影分享")
         coEvery { tweetRepository.getById("tweet-9b") } returns mkTweet("tweet-9b", "美食探店")
-        coEvery { configRepository.getDefaultProvider() } returns LlmProvider.OPENAI
-        coEvery { llmRegistry.getClient(LlmProvider.OPENAI) } returns mkLlmClient(
+        coEvery { configRepository.listEndpoints() } returns listOf(mkEndpoint())
+        coEvery { rulesetEngine.chatSync(any(), any()) } returns
             """[{"index":0,"textTopic":"摄影","textTopics":[],"textSentiment":"positive","textIntent":"share"}]"""
-        )
 
         val result = parser.enrichWithTextSignals(listOf(event1, event2))
         assertEquals(2, result.size)
@@ -266,7 +262,7 @@ class EventTextPreParserTest {
 
         // 第二轮：两个事件都应跳过 LLM（textParsed=true 缓存命中）
         parser.enrichWithTextSignals(result)
-        coVerify(exactly = 1) { llmRegistry.getClient(any()) }
+        coVerify(exactly = 1) { rulesetEngine.chatSync(any(), any()) }
     }
 
     /**
@@ -285,10 +281,9 @@ class EventTextPreParserTest {
         )
         coEvery { commentRepository.getById(commentId) } returns
             mkComment(commentId, "tweet-10", "按 id 精确匹配的评论内容", now)
-        coEvery { configRepository.getDefaultProvider() } returns LlmProvider.OPENAI
-        coEvery { llmRegistry.getClient(LlmProvider.OPENAI) } returns mkLlmClient(
+        coEvery { configRepository.listEndpoints() } returns listOf(mkEndpoint())
+        coEvery { rulesetEngine.chatSync(any(), any()) } returns
             """[{"index":0,"textTopic":"科技","textTopics":[],"textSentiment":"neutral","textIntent":"opinion"}]"""
-        )
 
         val result = parser.enrichWithTextSignals(listOf(event))
         assertEquals(1, result.size)
@@ -338,7 +333,15 @@ class EventTextPreParserTest {
         createdAt = createdAt,
     )
 
-    private fun mkLlmClient(response: String): LlmClient = mockk {
-        coEvery { chatSync(any(), any()) } returns response
-    }
+    private fun mkEndpoint(): LlmEndpointEntity = LlmEndpointEntity(
+        id = "ep-test",
+        displayName = "Test Endpoint",
+        protocol = "openai_compat",
+        baseUrl = "https://api.test.com",
+        model = "test-model",
+        capabilities = "TEXT,JSON_MODE_NATIVE,STREAMING",
+        orderIndex = 0,
+        createdAt = now,
+        updatedAt = now,
+    )
 }

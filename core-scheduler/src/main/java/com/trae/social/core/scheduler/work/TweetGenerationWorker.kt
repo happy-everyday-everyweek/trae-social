@@ -24,9 +24,8 @@ import com.trae.social.core.scheduler.rule.DeduplicationKeys
 import com.trae.social.data.gallery.LocalImageGallery
 import com.trae.social.data.gallery.themeToString
 import com.trae.social.llm.ChatConfig
-import com.trae.social.llm.LlmProviderRegistry
+import com.trae.social.llm.RulesetEngine
 import com.trae.social.llm.interceptor.RateLimitedException
-import com.trae.social.llm.prompt.ContentFilter
 import com.trae.social.llm.prompt.TweetPostProcessor
 import com.trae.social.llm.prompt.TweetPromptBuilder
 import dagger.assisted.Assisted
@@ -45,14 +44,13 @@ import kotlin.random.Random
  * 1. 读取账号人设与最近 3 条推文；
  * 2. 限流闸门：[SchedulerRateLimiter] + [DailyQuotaChecker]；
  * 3. 构建 PersonaInput 调 [TweetPromptBuilder.build]；
- * 4. 非流式调用 [LlmProviderRegistry.getDefaultClient].chatSync；
+ * 4. 非流式调用 [RulesetEngine.chatSync]；
  * 5. [TweetPromptBuilder.parseTweetResult] 失败则降级为纯文本；
- * 6. [ContentFilter.containsSensitiveContent] 命中则跳过本次；
- * 7. [TweetPostProcessor] 注入错别字 / emoji / 截断；
- * 8. withImage=true 时通过 [LocalImageGallery.pickRandom] 取配图；
- * 9. 写 [TweetEntity]（isAiGenerated=true，deduplicationKey 幂等）；
- * 10. 捕获 [SQLiteConstraintException] 静默处理；
- * 11. 写 [SchedulerLogEntity]。
+ * 6. [TweetPostProcessor] 注入错别字 / emoji / 截断；
+ * 7. withImage=true 时通过 [LocalImageGallery.pickRandom] 取配图；
+ * 8. 写 [TweetEntity]（isAiGenerated=true，deduplicationKey 幂等）；
+ * 9. 捕获 [SQLiteConstraintException] 静默处理；
+ * 10. 写 [SchedulerLogEntity]。
  *
  * 重试：BackoffPolicy.EXPONENTIAL 10s/30s/90s，最多 3 次（由 WorkManager 自动调度）。
  * 429 时返回 Result.success() 跳过本次，避免重试浪费配额。
@@ -64,7 +62,7 @@ class TweetGenerationWorker @AssistedInject constructor(
     private val accountRepository: AccountRepository,
     private val tweetRepository: TweetRepository,
     private val configRepository: ConfigRepository,
-    private val llmRegistry: LlmProviderRegistry,
+    private val rulesetEngine: RulesetEngine,
     private val gallery: LocalImageGallery,
     private val rateLimiter: SchedulerRateLimiter,
     private val quotaChecker: DailyQuotaChecker,
@@ -78,7 +76,6 @@ class TweetGenerationWorker @AssistedInject constructor(
 
     private val promptBuilder = TweetPromptBuilder()
     private val postProcessor = TweetPostProcessor()
-    private val contentFilter = ContentFilter()
 
     override suspend fun doWork(): Result {
         val accountId = inputData.getString(WorkerKeys.KEY_ACCOUNT_ID)
@@ -169,7 +166,7 @@ class TweetGenerationWorker @AssistedInject constructor(
             // 4. 调用 LLM（非流式）
             // ------------------------------------------------------------------
             val rawResponse: String = try {
-                llmRegistry.getDefaultClient().chatSync(
+                rulesetEngine.chatSync(
                     messages = messages,
                     config = ChatConfig(
                         temperature = 0.85f,
@@ -178,19 +175,11 @@ class TweetGenerationWorker @AssistedInject constructor(
                     ),
                 )
             } catch (e: RateLimitedException) {
-                // P1 修复：RetryInterceptor 在 HTTP 层将 429 转为 RateLimitedException，
-                // 不会包装为 HttpException。此处显式捕获，跳过重试避免浪费配额。
+                // #151 重构后：DefaultRulesetEngine 把 SDK 的 429 异常转换为 RateLimitedException，
+                // 各 Worker 既有 catch 分支继续生效，跳过重试避免浪费配额。
                 resultStatus = "skipped_429"
                 logSchedulerEvent(accountId, started, resultStatus, e.message)
                 return Result.success(workDataOf(WorkerKeys.KEY_RESULT to resultStatus))
-            } catch (httpError: retrofit2.HttpException) {
-                if (httpError.code() == WorkerKeys.HTTP_TOO_MANY_REQUESTS) {
-                    // 429 兜底（理论上不会走到，RateLimitedException 已在上游捕获）
-                    resultStatus = "skipped_429"
-                    logSchedulerEvent(accountId, started, resultStatus, httpError.message())
-                    return Result.success(workDataOf(WorkerKeys.KEY_RESULT to resultStatus))
-                }
-                throw httpError
             }
 
             if (rawResponse.isBlank()) {
@@ -221,17 +210,8 @@ class TweetGenerationWorker @AssistedInject constructor(
             }
 
             // ------------------------------------------------------------------
-            // 6. ContentFilter 检查，敏感则跳过
-            // ------------------------------------------------------------------
-            if (contentFilter.containsSensitiveContent(rawText)) {
-                Timber.w("账号 %s 推文命中敏感词，跳过本次", accountId)
-                resultStatus = "skipped_sensitive"
-                logSchedulerEvent(accountId, started, resultStatus, "sensitive content detected")
-                return Result.success(workDataOf(WorkerKeys.KEY_RESULT to resultStatus))
-            }
-
-            // ------------------------------------------------------------------
-            // 7. TweetPostProcessor: 错别字 + emoji + 截断
+            // 6. TweetPostProcessor: 错别字 + emoji + 截断
+            // (#151 重构移除 ContentFilter，敏感词检查下沉到模型层 / 上层审核流程)
             // ------------------------------------------------------------------
             val random = Random(windowStart + accountId.hashCode())
             val withTypos = postProcessor.applyTypos(rawText, personaInput.typoRate, random)

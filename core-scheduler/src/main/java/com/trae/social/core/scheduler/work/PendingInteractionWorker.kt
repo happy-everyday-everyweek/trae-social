@@ -11,7 +11,7 @@ import com.trae.social.core.data.repository.InteractionRepository
 import com.trae.social.core.data.repository.TweetRepository
 import com.trae.social.core.scheduler.ratelimit.SchedulerRateLimiter
 import com.trae.social.llm.ChatConfig
-import com.trae.social.llm.LlmProviderRegistry
+import com.trae.social.llm.RulesetEngine
 import com.trae.social.llm.interceptor.RateLimitedException
 import com.trae.social.llm.prompt.CommentPromptBuilder
 import com.trae.social.llm.prompt.TweetPromptBuilder
@@ -36,7 +36,7 @@ class PendingInteractionWorker @AssistedInject constructor(
     private val interactionRepository: InteractionRepository,
     private val tweetRepository: TweetRepository,
     private val accountRepository: AccountRepository,
-    private val llmRegistry: LlmProviderRegistry,
+    private val rulesetEngine: RulesetEngine,
     private val rateLimiter: SchedulerRateLimiter,
     private val logDao: com.trae.social.core.data.dao.SchedulerLogDao,
 ) : CoroutineWorker(appContext, params) {
@@ -181,7 +181,7 @@ class PendingInteractionWorker @AssistedInject constructor(
             commenters = personas,
         )
         val raw = try {
-            llmRegistry.getDefaultClient().chatSync(
+            rulesetEngine.chatSync(
                 messages = messages,
                 config = ChatConfig(temperature = 0.9f, maxTokens = 512, jsonMode = true),
             )

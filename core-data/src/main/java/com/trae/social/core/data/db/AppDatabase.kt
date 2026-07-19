@@ -8,6 +8,7 @@ import com.trae.social.core.data.dao.CommentDao
 import com.trae.social.core.data.dao.FollowRelationDao
 import com.trae.social.core.data.dao.ImageUsageDao
 import com.trae.social.core.data.dao.InteractionDao
+import com.trae.social.core.data.dao.LlmEndpointDao
 import com.trae.social.core.data.dao.SchedulerLogDao
 import com.trae.social.core.data.dao.TweetDao
 import com.trae.social.core.data.dao.UserActionDao
@@ -22,6 +23,7 @@ import com.trae.social.core.data.entity.CommentEntity
 import com.trae.social.core.data.entity.FollowRelationEntity
 import com.trae.social.core.data.entity.ImageUsageEntity
 import com.trae.social.core.data.entity.InteractionEntity
+import com.trae.social.core.data.entity.LlmEndpointEntity
 import com.trae.social.core.data.entity.PersonaDynamicFieldEntity
 import com.trae.social.core.data.entity.SchedulerLogEntity
 import com.trae.social.core.data.entity.TweetEntity
@@ -42,7 +44,8 @@ import com.trae.social.core.data.entity.UserProfileVersionEntity
  * - version=6（新增 comments 表持久化评论列表，评论弹层打开时从 DB 加载展示）
  * - version=7（#146：新增用户行为建模六张表：user_action_events / user_profile_snapshots /
  *   user_profile_versions / user_profile_overrides / user_profile_feedback / user_profile_rollbacks）
- * - version=8（#227：删除 tweets 表冗余 authorId 单列索引，已被复合索引最左前缀覆盖）
+ * - version=8（#227：删除 tweets 表冗余 authorId 单列索引，已被复合索引最左前缀覆盖；
+ *   #151：新增 llm_endpoints 表，承载多端点配置 + 协议格式 + 能力声明 + 全局排序）
  * - exportSchema=true（RISK-9：schema JSON 输出至 schemas/）
  * - TypeConverters 处理 JSON 字段与枚举
  * - 发布版 schema 变更须提供显式 Migration（RISK-9）
@@ -64,7 +67,8 @@ import com.trae.social.core.data.entity.UserProfileVersionEntity
         UserProfileVersionEntity::class,
         UserProfileOverrideEntity::class,
         UserProfileFeedbackEntity::class,
-        UserProfileRollbackEntity::class
+        UserProfileRollbackEntity::class,
+        LlmEndpointEntity::class
     ],
     version = 8,
     exportSchema = true
@@ -85,6 +89,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun userProfileOverrideDao(): UserProfileOverrideDao
     abstract fun userProfileFeedbackDao(): UserProfileFeedbackDao
     abstract fun userProfileRollbackDao(): UserProfileRollbackDao
+    abstract fun llmEndpointDao(): LlmEndpointDao
 
     companion object {
         const val DATABASE_NAME = "social.db"

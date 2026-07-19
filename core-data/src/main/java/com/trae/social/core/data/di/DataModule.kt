@@ -12,6 +12,7 @@ import com.trae.social.core.data.dao.CommentDao
 import com.trae.social.core.data.dao.FollowRelationDao
 import com.trae.social.core.data.dao.ImageUsageDao
 import com.trae.social.core.data.dao.InteractionDao
+import com.trae.social.core.data.dao.LlmEndpointDao
 import com.trae.social.core.data.dao.SchedulerLogDao
 import com.trae.social.core.data.dao.TweetDao
 import com.trae.social.core.data.dao.UserActionDao
@@ -369,8 +370,9 @@ object DataModule {
     }
 
     /**
-     * #227：v7 → v8，删除 tweets 表冗余的 authorId 单列索引。
+     * v7 → v8：合并 #227 与 #151 两项 schema 变更。
      *
+     * #227：删除 tweets 表冗余的 authorId 单列索引。
      * 复合索引 `(authorId, createdAt)` 的最左前缀已完全覆盖 `WHERE authorId = ?` 查询，
      * 单列索引 `index_tweets_authorId` 是冗余的——每条 INSERT/UPDATE 都多维护一份 B-Tree，
      * 产生写放大。DROP 后所有按 authorId 过滤的查询仍命中复合索引：
@@ -381,10 +383,31 @@ object DataModule {
      *
      * 使用 `DROP INDEX IF EXISTS` 兼容 v7 之前由 Room 自动创建的索引名
      * `index_tweets_authorId`（Room 命名规则：`index_<table>_<col>`）。
+     *
+     * #151：新增 `llm_endpoints` 表承载多端点配置 + 协议格式 + 能力声明 + 全局排序。
+     * API Key 不入此表（Room 不加密），仍走 EncryptedSharedPreferences，
+     * 端点 id 改为 `api_key_${endpointId}` 命名空间（迁移逻辑见
+     * [com.trae.social.core.data.repository.ConfigRepository.migrateLegacyProviderConfigsIfNeeded]）。
      */
     private val MIGRATION_7_8 = object : Migration(7, 8) {
         override fun migrate(database: SupportSQLiteDatabase) {
+            // #227：删除冗余 authorId 单列索引
             database.execSQL("DROP INDEX IF EXISTS `index_tweets_authorId`")
+            // #151：新增 llm_endpoints 表
+            database.execSQL(
+                "CREATE TABLE IF NOT EXISTS `llm_endpoints` (" +
+                    "`id` TEXT NOT NULL, `displayName` TEXT NOT NULL, " +
+                    "`protocol` TEXT NOT NULL, `baseUrl` TEXT NOT NULL, " +
+                    "`model` TEXT NOT NULL, `capabilities` TEXT NOT NULL, " +
+                    "`orderIndex` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, " +
+                    "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))"
+            )
+            database.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_llm_endpoints_orderIndex` ON `llm_endpoints` (`orderIndex`)"
+            )
+            database.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_llm_endpoints_protocol` ON `llm_endpoints` (`protocol`)"
+            )
         }
     }
 
@@ -398,7 +421,10 @@ object DataModule {
             AppDatabase.DATABASE_NAME
         )
             .fallbackToDestructiveMigrationOnDowngrade()
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+            .addMigrations(
+                MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
+                MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
+            )
             .build()
     }
 
@@ -454,6 +480,11 @@ object DataModule {
     @Provides
     @Singleton
     fun provideUserProfileRollbackDao(db: AppDatabase): UserProfileRollbackDao = db.userProfileRollbackDao()
+
+    // #151：LLM 多端点配置 DAO
+    @Provides
+    @Singleton
+    fun provideLlmEndpointDao(db: AppDatabase): LlmEndpointDao = db.llmEndpointDao()
 
     /**
      * 提供 EncryptedSharedPreferences（RISK-11：API Key 加密存储）。

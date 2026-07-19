@@ -1,61 +1,29 @@
 package com.trae.social.llm
 
-import com.trae.social.core.data.config.LlmProvider
 import kotlinx.coroutines.flow.Flow
 
 /**
- * LLM 客户端统一抽象。
+ * 单端点 LLM 客户端抽象（#151 重构后为引擎内部适配器，不再对外暴露）。
  *
- * 各提供商（OpenAI / Anthropic / Gemini / 自定义）实现该接口，
- * 上层调用方无需关心底层协议差异。
+ * 旧版 [LlmClient] 暴露 `provider: LlmProvider`，按 provider 寻址；新版以
+ * [endpointId] + [capabilities] 寻址，由 [EndpointRegistry] 按 endpointId 缓存实例。
+ *
+ * 上层调用方应使用 [RulesetEngine]（极简 `chat/chatSync/ping`），不再直接持有 [LlmClient]。
  */
 interface LlmClient {
 
-    /**
-     * 流式对话：逐 token 返回增量文本。
-     *
-     * 流式失败时，实现方应自动降级为 [chatSync] 后再以单条流的形式发出。
-     */
+    /** 流式对话：逐 token 返回增量文本。 */
     suspend fun chat(messages: List<ChatMessage>, config: ChatConfig): Flow<String>
 
-    /**
-     * 非流式对话：阻塞等待完整响应后一次性返回。
-     */
+    /** 非流式对话：阻塞等待完整响应后一次性返回。 */
     suspend fun chatSync(messages: List<ChatMessage>, config: ChatConfig): String
 
-    /**
-     * 连通性测试：发送一条 "ping" 用户消息，期望非空响应即视为成功。
-     */
+    /** 连通性测试：发送 ping，期望非空响应即视为成功。 */
     suspend fun ping(): Boolean
 
-    /**
-     * 当前客户端对应的提供商类型。
-     */
-    val provider: LlmProvider
+    /** 端点 id（取代旧版 `provider` 字段）。 */
+    val endpointId: String
+
+    /** 端点能力集合。 */
+    val capabilities: Set<com.trae.social.core.data.config.ModelCapability>
 }
-
-/**
- * 对话消息单元。
- */
-data class ChatMessage(
-    val role: Role,
-    val content: String,
-) {
-    enum class Role { SYSTEM, USER, ASSISTANT }
-}
-
-/**
- * 对话生成参数。
- *
- * @param temperature 采样温度，越高越发散。
- * @param maxTokens 单次响应最大 token 数。
- * @param jsonMode 是否要求严格 JSON 输出（仅 OpenAI 原生支持，其他提供商以 prompt 约束）。
- */
-data class ChatConfig(
-    val temperature: Float = 0.8f,
-    val maxTokens: Int = 512,
-    val jsonMode: Boolean = false,
-)
-
-// IMPL-44：LlmProvider 统一定义于 core-data 模块（含 id/displayName 元数据），
-// 此处通过 api(project(":core-data")) 传递依赖复用，消除重复枚举。
