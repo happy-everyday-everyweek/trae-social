@@ -118,6 +118,7 @@ fun TweetCard(
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val tweet = data.tweet
+    // #212 review：下拉菜单为瞬态 UI，旋转后自动重新展开体验突兀，改回 remember 不持久化
     var moreMenuExpanded by remember { mutableStateOf(false) }
 
     // 显示的点赞数：DB likeCount 是唯一数据源（IMPL-11）。

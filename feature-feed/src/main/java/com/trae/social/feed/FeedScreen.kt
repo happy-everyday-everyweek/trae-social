@@ -35,6 +35,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.mapSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -84,9 +87,11 @@ fun FeedScreen(
     val isOnboardingSkipped by viewModel.isOnboardingSkipped.collectAsStateWithLifecycle()
 
     // 互动弹层状态
-    var commentTarget by remember { mutableStateOf<TweetWithAuthor?>(null) }
-    var fullScreenTarget by remember { mutableStateOf<FullScreenImageTarget?>(null) }
-    var retweetTarget by remember { mutableStateOf<TweetWithAuthor?>(null) }
+    // #212：改用 rememberSaveable，使屏幕旋转或系统回收后已打开的评论弹层/大图查看器/
+    // 转发确认弹窗不被关闭。TweetWithAuthor 使用其伴生 Saver，FullScreenImageTarget 使用下方定义的 Saver。
+    var commentTarget by rememberSaveable(stateSaver = TweetWithAuthor.Saver) { mutableStateOf<TweetWithAuthor?>(null) }
+    var fullScreenTarget by rememberSaveable(stateSaver = FullScreenImageTargetSaver) { mutableStateOf<FullScreenImageTarget?>(null) }
+    var retweetTarget by rememberSaveable(stateSaver = TweetWithAuthor.Saver) { mutableStateOf<TweetWithAuthor?>(null) }
 
     val refreshState = pagingItems.loadState.refresh
     val isInitialLoading = refreshState is LoadState.Loading && pagingItems.itemCount == 0
@@ -199,10 +204,33 @@ fun FeedScreen(
 
 /**
  * 大图查看器打开目标：该推文全部图片 URI + 被点击图片下标。
+ *
+ * #212：伴生 [FullScreenImageTargetSaver] 将其展平为 ArrayList<String> + Int，
+ * 供 rememberSaveable 在屏幕旋转或系统回收后恢复已打开的大图查看器。
  */
 private data class FullScreenImageTarget(
     val imageUris: List<String>,
     val initialIndex: Int,
+)
+
+/**
+ * #212：FullScreenImageTarget 的 Saver。imageUris 转 ArrayList<String> 以兼容 Bundle 序列化。
+ * 改用 mapSaver（key-based），避免字段顺序耦合导致的保存/恢复错位。
+ */
+private val FullScreenImageTargetSaver: Saver<FullScreenImageTarget?, Any> = mapSaver(
+    save = {
+        mapOf(
+            "imageUris" to ArrayList(it!!.imageUris),
+            "initialIndex" to it.initialIndex,
+        )
+    },
+    restore = { map ->
+        @Suppress("UNCHECKED_CAST")
+        FullScreenImageTarget(
+            imageUris = map["imageUris"] as List<String>,
+            initialIndex = map["initialIndex"] as Int,
+        )
+    },
 )
 
 /**
