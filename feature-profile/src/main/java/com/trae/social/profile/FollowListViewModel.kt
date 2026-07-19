@@ -83,22 +83,24 @@ class FollowListViewModel @Inject constructor(
             // FOLLOWING 列表，但按钮态是"关注"，UI 不一致）。
             // 改为：hasInflight 时直接 return，让乐观更新保持；inflight 完成后 UI 可主动
             // 触发下一次 load 拿到 DB 最新状态。
+            //
+            // 主 review 第 4 轮修复（二次竞态保护）：第 3 轮只在 load 开始时检查 inflight，
+            // 但 DB 查询是 suspend，await 期间用户可能点击 toggleFollow 添加 inflight 并
+            // 同步更新 _followingIds/_uiState。查询返回后若直接覆盖会丢失乐观更新，且
+            // _followingIds 与 _uiState 可能分别被覆盖导致互相不一致。
+            // 改为：把 _followingIds 和 accounts 的 DB 查询放在同一个 try 块，查询完成后
+            // 统一检查 inflightToggles——非空则跳过所有覆盖，保持乐观更新；为空则一次性
+            // 覆盖两者，保证一致性。
             if (inflightToggles.isNotEmpty()) {
                 Timber.d("load 跳过：有 inflight toggle=%s，避免覆盖乐观更新", inflightToggles)
                 return@launch
             }
             _uiState.value = FollowListUiState.Loading
-            // 先刷新"我关注了谁"集合，供按钮状态使用。
-            _followingIds.value = try {
-                followRelationDao.getFollowing(AccountIds.USER_SELF_ID).map { it.followeeId }.toSet()
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (t: Throwable) {
-                Timber.w(t, "加载 followingIds 失败")
-                emptySet()
-            }
-            val accounts = try {
-                when (type) {
+            val (dbFollowingIds, accounts) = try {
+                val ids = followRelationDao.getFollowing(AccountIds.USER_SELF_ID)
+                    .map { it.followeeId }
+                    .toSet()
+                val accs = when (type) {
                     FollowListType.FOLLOWING -> {
                         val relations = followRelationDao.getFollowing(AccountIds.USER_SELF_ID)
                         relations.mapNotNull { accountRepository.getById(it.followeeId) }
@@ -112,12 +114,21 @@ class FollowListViewModel @Inject constructor(
                         loadRecommendedAccounts()
                     }
                 }
+                ids to accs
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
-            } catch (t: Throwable) {
-                Timber.w(t, "加载关注列表失败")
-                emptyList()
+            } catch (e: Exception) {
+                // 主 review 第 4 轮修复：catch (Throwable) → catch (Exception) 让 Error 自然传播，
+                // 与同模块 ApiKeyViewModel 策略一致。
+                Timber.w(e, "加载关注列表失败")
+                emptySet<String>() to emptyList<AccountEntity>()
             }
+            // 二次检查：DB 查询 await 期间若有 toggleFollow 添加 inflight，跳过覆盖保持乐观更新
+            if (inflightToggles.isNotEmpty()) {
+                Timber.d("load 跳过覆盖：await 期间有 inflight toggle=%s", inflightToggles)
+                return@launch
+            }
+            _followingIds.value = dbFollowingIds
             _uiState.value = FollowListUiState.Success(accounts)
         }
     }
@@ -137,7 +148,15 @@ class FollowListViewModel @Inject constructor(
         // 供 toggleFollow 在 FOLLOW 埋点上带 scenarioId=6 / drivenByProfile / group。
         scenario6Driven = drivenScenario6
         val interestVector = if (drivenScenario6) {
-            runCatching { readAccess.interestVector() }.getOrDefault(emptyMap())
+            // 主 review 第 4 轮修复：runCatching → try/catch。interestVector() 是非 suspend
+            // 同步函数，不会抛 CancellationException，但 runCatching 会吞 Error（OOM），
+            // 与同模块 ApiKeyViewModel 策略不一致。改为 catch (Exception) 让 Error 自然传播。
+            try {
+                readAccess.interestVector()
+            } catch (e: Exception) {
+                Timber.w(e, "loadRecommendedAccounts: interestVector 失败")
+                emptyMap()
+            }
         } else {
             emptyMap()
         }
@@ -151,8 +170,9 @@ class FollowListViewModel @Inject constructor(
                 accountRepository.getAccounts(page)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
-            } catch (t: Throwable) {
-                Timber.w(t, "翻页加载账号失败 page=%d", page)
+            } catch (e: Exception) {
+                // 主 review 第 4 轮修复：catch (Throwable) → catch (Exception) 让 Error 自然传播。
+                Timber.w(e, "翻页加载账号失败 page=%d", page)
                 emptyList()
             }
             if (batch.isEmpty()) break
@@ -180,7 +200,9 @@ class FollowListViewModel @Inject constructor(
         // #146 A/E 场景 6：反哺层打标——为本次推荐列表发 scenario 事件，供 computeFeedbackEffect 做 A/B 回测。
         // 第七轮 review B1 修复：必须带 isScenarioMarker=true，使 OPEN_FOLLOWLIST 计入曝光分母，
         // 否则事件既非 marker 又非 INTERACTION_TYPES 互动 → delta 恒为 0。
-        runCatching {
+        // 主 review 第 4 轮修复：runCatching → try/catch。trackNow 是非 suspend 同步函数，
+        // 不会抛 CancellationException，但 runCatching 会吞 Error，与同模块策略不一致。
+        try {
             userActionTracker.trackNow(
                 UserActionEvent(
                     id = UUID.randomUUID().toString(),
@@ -199,7 +221,9 @@ class FollowListViewModel @Inject constructor(
                     session = sessionId,
                 )
             )
-        }.onFailure { Timber.w(it, "#146 场景 6 打标失败") }
+        } catch (e: Exception) {
+            Timber.w(e, "#146 场景 6 打标失败")
+        }
 
         return recommended
     }
@@ -302,8 +326,9 @@ class FollowListViewModel @Inject constructor(
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
-            } catch (t: Throwable) {
-                Timber.w(t, "切换关注状态失败，回滚本地状态 accountId=%s", accountId)
+            } catch (e: Exception) {
+                // 主 review 第 4 轮修复：catch (Throwable) → catch (Exception) 让 Error 自然传播。
+                Timber.w(e, "切换关注状态失败，回滚本地状态 accountId=%s", accountId)
                 // DB 失败回滚本地乐观更新（M1 修复）
                 _followingIds.value = if (isFollowing) {
                     _followingIds.value + accountId
@@ -363,9 +388,10 @@ class FollowListViewModel @Inject constructor(
                     )
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
-                } catch (t: Throwable) {
+                } catch (e: Exception) {
+                    // 主 review 第 4 轮修复：catch (Throwable) → catch (Exception) 让 Error 自然传播。
                     // 埋点失败不影响业务（DB 已写成功），仅记录日志
-                    Timber.w(t, "toggleFollow 埋点失败 accountId=%s", accountId)
+                    Timber.w(e, "toggleFollow 埋点失败 accountId=%s", accountId)
                 }
             }
         }
