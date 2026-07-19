@@ -187,8 +187,17 @@ class ProfileChatViewModel @Inject constructor(
     /** 顶部卡片"查看版本历史"按钮：手动加载最近 N 个版本摘要。 */
     fun refreshRecentVersions() {
         viewModelScope.launch {
-            _recentVersions.value = runCatching { versionStore.recentSummaries(RECENT_VERSIONS_LIMIT) }
-                .getOrDefault(emptyList())
+            // 主 review 第 1 轮 M3 修复：原 runCatching 会吞 CancellationException，
+            // 与同文件 send/confirmRollback/resetAllOverrides 的 M11 修复模式保持一致。
+            val versions = try {
+                versionStore.recentSummaries(RECENT_VERSIONS_LIMIT)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Timber.w(t, "refreshRecentVersions 失败")
+                emptyList()
+            }
+            _recentVersions.value = versions
         }
     }
 
@@ -215,8 +224,15 @@ class ProfileChatViewModel @Inject constructor(
 
     private fun loadHistory() {
         viewModelScope.launch {
-            val history = runCatching { feedbackDao.recent(HISTORY_LIMIT) }
-                .getOrDefault(emptyList())
+            // 主 review 第 1 轮 M3 修复：原 runCatching 会吞 CancellationException。
+            val history = try {
+                feedbackDao.recent(HISTORY_LIMIT)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Timber.w(t, "loadHistory 失败")
+                emptyList()
+            }
                 .sortedBy { it.createdAt }
                 .map { it.toChatMessage() }
             // 第二轮 review Minor 8 修复:loadHistory 异步从 DB 读取并整体替换 _messages,

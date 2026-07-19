@@ -9,6 +9,7 @@ import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.data.repository.LlmCacheInvalidator
 import com.trae.social.llm.RulesetEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -56,6 +57,8 @@ class OnboardingViewModel @Inject constructor(
      * @param completed 配置是否已保存完成（用于触发导航至 done 页）
      * @param pendingEndpointId 测试时创建/更新的端点 id；saveAndComplete 时复用该 id，
      *   避免重复测试时累积多个端点
+     * @param saveError 保存配置失败的用户可读原因（主 review 第 1 轮 M1 修复）。
+     *   非 null 时 UI 应展示错误并允许重试；null 表示无错误或尚未触发保存。
      */
     data class OnboardingUiState(
         val selectedProvider: LlmProvider = LlmProvider.OPENAI,
@@ -66,6 +69,7 @@ class OnboardingViewModel @Inject constructor(
         val isSaving: Boolean = false,
         val completed: Boolean = false,
         val pendingEndpointId: String? = null,
+        val saveError: String? = null,
     )
 
     /**
@@ -93,22 +97,36 @@ class OnboardingViewModel @Inject constructor(
         // 同时若已有端点（极端场景：用户已完成 onboarding 但被重新触发），把首个端点的
         // 元数据回填到 UI 状态，避免覆盖已有配置。
         viewModelScope.launch {
-            runCatching { configRepository.listEndpoints() }
-                .onSuccess { endpoints ->
-                    val first = endpoints.firstOrNull() ?: return@launch
-                    _uiState.update { current ->
-                        current.copy(
-                            pendingEndpointId = first.id,
-                            // 仅在用户尚未输入时回填，避免覆盖正在输入的内容
-                            baseUrl = if (current.baseUrl.isBlank()) first.baseUrl else current.baseUrl,
-                            model = if (current.model.isBlank()) first.model else current.model,
-                            apiKey = if (current.apiKey.isBlank()) {
-                                runCatching { configRepository.getEndpointApiKey(first.id) }
-                                    .getOrNull().orEmpty()
-                            } else current.apiKey,
-                        )
-                    }
-                }
+            // 主 review 第 1 轮 M2 修复：原 runCatching 会吞 CancellationException，
+            // 协程取消被误判为 listEndpoints 失败。改为 try/catch 显式重抛。
+            val endpoints = try {
+                configRepository.listEndpoints()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Timber.w(t, "OnboardingViewModel init: listEndpoints 失败")
+                return@launch
+            }
+            val first = endpoints.firstOrNull() ?: return@launch
+            _uiState.update { current ->
+                current.copy(
+                    pendingEndpointId = first.id,
+                    // 仅在用户尚未输入时回填，避免覆盖正在输入的内容
+                    baseUrl = if (current.baseUrl.isBlank()) first.baseUrl else current.baseUrl,
+                    model = if (current.model.isBlank()) first.model else current.model,
+                    apiKey = if (current.apiKey.isBlank()) {
+                        // M2 修复：getEndpointApiKey 是 suspend，原 runCatching 吞 CancellationException。
+                        try {
+                            configRepository.getEndpointApiKey(first.id)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (t: Throwable) {
+                            Timber.w(t, "OnboardingViewModel init: getEndpointApiKey 失败")
+                            null
+                        }.orEmpty()
+                    } else current.apiKey,
+                )
+            }
         }
     }
 
@@ -169,8 +187,15 @@ class OnboardingViewModel @Inject constructor(
                 val endpointId = ensureEndpoint(current)
                 cacheInvalidator.invalidateCache()
 
-                val result = runCatching { rulesetEngine.ping(endpointId) }
-                result.onFailure { t ->
+                // 主 review 第 1 轮 M2 修复：原 runCatching 会吞 CancellationException，
+                // 协程取消（如用户离开页面）被误判为 ping 失败并写入 TestStatus.Error，
+                // 此后即使 ViewModel 已 clear 仍向已取消的 flow 写状态。改为 try/catch
+                // 显式重抛 CancellationException，让结构化并发取消语义正常传播。
+                val pingOk = try {
+                    rulesetEngine.ping(endpointId)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (t: Throwable) {
                     Timber.w(t, "ping() 抛出异常")
                     // ping 内部 throw 的 SDK 异常在此分类为用户可读错误
                     _uiState.update {
@@ -179,13 +204,17 @@ class OnboardingViewModel @Inject constructor(
                     return@launch
                 }
 
-                if (result.getOrDefault(false)) {
+                if (pingOk) {
                     _uiState.update { it.copy(testStatus = TestStatus.Success) }
                 } else {
                     _uiState.update {
                         it.copy(testStatus = TestStatus.Error("连接失败：响应为空，请检查 API Key 与端点配置"))
                     }
                 }
+            } catch (e: CancellationException) {
+                // 主 review 第 1 轮 M2 修复：协程取消（如用户离开页面 / ViewModel clear）
+                // 必须向上传播，不能误判为连通性测试失败并写入 TestStatus.Error。
+                throw e
             } catch (t: Throwable) {
                 Timber.e(t, "连通性测试流程异常")
                 _uiState.update {
@@ -209,7 +238,9 @@ class OnboardingViewModel @Inject constructor(
      */
     fun saveAndComplete(onSaved: () -> Unit = {}) {
         if (_uiState.value.isSaving) return
-        _uiState.update { it.copy(isSaving = true) }
+        // 主 review 第 1 轮 M1 修复：进入保存流程时清空上次的 saveError，避免旧错误
+        // 残留导致 UI 持续展示红色错误提示。
+        _uiState.update { it.copy(isSaving = true, saveError = null) }
 
         viewModelScope.launch {
             try {
@@ -218,14 +249,30 @@ class OnboardingViewModel @Inject constructor(
                 cacheInvalidator.invalidateCache()
 
                 // 触发冷启动内容填充（RISK-14）
-                runCatching { coldStartFiller.triggerInitialFill() }
-                    .onFailure { Timber.w(it, "冷启动内容填充失败，已忽略") }
+                // 主 review 第 1 轮 M2 修复：原 runCatching 会吞 CancellationException，
+                // 协程取消被误判为冷启动失败并继续走 completed=true 路径。改为 try/catch
+                // 显式重抛 CancellationException。冷启动失败仍按非致命错误忽略。
+                try {
+                    coldStartFiller.triggerInitialFill()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (t: Throwable) {
+                    Timber.w(t, "冷启动内容填充失败，已忽略")
+                }
 
                 _uiState.update { it.copy(isSaving = false, completed = true) }
                 onSaved()
+            } catch (e: CancellationException) {
+                // M2 修复：协程取消向上传播，不写入 saveError。
+                throw e
             } catch (t: Throwable) {
                 Timber.e(t, "保存配置失败")
-                _uiState.update { it.copy(isSaving = false) }
+                // M1 修复：原实现仅清 isSaving，UI 按钮恢复可点但无任何失败反馈，
+                // 用户不知道保存没成功。改为同时写入 saveError，由 ConnectionTestScreen
+                // 的 SuccessState 展示错误并提供重试。
+                _uiState.update {
+                    it.copy(isSaving = false, saveError = classifyError(t))
+                }
             }
         }
     }

@@ -41,7 +41,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.ImageLoader
 import coil.compose.AsyncImage
-import coil.decode.SvgDecoder
 import coil.request.ImageRequest
 
 /**
@@ -56,6 +55,8 @@ import coil.request.ImageRequest
  * @param items 同日图片列表
  * @param initialIndex 初始展示的图片下标
  * @param dateLabel 顶部展示的日期标签
+ * @param imageLoader 共享 [@SvgImageLoader] [ImageLoader]（由 [TimelineViewModel] 注入，
+ *   主 review 第 1 轮 M3 修复：替代原 Composable 内 rememberSvgImageLoader() 本地构造）
  * @param onDismiss 关闭回调
  */
 @Composable
@@ -63,6 +64,7 @@ fun FullScreenImageViewer(
     items: List<TimelineItem>,
     initialIndex: Int,
     dateLabel: String,
+    imageLoader: ImageLoader,
     onDismiss: () -> Unit,
 ) {
     // IMPL-34：禁止在组合期调用 onDismiss（副作用），改为 LaunchedEffect 在挂起期执行
@@ -74,7 +76,6 @@ fun FullScreenImageViewer(
 
     val safeIndex = initialIndex.coerceIn(0, items.lastIndex)
     val pagerState = rememberPagerState(initialPage = safeIndex) { items.size }
-    val imageLoader = rememberSvgImageLoader()
 
     Dialog(
         onDismissRequest = onDismiss,

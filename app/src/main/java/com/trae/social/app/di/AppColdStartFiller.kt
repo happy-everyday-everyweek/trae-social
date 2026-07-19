@@ -12,6 +12,7 @@ import com.trae.social.core.scheduler.work.WorkerPolicies
 import com.trae.social.core.scheduler.work.WorkerTags
 import com.trae.social.onboarding.ColdStartFiller
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import timber.log.Timber
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -42,13 +43,18 @@ class AppColdStartFiller @Inject constructor(
 ) : ColdStartFiller {
 
     override suspend fun triggerInitialFill() {
-        runCatching {
+        // 主 review 第 1 轮 M2 修复：原外层 runCatching 会吞 CancellationException，
+        // 协程取消（如引导页用户离开 / 进程被杀）被误判为 ColdStartFiller 触发失败
+        // 并继续走 Timber.w 日志路径。改为 try/catch 显式重抛 CancellationException。
+        try {
             val now = System.currentTimeMillis()
 
             // #100：使用每个账号的时区计算当前小时，而非设备时区，
             // 避免跨时区场景下冷启动活跃账号选择错误
             val allVirtual = accountRepository.getVirtualAccountsList()
             val active = allVirtual.filter { account ->
+                // ZoneId.of 是非 suspend 函数，不会抛 CancellationException，
+                // 此处 runCatching 仅捕获 ZoneId 解析异常，可保留。
                 runCatching {
                     val zone = java.time.ZoneId.of(account.timezone)
                     val hour = java.time.ZonedDateTime.now(zone).hour
@@ -65,7 +71,8 @@ class AppColdStartFiller @Inject constructor(
             // 第七轮 review M4 修复：将活跃账号的职业作为初始兴趣种子写入冷启动 seeding 快照。
             // 职业作为兴趣 key 直接注入 TweetGenerationWorker 的"用户近期关注话题"提示，
             // LLM 会据此生成贴近用户潜在兴趣的内容，实现冷启动期即个性化。
-            runCatching {
+            // M2 修复：seedColdStartSnapshot 是 suspend，原 runCatching 会吞 CancellationException。
+            try {
                 val professionInterests = targets.map { it.profession }
                     .filter { it.isNotBlank() }
                     .groupingBy { it }
@@ -74,7 +81,11 @@ class AppColdStartFiller @Inject constructor(
                 if (professionInterests.isNotEmpty()) {
                     basicProfileTrigger.seedColdStartSnapshot(professionInterests)
                 }
-            }.onFailure { Timber.w(it, "冷启动 seeding 快照写入失败，已忽略") }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Timber.w(t, "冷启动 seeding 快照写入失败，已忽略")
+            }
 
             val workManager = WorkManager.getInstance(context)
             val windowStart = now
@@ -100,7 +111,11 @@ class AppColdStartFiller @Inject constructor(
                     .build()
                 workManager.enqueue(request)
             }
-        }.onFailure { Timber.w(it, "ColdStartFiller 触发失败") }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Timber.w(t, "ColdStartFiller 触发失败")
+        }
     }
 
     private companion object {

@@ -116,7 +116,12 @@ fun ApiKeyManagementScreen(
                     onModelChange = { modelDrafts[cfg.id] = it },
                     displayNameDraft = displayNameDrafts[cfg.id] ?: cfg.displayName,
                     onDisplayNameChange = { displayNameDrafts[cfg.id] = it },
-                    onSaveKey = { viewModel.setApiKey(cfg.id, it) },
+                    onSaveKey = {
+                        viewModel.setApiKey(cfg.id, it)
+                        // 主 review 第 1 轮 M4 修复：保存 API Key 后清除输入草稿，
+                        // 避免"已保存的 Key 仍停留在输入框"造成困惑，也避免重复点击保存。
+                        apiKeyDrafts.remove(cfg.id)
+                    },
                     onSaveEndpoint = {
                         viewModel.updateEndpoint(
                             id = cfg.id,
@@ -125,6 +130,12 @@ fun ApiKeyManagementScreen(
                             baseUrl = baseUrlDrafts[cfg.id] ?: cfg.baseUrl,
                             model = modelDrafts[cfg.id] ?: cfg.model,
                         )
+                        // 主 review 第 1 轮 M4 修复：保存端点配置后清除 displayName /
+                        // baseUrl / model 草稿，让 UI 回落到新持久化的 cfg.* 值
+                        // （loadAll 后 state.endpoints 会携带新值，否则草稿会遮盖新值）。
+                        displayNameDrafts.remove(cfg.id)
+                        baseUrlDrafts.remove(cfg.id)
+                        modelDrafts.remove(cfg.id)
                     },
                     onSetPrimary = { viewModel.moveToFront(cfg.id) },
                     onDelete = { viewModel.deleteEndpoint(cfg.id) },

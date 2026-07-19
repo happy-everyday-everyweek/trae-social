@@ -2,6 +2,7 @@ package com.trae.social.profile
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.trae.social.core.data.AccountIds
 import com.trae.social.core.data.dao.FollowRelationDao
 import com.trae.social.core.data.entity.AccountEntity
 import com.trae.social.core.data.entity.FollowRelationEntity
@@ -69,17 +70,22 @@ class FollowListViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = FollowListUiState.Loading
             // 先刷新"我关注了谁"集合，供按钮状态使用
-            _followingIds.value = runCatching {
-                followRelationDao.getFollowing(ProfileViewModel.SELF_ID).map { it.followeeId }.toSet()
-            }.getOrElse { emptySet() }
-            val accounts = runCatching {
+            _followingIds.value = try {
+                followRelationDao.getFollowing(AccountIds.USER_SELF_ID).map { it.followeeId }.toSet()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Timber.w(t, "加载 followingIds 失败")
+                emptySet()
+            }
+            val accounts = try {
                 when (type) {
                     FollowListType.FOLLOWING -> {
-                        val relations = followRelationDao.getFollowing(ProfileViewModel.SELF_ID)
+                        val relations = followRelationDao.getFollowing(AccountIds.USER_SELF_ID)
                         relations.mapNotNull { accountRepository.getById(it.followeeId) }
                     }
                     FollowListType.FOLLOWERS -> {
-                        val relations = followRelationDao.getFollowers(ProfileViewModel.SELF_ID)
+                        val relations = followRelationDao.getFollowers(AccountIds.USER_SELF_ID)
                         relations.mapNotNull { accountRepository.getById(it.followerId) }
                     }
                     FollowListType.RECOMMENDED -> {
@@ -87,8 +93,10 @@ class FollowListViewModel @Inject constructor(
                         loadRecommendedAccounts()
                     }
                 }
-            }.getOrElse {
-                Timber.w(it, "加载关注列表失败")
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Timber.w(t, "加载关注列表失败")
                 emptyList()
             }
             _uiState.value = FollowListUiState.Success(accounts)
@@ -120,10 +128,17 @@ class FollowListViewModel @Inject constructor(
         val candidates = mutableListOf<AccountEntity>()
         var page = 1
         while (true) {
-            val batch = runCatching { accountRepository.getAccounts(page) }.getOrDefault(emptyList())
+            val batch = try {
+                accountRepository.getAccounts(page)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Timber.w(t, "翻页加载账号失败 page=%d", page)
+                emptyList()
+            }
             if (batch.isEmpty()) break
             candidates.addAll(
-                batch.filter { it.isVirtual && it.id !in followingIds && it.id != ProfileViewModel.SELF_ID }
+                batch.filter { it.isVirtual && it.id !in followingIds && it.id != AccountIds.USER_SELF_ID }
             )
             page++
         }
@@ -182,86 +197,117 @@ class FollowListViewModel @Inject constructor(
     }
 
     /**
-     * 切换对某账号的关注状态（关注/取关），写库后乐观更新本地集合与列表。
+     * 切换对某账号的关注状态（关注/取关）。
      *
-     * #211：原先写库后调用 load(type) 会先切 Loading 再切 Success，造成列表整体闪烁、
-     * 滚动位置丢失，且按钮文案短暂滞后。改为：
-     * - 写库成功后乐观更新 [_followingIds]，按钮文案立即响应；
-     * - 同时乐观更新本地 accounts 列表（FOLLOWING 取关移除、RECOMMENDED 关注后移除），
-     *   不切 Loading 态，避免闪烁；
-     * - FOLLOWERS 列表不受 toggle 影响（仅按钮状态变化）。
+     * 主 review 第 1 轮 M1+M2 修复：
+     * - **真正乐观更新**：先翻转本地 [_followingIds] 与列表，再后台写库；DB 失败时回滚本地状态。
+     *   旧实现把 `_followingIds.value = ...` 放在 launch 内 DB 写成功之后，按钮文案要等
+     *   50-200ms DB 写盘才翻转，不是真正的"乐观更新"，与 PR 标题/注释自相矛盾。
+     * - **埋点去重**：旧实现 `actionBuilder.emit(...)` 在 launch 前同步执行，快速连点两次
+     *   会发两次 FOLLOW 埋点，但 DB 因 `OnConflictStrategy.IGNORE` 只插一条关系，
+     *   导致 A/B 场景 6 关注转化率 delta 被高估。改为 DB 写成功后再发埋点，
+     *   并用 in-flight 标记阻止同一账号的并发 toggle。
+     *
+     * #211：不切 Loading 态避免闪烁。
      *
      * 第七轮 review B1 修复：在 RECOMMENDED 列表里的 FOLLOW/UNFOLLOW 埋点需带上
      * scenarioId=6 / drivenByProfile / group，使 computeScenarioStats 能将"真实用户关注"
      * 计入互动分子；UNFOLLOW 不计入互动分子，但仍带 scenarioId 以便调试可追溯。
      */
     fun toggleFollow(type: FollowListType, accountId: String) {
+        // in-flight 去重：阻止同一账号在 DB 写盘完成前重复 toggle（M2 修复）
+        if (accountId in inflightToggles) {
+            Timber.d("toggleFollow 跳过：accountId=%s 已有进行中操作", accountId)
+            return
+        }
         val isFollowing = accountId in _followingIds.value
-        // #146 B：关注/取关埋点（在落库前记录意图，extra 带 listType）
-        val extraBuilder = mutableMapOf<String, kotlinx.serialization.json.JsonElement>(
-            "listType" to kotlinx.serialization.json.JsonPrimitive(type.name),
-        )
-        // 第七轮 review B1 修复：RECOMMENDED 列表里的关注操作携带场景 6 信号
-        if (type == FollowListType.RECOMMENDED) {
-            scenario6Driven?.let { driven ->
-                extraBuilder["scenarioId"] = kotlinx.serialization.json.JsonPrimitive(6)
-                extraBuilder["drivenByProfile"] = kotlinx.serialization.json.JsonPrimitive(driven)
-                extraBuilder["group"] = kotlinx.serialization.json.JsonPrimitive(if (driven) "driven" else "control")
+        inflightToggles.add(accountId)
+
+        // 真正乐观更新：先翻转本地状态（M1 修复）
+        _followingIds.value = if (isFollowing) {
+            _followingIds.value - accountId
+        } else {
+            _followingIds.value + accountId
+        }
+        // 乐观更新本地 accounts 列表，不切 Loading 态以避免闪烁
+        val currentState = _uiState.value
+        if (currentState is FollowListUiState.Success) {
+            val updatedAccounts = when (type) {
+                FollowListType.FOLLOWING -> {
+                    if (isFollowing) currentState.accounts.filter { it.id != accountId }
+                    else currentState.accounts
+                }
+                FollowListType.RECOMMENDED -> {
+                    if (!isFollowing) currentState.accounts.filter { it.id != accountId }
+                    else currentState.accounts
+                }
+                FollowListType.FOLLOWERS -> currentState.accounts
+            }
+            if (updatedAccounts !== currentState.accounts) {
+                _uiState.value = FollowListUiState.Success(updatedAccounts)
             }
         }
-        actionBuilder.emit(
-            type = if (isFollowing) UserActionType.UNFOLLOW else UserActionType.FOLLOW,
-            screen = "followlist",
-            targetId = accountId,
-            targetKind = "account",
-            extra = extraBuilder,
-        )
+
         viewModelScope.launch {
-            val result = runCatching {
+            try {
                 if (isFollowing) {
-                    followRelationDao.delete(ProfileViewModel.SELF_ID, accountId)
+                    followRelationDao.delete(AccountIds.USER_SELF_ID, accountId)
                 } else {
                     followRelationDao.insert(
                         FollowRelationEntity(
-                            followerId = ProfileViewModel.SELF_ID,
+                            followerId = AccountIds.USER_SELF_ID,
                             followeeId = accountId,
                             createdAt = System.currentTimeMillis(),
                         )
                     )
                 }
-            }
-            if (result.isFailure) {
-                Timber.w(result.exceptionOrNull(), "切换关注状态失败")
-                return@launch
-            }
-            // #211：乐观更新 _followingIds，按钮文案立即响应
-            _followingIds.value = if (isFollowing) {
-                _followingIds.value - accountId
-            } else {
-                _followingIds.value + accountId
-            }
-            // #211：乐观更新本地 accounts 列表，不切 Loading 态以避免闪烁
-            val currentState = _uiState.value
-            if (currentState is FollowListUiState.Success) {
-                val updatedAccounts = when (type) {
-                    FollowListType.FOLLOWING -> {
-                        // 关注列表：取关则从列表移除（关注则不应出现在 FOLLOWING 列表的 toggle，但兼容处理）
-                        if (isFollowing) currentState.accounts.filter { it.id != accountId }
-                        else currentState.accounts
-                    }
-                    FollowListType.RECOMMENDED -> {
-                        // 推荐列表：关注后从推荐移除（取关不应发生在 RECOMMENDED，但兼容处理）
-                        if (!isFollowing) currentState.accounts.filter { it.id != accountId }
-                        else currentState.accounts
-                    }
-                    FollowListType.FOLLOWERS -> {
-                        // 粉丝列表：toggle 不影响列表（仅按钮状态变化）
-                        currentState.accounts
+                // DB 写成功后才发埋点（M2 修复）：避免 IGNORE 静默丢弃时埋点多发
+                val extraBuilder = mutableMapOf<String, kotlinx.serialization.json.JsonElement>(
+                    "listType" to kotlinx.serialization.json.JsonPrimitive(type.name),
+                )
+                if (type == FollowListType.RECOMMENDED) {
+                    scenario6Driven?.let { driven ->
+                        extraBuilder["scenarioId"] = kotlinx.serialization.json.JsonPrimitive(6)
+                        extraBuilder["drivenByProfile"] = kotlinx.serialization.json.JsonPrimitive(driven)
+                        extraBuilder["group"] = kotlinx.serialization.json.JsonPrimitive(if (driven) "driven" else "control")
                     }
                 }
-                if (updatedAccounts !== currentState.accounts) {
-                    _uiState.value = FollowListUiState.Success(updatedAccounts)
+                actionBuilder.emit(
+                    type = if (isFollowing) UserActionType.UNFOLLOW else UserActionType.FOLLOW,
+                    screen = "followlist",
+                    targetId = accountId,
+                    targetKind = "account",
+                    extra = extraBuilder,
+                )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Timber.w(t, "切换关注状态失败，回滚本地状态 accountId=%s", accountId)
+                // DB 失败回滚本地乐观更新（M1 修复）
+                _followingIds.value = if (isFollowing) {
+                    _followingIds.value + accountId
+                } else {
+                    _followingIds.value - accountId
                 }
+                val rollbackState = _uiState.value
+                if (rollbackState is FollowListUiState.Success) {
+                    val restoredAccounts = when (type) {
+                        FollowListType.FOLLOWING -> {
+                            if (isFollowing) rollbackState.accounts + (rollbackState.accounts.find { it.id == accountId } ?: emptyList())
+                            else rollbackState.accounts
+                        }
+                        FollowListType.RECOMMENDED -> {
+                            if (!isFollowing) rollbackState.accounts // 关注失败回滚：保持原状（账号本就在推荐中）
+                            else rollbackState.accounts
+                        }
+                        FollowListType.FOLLOWERS -> rollbackState.accounts
+                    }
+                    if (restoredAccounts !== rollbackState.accounts) {
+                        _uiState.value = FollowListUiState.Success(restoredAccounts)
+                    }
+                }
+            } finally {
+                inflightToggles.remove(accountId)
             }
         }
     }

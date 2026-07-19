@@ -45,7 +45,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.trae.social.core.data.entity.AccountEntity
 import coil.ImageLoader
 import coil.compose.SubcomposeAsyncImage
-import coil.decode.SvgDecoder
 import coil.request.ImageRequest
 import com.trae.social.designsystem.components.LoadingShimmer
 import com.trae.social.designsystem.components.SocialDivider
@@ -89,6 +88,9 @@ fun TimelineScreen(
             is TimelineUiState.Success -> TimelineContent(
                 groups = current.groups,
                 selfProfile = selfProfile,
+                // M3 修复：复用 ViewModel 注入的共享 @SvgImageLoader 单例，
+                // 替代 Composable 内 rememberSvgImageLoader() 本地构造。
+                imageLoader = viewModel.imageLoader,
                 onImageClick = { group, index ->
                     viewerTarget = ViewerTarget(
                         items = group.items,
@@ -106,6 +108,8 @@ fun TimelineScreen(
             items = target.items,
             initialIndex = target.initialIndex,
             dateLabel = target.dateLabel,
+            // M3 修复：大图浏览器同样复用共享 ImageLoader
+            imageLoader = viewModel.imageLoader,
             onDismiss = { viewerTarget = null },
         )
     }
@@ -127,6 +131,7 @@ private data class ViewerTarget(
 private fun TimelineContent(
     groups: List<TimelineGroup>,
     selfProfile: AccountEntity?,
+    imageLoader: ImageLoader,
     onImageClick: (TimelineGroup, Int) -> Unit,
     onScrollingChange: (Boolean) -> Unit,
 ) {
@@ -142,9 +147,9 @@ private fun TimelineContent(
             .fillMaxSize()
             .background(colors.systemBackground),
     ) {
-        item(key = "header") { TimelineHeader(account = selfProfile) }
+        item(key = "header") { TimelineHeader(account = selfProfile, imageLoader = imageLoader) }
         items(items = groups, key = { group -> group.date.toString() }) { group ->
-            GroupBlock(group = group, onImageClick = onImageClick)
+            GroupBlock(group = group, imageLoader = imageLoader, onImageClick = onImageClick)
             SocialDivider()
         }
     }
@@ -157,7 +162,7 @@ private fun TimelineContent(
  * 替代原先硬编码的蓝色"我"占位，保证两处身份呈现一致。
  */
 @Composable
-private fun TimelineHeader(account: AccountEntity?) {
+private fun TimelineHeader(account: AccountEntity?, imageLoader: ImageLoader) {
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
     // 显示名回退"我"（与 ProfileScreen 一致：空名时显示"我"）
@@ -169,7 +174,11 @@ private fun TimelineHeader(account: AccountEntity?) {
             .padding(horizontal = spacing.lg, vertical = spacing.md),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        TimelineAvatar(avatarSeed = account?.avatarSeed, modifier = Modifier.size(48.dp))
+        TimelineAvatar(
+            avatarSeed = account?.avatarSeed,
+            imageLoader = imageLoader,
+            modifier = Modifier.size(48.dp),
+        )
         Spacer(modifier = Modifier.size(spacing.md))
         Column {
             Text(
@@ -190,12 +199,16 @@ private fun TimelineHeader(account: AccountEntity?) {
 /**
  * 时间线头部头像：优先加载 user-self 的 SVG 头像，加载中/失败/无 seed 时回退占位。
  *
- * 复用本模块 [rememberSvgImageLoader]（与图片网格一致），头像 URI 由 [avatarUriFromSeed] 派生。
+ * M3 修复：复用共享 [@SvgImageLoader] [ImageLoader]（由 [TimelineViewModel] 注入），
+ * 替代本模块 [rememberSvgImageLoader] 本地构造。头像 URI 由 [avatarUriFromSeed] 派生。
  */
 @Composable
-private fun TimelineAvatar(avatarSeed: String?, modifier: Modifier = Modifier) {
+private fun TimelineAvatar(
+    avatarSeed: String?,
+    imageLoader: ImageLoader,
+    modifier: Modifier = Modifier,
+) {
     val context = LocalContext.current
-    val imageLoader = rememberSvgImageLoader()
     if (avatarSeed.isNullOrBlank()) {
         MonogramAvatar(modifier = modifier)
         return
@@ -247,6 +260,7 @@ private fun MonogramAvatar(modifier: Modifier = Modifier) {
 @Composable
 private fun GroupBlock(
     group: TimelineGroup,
+    imageLoader: ImageLoader,
     onImageClick: (TimelineGroup, Int) -> Unit,
 ) {
     val colors = LocalSocialColors.current
@@ -264,7 +278,7 @@ private fun GroupBlock(
             color = colors.label,
         )
         Spacer(modifier = Modifier.size(spacing.sm))
-        MediaGrid(group = group, onImageClick = onImageClick)
+        MediaGrid(group = group, imageLoader = imageLoader, onImageClick = onImageClick)
     }
 }
 
@@ -278,22 +292,26 @@ private fun GroupBlock(
 @Composable
 private fun MediaGrid(
     group: TimelineGroup,
+    imageLoader: ImageLoader,
     onImageClick: (TimelineGroup, Int) -> Unit,
 ) {
     val items = group.items
     when (items.size) {
         0 -> Unit
-        1 -> SingleImageLayout(item = items[0], onClick = { onImageClick(group, 0) })
+        1 -> SingleImageLayout(item = items[0], imageLoader = imageLoader, onClick = { onImageClick(group, 0) })
         2 -> TwoImageLayout(
             items = items,
+            imageLoader = imageLoader,
             onClick = { index -> onImageClick(group, index) },
         )
         3 -> ThreeImageLayout(
             items = items,
+            imageLoader = imageLoader,
             onClick = { index -> onImageClick(group, index) },
         )
         else -> GridImageLayout(
             items = items,
+            imageLoader = imageLoader,
             onClick = { index -> onImageClick(group, index) },
         )
     }
@@ -303,10 +321,11 @@ private fun MediaGrid(
  * 单图：fillMaxWidth，最大高度 320dp，圆角 12dp + 下方时间与摘要。
  */
 @Composable
-private fun SingleImageLayout(item: TimelineItem, onClick: () -> Unit) {
+private fun SingleImageLayout(item: TimelineItem, imageLoader: ImageLoader, onClick: () -> Unit) {
     Column {
         TimelineImageCell(
             item = item,
+            imageLoader = imageLoader,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(320.dp)
@@ -322,13 +341,14 @@ private fun SingleImageLayout(item: TimelineItem, onClick: () -> Unit) {
  * 两图：并排，各 fillMaxWidth/2，高度 160dp + 各自下方时间与摘要。
  */
 @Composable
-private fun TwoImageLayout(items: List<TimelineItem>, onClick: (Int) -> Unit) {
+private fun TwoImageLayout(items: List<TimelineItem>, imageLoader: ImageLoader, onClick: (Int) -> Unit) {
     // #32：网格间距 2dp→4dp，与全项目间距节奏一致
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         items.forEachIndexed { index, item ->
             Column(modifier = Modifier.weight(1f)) {
                 TimelineImageCell(
                     item = item,
+                    imageLoader = imageLoader,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(160.dp)
@@ -346,13 +366,14 @@ private fun TwoImageLayout(items: List<TimelineItem>, onClick: (Int) -> Unit) {
  * 三图：1 大图（fillMaxWidth 高 200dp）+ 下方两小图（各 fillMaxWidth/2 高 100dp）。
  */
 @Composable
-private fun ThreeImageLayout(items: List<TimelineItem>, onClick: (Int) -> Unit) {
+private fun ThreeImageLayout(items: List<TimelineItem>, imageLoader: ImageLoader, onClick: (Int) -> Unit) {
     val big = items[0]
     val smalls = items.drop(1)
     val spacing = LocalSocialSpacing.current
     Column {
         TimelineImageCell(
             item = big,
+            imageLoader = imageLoader,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(200.dp)
@@ -367,6 +388,7 @@ private fun ThreeImageLayout(items: List<TimelineItem>, onClick: (Int) -> Unit) 
             smalls.forEachIndexed { index, item ->
                 TimelineImageCell(
                     item = item,
+                    imageLoader = imageLoader,
                     modifier = Modifier
                         .weight(1f)
                         .height(100.dp)
@@ -384,7 +406,7 @@ private fun ThreeImageLayout(items: List<TimelineItem>, onClick: (Int) -> Unit) 
  * 最多展示 9 格；超过 9 张时，第 9 格显示 "+N" 角标（N = 总数 - 9）。
  */
 @Composable
-private fun GridImageLayout(items: List<TimelineItem>, onClick: (Int) -> Unit) {
+private fun GridImageLayout(items: List<TimelineItem>, imageLoader: ImageLoader, onClick: (Int) -> Unit) {
     val totalCount = items.size
     val displayCount = minOf(totalCount, GRID_MAX_DISPLAY)
     val rows = (0 until displayCount).chunked(GRID_COLUMNS)
@@ -399,6 +421,7 @@ private fun GridImageLayout(items: List<TimelineItem>, onClick: (Int) -> Unit) {
                     Box(modifier = Modifier.weight(1f)) {
                         TimelineImageCell(
                             item = items[index],
+                            imageLoader = imageLoader,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(1f)
@@ -431,15 +454,18 @@ private fun GridImageLayout(items: List<TimelineItem>, onClick: (Int) -> Unit) {
 
 /**
  * 单张图片单元格：Coil 加载（含 SVG），加载/失败态显示 shimmer 占位。
+ *
+ * M3 修复：[imageLoader] 由上层传入（共享 [@SvgImageLoader] 单例），
+ * 替代原 Composable 内 [rememberSvgImageLoader] 本地构造。
  */
 @Composable
 private fun TimelineImageCell(
     item: TimelineItem,
+    imageLoader: ImageLoader,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
     onClick: () -> Unit,
 ) {
-    val imageLoader = rememberSvgImageLoader()
     val context = LocalContext.current
     val request = remember(item.mediaPath, context) {
         ImageRequest.Builder(context)
@@ -630,16 +656,11 @@ private fun TimelineError(message: String) {
 
 /**
  * 构造支持 SVG 解码的 ImageLoader（feature 模块内独立持有，避免改动 app 全局配置）。
+ *
+ * 主 review 第 1 轮 M3 修复：已删除。改为通过 [TimelineViewModel.imageLoader] 注入
+ * 共享 [@SvgImageLoader] 单例（core-designsystem 提供），避免 feature 模块各自
+ * 构造 ImageLoader 造成重复磁盘缓存与线程池。详见 [TimelineViewModel]。
  */
-@Composable
-internal fun rememberSvgImageLoader(): ImageLoader {
-    val context = LocalContext.current
-    return remember {
-        ImageLoader.Builder(context)
-            .components { add(SvgDecoder.Factory()) }
-            .build()
-    }
-}
 
 /**
  * 将 TweetEntity.mediaPath（asset 相对路径）转换为 Coil 可加载的地址。

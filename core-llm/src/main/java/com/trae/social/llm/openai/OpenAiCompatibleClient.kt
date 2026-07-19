@@ -91,8 +91,12 @@ class OpenAiCompatibleClient(
                         for (choice in chunk.choices()) {
                             val token = choice.delta().content().orElse(null)
                             if (!token.isNullOrEmpty()) {
-                                emit(token)
+                                // 主 review 第 1 轮 M-1 修复：先置 emitted=true 再 emit()。
+                                // 旧实现 emitted 在 emit() 之后赋值，emit 抛业务异常时
+                                // emitted 仍为 false，会进入降级路径调用 chatSync 再 emit
+                                // 一遍 → 同一次调用既流出部分内容又流出完整内容。
                                 emitted = true
+                                emit(token)
                             }
                         }
                     }
@@ -244,8 +248,12 @@ class OpenAiCompatibleClient(
      * `BadRequestException`）不含 "OpenAI"，匹配结果依赖 className 取的是 simpleName
      * 还是 qualifiedName 以及大小写敏感性，不够稳健（详见 PR #264 / #271 review）。
      * 反射方式直接命中基类 `statusCode()` 方法，对所有 SDK 4xx 异常统一生效，且无类名拼写风险。
+     *
+     * 主 review 第 1 轮 M-4 修复：IOException 一律不视为持久性错误，
+     * 避免 message 含 3 位数字（如 IP 地址 10.0.0.401）被误判为 HTTP 4xx。
      */
     private fun isPersistentHttpError(e: Throwable): Boolean {
+        if (e is IOException) return false
         val code = extractSdkStatusCode(e) ?: extractHttpCode(e.message.orEmpty()) ?: return false
         return code in 400..499 && code != 429
     }
