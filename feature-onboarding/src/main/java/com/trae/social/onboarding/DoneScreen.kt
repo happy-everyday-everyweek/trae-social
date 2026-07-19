@@ -16,6 +16,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,10 +49,20 @@ fun DoneScreen(
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
 
+    // 防止自动延迟与手动按钮重复触发 onCompleted：第一次调用后置 dismissed，
+    // 后续路径（LaunchedEffect delay 到期或再次点击）直接短路返回。
+    var dismissed by remember { mutableStateOf(false) }
+    val safeOnCompleted: () -> Unit = {
+        if (!dismissed) {
+            dismissed = true
+            onCompleted()
+        }
+    }
+
     // 显示一段时间后自动进入主界面（用户也可点击按钮立即进入）
     LaunchedEffect(autoDismissMs) {
         delay(autoDismissMs)
-        onCompleted()
+        safeOnCompleted()
     }
 
     Column(
@@ -97,7 +111,7 @@ fun DoneScreen(
 
         ActionButton(
             text = "进入应用",
-            onClick = onCompleted,
+            onClick = safeOnCompleted,
             modifier = Modifier.fillMaxWidth(),
         )
     }
