@@ -86,24 +86,35 @@ class FollowListViewModel @Inject constructor(
             //
             // 主 review 第 4 轮修复（二次竞态保护）：第 3 轮只在 load 开始时检查 inflight，
             // 但 DB 查询是 suspend，await 期间用户可能点击 toggleFollow 添加 inflight 并
-            // 同步更新 _followingIds/_uiState。查询返回后若直接覆盖会丢失乐观更新，且
-            // _followingIds 与 _uiState 可能分别被覆盖导致互相不一致。
+            // 同步更新 _followingIds（注：_uiState 此时是 Loading，toggleFollow 的乐观更新
+            // 逻辑只在 currentState is Success 时更新 _uiState，所以 _uiState 不被更新）。
+            // 查询返回后若直接覆盖会丢失 _followingIds 的乐观更新，且 _followingIds 与
+            // _uiState 可能分别被覆盖导致互相不一致。
             // 改为：把 _followingIds 和 accounts 的 DB 查询放在同一个 try 块，查询完成后
             // 统一检查 inflightToggles——非空则跳过所有覆盖，保持乐观更新；为空则一次性
             // 覆盖两者，保证一致性。
+            //
+            // 主 review 第 5 轮修复（M1 回归修复）：第 4 轮的"跳过覆盖"会导致 _uiState
+            // 卡在 Loading 态无恢复路径——load 开始时已切 Loading，await 期间 toggleFollow
+            // 不更新 _uiState（因为 currentState 不是 Success），跳过覆盖后 _uiState 仍是
+            // Loading，UI 永久显示"加载中…"。改为：跳过覆盖时恢复 _uiState 到 load 开始前
+            // 的状态（prevUiState），让 UI 至少显示原列表（虽然数据略旧，但比卡死好）。
             if (inflightToggles.isNotEmpty()) {
                 Timber.d("load 跳过：有 inflight toggle=%s，避免覆盖乐观更新", inflightToggles)
                 return@launch
             }
+            val prevUiState = _uiState.value
             _uiState.value = FollowListUiState.Loading
+            // 主 review 第 5 轮修复（m1）：FOLLOWING 分支原来调用 getFollowing 两次（一次取 ids，
+            // 一次取 accounts），浪费 IO 且延长 await 窗口，两次查询间若发生 toggleFollow DB
+            // 写盘完成会导致 ids 与 accounts 基于不同快照。改为单次查询，ids 和 accounts 复用
+            // 同一 relations 结果，保证一致性。
             val (dbFollowingIds, accounts) = try {
-                val ids = followRelationDao.getFollowing(AccountIds.USER_SELF_ID)
-                    .map { it.followeeId }
-                    .toSet()
+                val followingRelations = followRelationDao.getFollowing(AccountIds.USER_SELF_ID)
+                val ids = followingRelations.map { it.followeeId }.toSet()
                 val accs = when (type) {
                     FollowListType.FOLLOWING -> {
-                        val relations = followRelationDao.getFollowing(AccountIds.USER_SELF_ID)
-                        relations.mapNotNull { accountRepository.getById(it.followeeId) }
+                        followingRelations.mapNotNull { accountRepository.getById(it.followeeId) }
                     }
                     FollowListType.FOLLOWERS -> {
                         val relations = followRelationDao.getFollowers(AccountIds.USER_SELF_ID)
@@ -123,9 +134,11 @@ class FollowListViewModel @Inject constructor(
                 Timber.w(e, "加载关注列表失败")
                 emptySet<String>() to emptyList<AccountEntity>()
             }
-            // 二次检查：DB 查询 await 期间若有 toggleFollow 添加 inflight，跳过覆盖保持乐观更新
+            // 二次检查：DB 查询 await 期间若有 toggleFollow 添加 inflight，跳过覆盖保持乐观更新。
+            // 恢复 _uiState 到 prevUiState，避免卡在 Loading 态（第 5 轮 M1 修复）。
             if (inflightToggles.isNotEmpty()) {
-                Timber.d("load 跳过覆盖：await 期间有 inflight toggle=%s", inflightToggles)
+                Timber.d("load 跳过覆盖：await 期间有 inflight toggle=%s，恢复 prevUiState", inflightToggles)
+                _uiState.value = prevUiState
                 return@launch
             }
             _followingIds.value = dbFollowingIds
