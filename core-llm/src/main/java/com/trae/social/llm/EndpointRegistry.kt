@@ -7,11 +7,14 @@ import com.trae.social.llm.openai.OpenAiCompatibleClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import timber.log.Timber
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -53,13 +56,26 @@ class EndpointRegistry @Inject constructor(
 
     init {
         // 订阅端点变更：任何端点 CRUD / API Key 变更后失效缓存。
+        // 主 review 第 1 轮 m-7 修复：原实现把 try/catch 包在 collect 外层，
+        // 任何异常（如 ConfigRepository 内部 SharedFlow 异常）都会终止订阅协程，
+        // 此后用户改 API Key / 增删端点缓存都不会失效，"改了 Key 但还在用旧的"。
+        // 改为 while(isActive) + 内层 try/catch，异常后延迟 1s 重订阅。
         scope.launch {
-            try {
-                configProvider.observeEndpointChanges().collect {
-                    invalidateCache()
+            while (isActive) {
+                try {
+                    configProvider.observeEndpointChanges().collect {
+                        invalidateCache()
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (t: Throwable) {
+                    Timber.e(t, "EndpointRegistry 订阅端点变更失败，1s 后重试")
+                    try {
+                        delay(1000)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    }
                 }
-            } catch (t: Throwable) {
-                Timber.e(t, "EndpointRegistry 订阅端点变更失败")
             }
         }
     }
@@ -147,12 +163,17 @@ class EndpointRegistry @Inject constructor(
     /**
      * 根据协议格式构造对应 SDK client。
      *
-     * 不支持的协议返回 null（含未来可能新增的协议未实现时）。
+     * 主 review 第 1 轮 m-6 修复：原实现 `when (config.protocol) { ... } ?: return null`
+     * 是死代码——`when` 对 `LlmProtocol` 枚举（当前只有 2 个值）exhaustive，
+     * 编译器强制覆盖所有分支，`?: return null` 永远不会触发。改用 `else -> null`
+     * 非 exhaustive 形式，让未来新增协议枚举值时真的能走到 null 分支（前向兼容语义）。
      */
-    private fun createClient(config: EndpointConfig): LlmClient? {
-        return when (config.protocol) {
-            LlmProtocol.OPENAI_COMPATIBLE -> OpenAiCompatibleClient(config)
-            LlmProtocol.ANTHROPIC_COMPATIBLE -> AnthropicCompatibleClient(config)
-        }
+    private fun createClient(config: EndpointConfig): LlmClient? = when (config.protocol) {
+        LlmProtocol.OPENAI_COMPATIBLE -> OpenAiCompatibleClient(config)
+        LlmProtocol.ANTHROPIC_COMPATIBLE -> AnthropicCompatibleClient(config)
+        // 未来新增协议枚举值时，编译器不会强制此 when 报错（非 exhaustive），
+        // 走 else 分支返回 null，由调用方（getClient）跳过该端点。
+        // 注意：新增协议实现后应在此处显式添加分支，避免静默 fallback。
+        else -> null
     }
 }

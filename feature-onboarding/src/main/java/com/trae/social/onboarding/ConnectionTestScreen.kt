@@ -85,7 +85,10 @@ fun ConnectionTestScreen(
             )
             is OnboardingViewModel.TestStatus.Loading -> LoadingState()
             is OnboardingViewModel.TestStatus.Success -> SuccessState(
+                isSaving = state.isSaving,
+                saveError = state.saveError,
                 onComplete = onComplete,
+                onRetry = onComplete,
             )
             is OnboardingViewModel.TestStatus.Error -> ErrorState(
                 message = status.message,
@@ -173,9 +176,19 @@ private fun LoadingState() {
 
 /**
  * 成功态：绿色对勾 + "完成"按钮。
+ *
+ * 主 review 第 1 轮 M1 修复：增加保存中（[isSaving]）禁用按钮 + 保存失败
+ * （[saveError] 非 null）展示错误原因 + 按钮文案切换为"重试"。
+ * 原实现 saveAndComplete 失败后仅 isSaving=false，UI 无任何失败反馈，
+ * 用户不知道保存没成功，按钮仍可点但点击无响应（saveAndComplete 内部已写入端点）。
  */
 @Composable
-private fun SuccessState(onComplete: () -> Unit) {
+private fun SuccessState(
+    isSaving: Boolean,
+    saveError: String?,
+    onComplete: () -> Unit,
+    onRetry: () -> Unit,
+) {
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
 
@@ -210,10 +223,32 @@ private fun SuccessState(onComplete: () -> Unit) {
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth(),
         )
+        // M1 修复：保存失败时展示具体错误原因，让用户知道为何没进入主界面
+        if (saveError != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.secondaryBackground)
+                    .padding(16.dp),
+            ) {
+                Text(
+                    text = "保存失败：$saveError",
+                    style = typography.footnote,
+                    color = colors.systemRed,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
         Spacer(Modifier.size(8.dp))
         ActionButton(
-            text = "完成",
-            onClick = onComplete,
+            // 保存失败后按钮文案切换为"重试"，点击触发同一个 onComplete/onRetry 回调
+            // （均会调 viewModel.saveAndComplete 重新尝试保存）
+            text = if (saveError != null) "重试" else "完成",
+            // 保存中禁用按钮防止重复触发；M1 前 isSaving 期间按钮仍可点
+            onClick = if (saveError != null) onRetry else onComplete,
+            enabled = !isSaving,
             modifier = Modifier.fillMaxWidth(),
         )
     }

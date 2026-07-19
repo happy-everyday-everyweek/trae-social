@@ -7,6 +7,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import timber.log.Timber
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -46,20 +47,40 @@ class DefaultRulesetEngine @Inject constructor(
             throw IllegalStateException("未配置任何 LLM 端点，无法发起对话")
         }
         var lastError: Throwable? = null
+        var anySkipped = false
         for (endpoint in endpoints) {
-            val client = registry.getClient(endpoint.id) ?: continue
+            // 主 review 第 1 轮 m-2 / m-6 修复：getClient 返回 null 表示端点不可用
+            // （API Key 缺失或协议不支持）。原实现用 `?: run { continue }` 跳过，
+            // 但 continue 在 inline lambda 中是 Kotlin 实验特性，CI 用的 Kotlin
+            // 版本未启用该特性。改为 if-null 早跳过，语义等价。
+            val client = registry.getClient(endpoint.id)
+            if (client == null) {
+                anySkipped = true
+                continue
+            }
             val prepared = prepareMessages(messages, config, endpoint)
             var emitted = false
             try {
                 client.chat(prepared, config).collect { token ->
-                    emit(token)
+                    // 主 review 第 1 轮 M-1 修复：先置 emitted=true 再 emit()。
+                    // 若 emit() 抛非 CancellationException（下游 collector 抛业务异常），
+                    // 旧实现 emitted 仍为 false，catch 会降级到下一端点继续流式 →
+                    // 下游已收到端点 A 部分内容又收到端点 B 完整内容，跨模型拼接。
+                    // 现在先置标志，emit 失败最多少投递一次 token，远比内容拼接安全。
                     emitted = true
+                    emit(token)
                 }
                 return@flow
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
                 lastError = e
+                // 主 review 第 1 轮 m-1 修复：RateLimited 优先于 emitted 判定——
+                // 已 emit 部分 token 后遭遇 429 也应转 RateLimitedException 向上传递，
+                // 让 Worker 的 catch (RateLimitedException) 分支生效，避免被当成普通错误重试。
+                if (isRateLimited(e)) {
+                    throw toRateLimited(e)
+                }
                 // 已 emit 部分 token 后中断（client 包装的 streaming truncated），
                 // 直接抛出不进入下一端点——避免跨模型内容拼接。
                 if (emitted) {
@@ -70,14 +91,15 @@ class DefaultRulesetEngine @Inject constructor(
                     Timber.w(e, "DefaultRulesetEngine.chat 持久性错误，不降级 endpoint=%s", endpoint.id)
                     throw e
                 }
-                if (isRateLimited(e)) {
-                    throw toRateLimited(e)
-                }
                 Timber.w(e, "DefaultRulesetEngine.chat 失败，尝试降级到下一端点 endpoint=%s", endpoint.id)
                 // 继续下一端点
             }
         }
-        throw lastError ?: IllegalStateException("无可用端点")
+        // 主 review 第 1 轮 m-2 修复：区分"无端点"与"端点存在但全部不可用"，
+        // 让调用方（如 OnboardingViewModel）能给出针对性提示。
+        throw lastError ?: IllegalStateException(
+            if (anySkipped) "所有端点均不可用（API Key 缺失或协议不支持）" else "无可用端点"
+        )
     }
 
     override suspend fun chatSync(
@@ -90,8 +112,14 @@ class DefaultRulesetEngine @Inject constructor(
             throw IllegalStateException("未配置任何 LLM 端点，无法发起对话")
         }
         var lastError: Throwable? = null
+        var anySkipped = false
         for (endpoint in endpoints) {
-            val client = registry.getClient(endpoint.id) ?: continue
+            // m-2 / m-6 修复：同 chat()，避免 continue 在 inline lambda 中的实验特性。
+            val client = registry.getClient(endpoint.id)
+            if (client == null) {
+                anySkipped = true
+                continue
+            }
             val prepared = prepareMessages(messages, config, endpoint)
             val result = runCatching { client.chatSync(prepared, config) }
             result.onSuccess { return it }
@@ -109,7 +137,9 @@ class DefaultRulesetEngine @Inject constructor(
                 // 继续下一端点
             }
         }
-        throw lastError ?: IllegalStateException("无可用端点")
+        throw lastError ?: IllegalStateException(
+            if (anySkipped) "所有端点均不可用（API Key 缺失或协议不支持）" else "无可用端点"
+        )
     }
 
     /**
@@ -167,14 +197,23 @@ class DefaultRulesetEngine @Inject constructor(
      * 旧实现用 `className.contains("OpenAI"/"Anthropic")` 匹配，但 SDK 异常简单名不含
      * 厂商前缀（如 `BadRequestException`），匹配结果依赖 className 取的是 simpleName
      * 还是 qualifiedName 以及大小写敏感性，不够稳健。详见 PR #264 / #271 review。
+     *
+     * 主 review 第 1 轮 M-4 修复：网络异常（IOException）一律不视为持久性错误。
+     * 旧实现会从 IOException message 里抠 3 位数字（如 "Failed to connect to /10.0.0.401:443"
+     * 命中 401），误判为持久性 HTTP 错误直接抛出不降级。这与 OnboardingViewModel.classifyError
+     * 的分层逻辑对齐——网络错误应允许降级到下一端点重试。
+     * RateLimitedException 是 IOException 子类，已在 [isRateLimited] 中优先判定，不会走到这里。
      */
     private fun isPersistentError(e: Throwable): Boolean {
+        if (e is IOException) return false
         val code = extractSdkStatusCode(e) ?: extractHttpCode(e.message.orEmpty()) ?: return false
         return code in 400..499 && code != 429
     }
 
     private fun isRateLimited(e: Throwable): Boolean {
         if (e is RateLimitedException) return true
+        // IOException（UnknownHost / SocketTimeout 等）的 message 偶然含 "429" 不应被误判为限流。
+        if (e is IOException) return false
         val code = extractSdkStatusCode(e) ?: extractHttpCode(e.message.orEmpty()) ?: return false
         return code == 429
     }

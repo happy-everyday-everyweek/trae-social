@@ -195,11 +195,18 @@ class ProfileViewModel @Inject constructor(
             runCatching {
                 // M7 修复：同步写入/删除 interactions 表的 LIKE 记录，
                 // 使 #103 的 loadInitialLikedTweetIds 能正确恢复点赞状态
-                if (wasLiked) {
+                //
+                // 主 review 第 1 轮 M5 修复：scheduleInteraction 在 (tweetId,accountId,type)
+                // 唯一索引冲突时返回 -1（IGNORE），表示 DB 中已存在该账号对此推文的 LIKE 记录。
+                // 此时若继续 updateLikeCount(+1) 会重复计数（likeCount 在原 LIKE 写入时已 +1）。
+                // 改为检查返回值：IGNORE 时跳过计数更新；本地乐观状态（已 +tweetId）与 DB
+                // 现状一致，无需回滚。
+                val shouldUpdateCount = if (wasLiked) {
                     interactionRepository.deleteLikeInteraction(tweetId, SELF_ID)
+                    true
                 } else {
                     val now = System.currentTimeMillis()
-                    interactionRepository.scheduleInteraction(
+                    val insertedRowId = interactionRepository.scheduleInteraction(
                         InteractionEntity(
                             id = UUID.randomUUID().toString(),
                             tweetId = tweetId,
@@ -211,8 +218,11 @@ class ProfileViewModel @Inject constructor(
                             executedAt = now,
                         )
                     )
+                    insertedRowId != -1L
                 }
-                tweetRepository.updateLikeCount(tweetId, delta)
+                if (shouldUpdateCount) {
+                    tweetRepository.updateLikeCount(tweetId, delta)
+                }
             }.onFailure {
                     Timber.w(it, "更新点赞计数失败，回滚本地状态")
                     // 仅在当前状态仍符合本次预期时回滚，避免与后续 toggle 竞态误覆盖

@@ -8,6 +8,8 @@ import com.trae.social.core.data.entity.AccountEntity
 import com.trae.social.core.data.entity.TweetEntity
 import com.trae.social.core.data.repository.AccountRepository
 import com.trae.social.core.data.repository.TweetRepository
+import com.trae.social.designsystem.image.SvgImageLoader
+import coil.ImageLoader
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -31,11 +33,16 @@ import javax.inject.Inject
  * 1. [TweetRepository.observeMediaTweets] 返回仅含 mediaPath 的推文（createdAt DESC）；
  * 2. 按日期分组为 [TimelineGroup] 列表；
  * 3. 暴露为 [timelineFlow]，UI 据此渲染 Loading / Success / Empty / Error。
+ *
+ * 主 review 第 1 轮 M3 修复：注入共享 [@SvgImageLoader] [ImageLoader]（#221 抽取的
+ * 跨 feature 单例），替代 TimelineScreen 内的 [rememberSvgImageLoader] 本地构造，
+ * 避免重复构建 ImageLoader（重复磁盘缓存 / 线程池）。
  */
 @HiltViewModel
 class TimelineViewModel @Inject constructor(
     private val tweetRepository: TweetRepository,
     private val accountRepository: AccountRepository,
+    @SvgImageLoader val imageLoader: ImageLoader,
 ) : ViewModel() {
 
     val timelineFlow: StateFlow<TimelineUiState> = tweetRepository

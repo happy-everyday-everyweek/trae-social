@@ -236,7 +236,11 @@ class FeedbackAgentPromptBuilder {
 
         private fun JsonObject.booleanField(key: String): Boolean? =
             (this[key] as? JsonPrimitive)?.let {
-                runCatching { it.content.toBooleanStrict() }.getOrNull()
+                // 主 review 第 1 轮 m-11 修复：toBooleanStrict() 只接受精确的 "true"/"false"
+                // （大小写敏感）。LLM 实际输出常是 "True" / "TRUE" / "True." 等变体，
+                // 会被静默丢弃返回 null → needsClarification 等关键字段退到默认 false。
+                // 先 lowercase + trim 再解析，覆盖常见 LLM 输出变体。
+                runCatching { it.content.trim().lowercase().toBooleanStrict() }.getOrNull()
             }
 
         private fun JsonObject.doubleField(key: String): Double? =

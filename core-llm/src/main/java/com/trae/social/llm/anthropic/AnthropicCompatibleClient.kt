@@ -85,8 +85,9 @@ class AnthropicCompatibleClient(
                         if (!blockDelta.isText()) continue
                         val text = blockDelta.asText().text()
                         if (text.isNotEmpty()) {
-                            emit(text)
+                            // 主 review 第 1 轮 M-1 修复：先置 emitted=true 再 emit()。
                             emitted = true
+                            emit(text)
                         }
                     }
                 }
@@ -138,6 +139,11 @@ class AnthropicCompatibleClient(
      *
      * JSON mode 不在此处处理（Anthropic 无原生 response_format）；
      * 由 [DefaultRulesetEngine] 在 system prompt 追加约束指令。
+     *
+     * 主 review 第 1 轮 m-4 修复：temperature 强制收敛到 [0.0, 1.0]。
+     * Anthropic API 仅接受 [0, 1] 范围，超出返回 400。引擎层用同一个 ChatConfig
+     * 在 OpenAI / Anthropic 端点间降级，OpenAI 允许 [0, 2]，降级到 Anthropic 时
+     * 若不收敛会触发 400 被判持久性错误直接抛出 → "OpenAI 挂了，Anthropic 也用不了"。
      */
     private fun buildParams(
         messages: List<ChatMessage>,
@@ -146,7 +152,7 @@ class AnthropicCompatibleClient(
         val builder = MessageCreateParams.builder()
             .model(endpoint.model)
             .maxTokens(config.maxTokens.toLong())
-            .temperature(config.temperature.toDouble())
+            .temperature(config.temperature.toDouble().coerceIn(0.0, 1.0))
 
         val systemText = messages
             .filter { it.role == ChatMessage.Role.SYSTEM }
@@ -159,6 +165,13 @@ class AnthropicCompatibleClient(
         val conversation = messages
             .filter { it.role != ChatMessage.Role.SYSTEM }
             .map { it.toAnthropicMessageParam() }
+        // 主 review 第 1 轮 m-5 修复：Anthropic API 要求 messages 至少 1 条。
+        // 若调用方传入纯 SYSTEM 消息（如引擎层 JSON mode 降级插入纯 system prompt），
+        // conversation 为空会让 SDK 抛 BadRequestException，错误信息不直观。
+        // 提前抛带语义的 IllegalArgumentException 便于调用方定位。
+        require(conversation.isNotEmpty()) {
+            "Anthropic 请求至少需要一条非 SYSTEM 消息（USER / ASSISTANT）"
+        }
         builder.messages(conversation)
 
         return builder.build()
@@ -198,8 +211,12 @@ class AnthropicCompatibleClient(
      * `BadRequestException`）不含 "Anthropic"，匹配结果依赖 className 取的是 simpleName
      * 还是 qualifiedName 以及大小写敏感性，不够稳健（详见 PR #264 / #271 review）。
      * 反射方式直接命中基类 `statusCode()` 方法，对所有 SDK 4xx 异常统一生效，且无类名拼写风险。
+     *
+     * 主 review 第 1 轮 M-4 修复：IOException 一律不视为持久性错误，
+     * 避免 message 含 3 位数字（如 IP 地址 10.0.0.401）被误判为 HTTP 4xx。
      */
     private fun isPersistentHttpError(e: Throwable): Boolean {
+        if (e is IOException) return false
         val code = extractSdkStatusCode(e) ?: extractHttpCode(e.message.orEmpty()) ?: return false
         return code in 400..499 && code != 429
     }
