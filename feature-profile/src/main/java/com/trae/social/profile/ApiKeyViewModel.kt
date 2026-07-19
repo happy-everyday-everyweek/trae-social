@@ -62,7 +62,7 @@ class ApiKeyViewModel @Inject constructor(
                     protocol = protocol,
                     baseUrl = baseUrl,
                     model = model,
-                    capabilities = DEFAULT_CAPABILITIES,
+                    capabilities = capabilitiesFor(protocol),
                     apiKey = apiKey.takeIf { it.isNotEmpty() },
                 )
             }.onSuccess {
@@ -88,7 +88,7 @@ class ApiKeyViewModel @Inject constructor(
                     protocol = protocol,
                     baseUrl = baseUrl,
                     model = model,
-                    capabilities = DEFAULT_CAPABILITIES,
+                    capabilities = capabilitiesFor(protocol),
                 )
             }.onSuccess {
                 cacheInvalidator.invalidateCache()
@@ -168,6 +168,31 @@ class ApiKeyViewModel @Inject constructor(
             ModelCapability.JSON_MODE_NATIVE,
             ModelCapability.STREAMING,
         )
+
+        /**
+         * Anthropic 兼容端点能力集合：仅 TEXT + STREAMING。
+         *
+         * Anthropic 不支持原生 `response_format`，若声明 [ModelCapability.JSON_MODE_NATIVE]
+         * 会导致 [com.trae.social.llm.DefaultRulesetEngine] 走原生 JSON mode 路径而失败，
+         * 故此处不包含 JSON_MODE_NATIVE（JSON 约束由引擎层在 system prompt 中追加）。
+         * 与 [com.trae.social.core.data.repository.ConfigRepository.migrateLegacyProviderConfigsLocked]
+         * 中 ANTHROPIC 槽位迁移赋值保持一致。
+         */
+        val ANTHROPIC_CAPABILITIES: Set<ModelCapability> = setOf(
+            ModelCapability.TEXT,
+            ModelCapability.STREAMING,
+        )
+
+        /**
+         * 按 [LlmProtocol] 选择能力集合。
+         *
+         * - [LlmProtocol.OPENAI_COMPATIBLE] → [DEFAULT_CAPABILITIES]
+         * - [LlmProtocol.ANTHROPIC_COMPATIBLE] → [ANTHROPIC_CAPABILITIES]
+         */
+        fun capabilitiesFor(protocol: LlmProtocol): Set<ModelCapability> = when (protocol) {
+            LlmProtocol.ANTHROPIC_COMPATIBLE -> ANTHROPIC_CAPABILITIES
+            LlmProtocol.OPENAI_COMPATIBLE -> DEFAULT_CAPABILITIES
+        }
     }
 }
 

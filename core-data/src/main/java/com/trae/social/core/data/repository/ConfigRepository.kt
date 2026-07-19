@@ -10,7 +10,6 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import androidx.room.withTransaction
 import com.trae.social.core.data.config.AiActivityLevel
 import com.trae.social.core.data.config.LlmProtocol
 import com.trae.social.core.data.config.LlmProvider
@@ -321,7 +320,7 @@ class ConfigRepository @Inject constructor(
                 id = endpointId,
                 displayName = displayName.ifBlank { protocol.displayName },
                 protocol = protocol.id,
-                baseUrl = baseUrl,
+                baseUrl = normalizeBaseUrl(baseUrl),
                 model = model,
                 capabilities = ModelCapability.run { capabilities.toStorageString() },
                 orderIndex = nextOrder,
@@ -352,7 +351,7 @@ class ConfigRepository @Inject constructor(
             current.copy(
                 displayName = displayName,
                 protocol = protocol.id,
-                baseUrl = baseUrl,
+                baseUrl = normalizeBaseUrl(baseUrl),
                 model = model,
                 capabilities = ModelCapability.run { capabilities.toStorageString() },
                 updatedAt = System.currentTimeMillis(),
@@ -373,15 +372,14 @@ class ConfigRepository @Inject constructor(
 
     /**
      * 事务重写端点排序。orderedIds 按新顺序给出 id 列表。
+     *
+     * 实际重排逻辑封装在 [LlmEndpointDao.reorder] 的 `@Transaction` 默认方法内，
+     * 保证 shift + 多次 setOrderIndex 要么全部提交要么全部回滚，
+     * 不会因中途失败留下 orderIndex 不一致的中间状态。
      */
     suspend fun reorderEndpoints(orderedIds: List<String>) {
         if (orderedIds.isEmpty()) return
-        // 用 offset 避免重排过程中 unique 冲突（虽然 orderIndex 非 unique，但保险起见）
-        val shift = orderedIds.size + 10
-        llmEndpointDao.shiftAllOrderIndex(shift)
-        orderedIds.forEachIndexed { idx, id ->
-            llmEndpointDao.setOrderIndex(id, idx)
-        }
+        llmEndpointDao.reorder(orderedIds)
         _endpointChanges.tryEmit(Unit)
     }
 
@@ -401,6 +399,31 @@ class ConfigRepository @Inject constructor(
         val key = secureSharedPreferences.getString(endpointApiKeyEntry(endpointId), null) ?: return null
         if (key.length <= 8) return "***"
         return key.take(4) + "***" + key.takeLast(4)
+    }
+
+    /**
+     * 规范化 Base URL：确保以 `http(s)://` 开头、以 `/` 结尾。
+     *
+     * - 裸域名（如 `api.openai.com`）自动补 `https://` 前缀和 `/` 后缀
+     * - 已带 scheme 但无结尾 `/`（如 `https://api.openai.com/v1`）补 `/`
+     * - 已规范化的 URL（如 `https://api.openai.com/v1/`）原样返回
+     *
+     * 与 [LlmEndpointEntity.baseUrl] KDoc 声明的"已规范化为带 scheme 与结尾 /"一致，
+     * 之前 [addEndpoint] / [updateEndpoint] 入库前未做规范化，导致 SDK 拼接路径出错。
+     */
+    private fun normalizeBaseUrl(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return trimmed
+        // 补 scheme：不以 http:// 或 https:// 开头时默认补 https://
+        val withScheme = if (trimmed.startsWith("http://", ignoreCase = true) ||
+            trimmed.startsWith("https://", ignoreCase = true)
+        ) {
+            trimmed
+        } else {
+            "https://$trimmed"
+        }
+        // 补结尾 /
+        return if (withScheme.endsWith("/")) withScheme else "$withScheme/"
     }
 
     // ------------------------------------------------------------------

@@ -12,15 +12,15 @@ import kotlinx.coroutines.flow.Flow
  *
  * 调用方可选声明使用某个自定义规则集 ID（开发者代码注册），不传走默认规则集。
  *
- * 默认规则集实现：多端点排序 + 多模态预处理管道 + 静默降级 + 流式中断重生成。
+ * 默认规则集实现：多端点排序 + 多模态预处理管道 + 静默降级 + 流式 partial-emit 中断不重试。
  */
 interface RulesetEngine {
 
     /**
      * 流式对话：逐 token 返回增量文本。
      *
-     * 流式 emit 部分后中断时，引擎丢弃已 emit 内容并完全重新生成，
-     * 不走降级链拼接跨模型内容（避免内容混乱）。
+     * 流式 emit 部分后中断时，已 emit token 无法回撤，引擎终止当前 flow 由调用方决定重试；
+     * 尚未 emit 时遭遇非持久性错误，走降级链重试下一位端点。
      */
     suspend fun chat(
         messages: List<ChatMessage>,

@@ -20,8 +20,10 @@ import javax.inject.Singleton
  * **默认规则集行为**：
  * 1. **主模型降级链**：[chatSync] 在主模型失败（非持久性错误）后，依次尝试降级链上的下一个端点。
  *    持久性错误（4xx 非 429）不降级，直接抛出。
- * 2. **流式中断重生成**：[chat] 流式 emit 部分 token 后中断时，引擎丢弃已 emit 内容并完全重新生成，
- *    不跨模型拼接内容（避免内容混乱）。尚未 emit 时遭遇非持久性错误，降级到下一位端点重试流式。
+ * 2. **流式 partial-emit 中断**：[chat] 流式 emit 部分 token 后中断时（client 抛
+ *    `IOException("streaming truncated after partial emit")`），引擎不丢弃已 emit 内容、
+ *    也不自动重试——已 emit token 保留在上游 flow 中无法回撤，引擎将异常向上抛出终止当前 flow，
+ *    由调用方决定如何提示用户重试。尚未 emit 时遭遇非持久性错误，降级到下一位端点重试流式。
  * 3. **JSON mode prompt 降级**：当请求 [ChatConfig.jsonMode]=true 但端点未声明 [ModelCapability.JSON_MODE_NATIVE]
  *    时，在 system prompt 中追加 JSON 约束指令（端点原生 response_format 由 client 内部处理）。
  * 4. **429 兼容**：SDK 抛出的 429 异常被转换为 [RateLimitedException] 向上传递，
@@ -40,6 +42,7 @@ class DefaultRulesetEngine @Inject constructor(
         config: ChatConfig,
         rulesetId: String?,
     ): Flow<String> = flow {
+        // TODO(#151): 接入 RulesetRegistry 后启用 rulesetId 选择非默认规则集
         val endpoints = registry.listEndpoints()
         if (endpoints.isEmpty()) {
             throw IllegalStateException("未配置任何 LLM 端点，无法发起对话")
@@ -76,6 +79,7 @@ class DefaultRulesetEngine @Inject constructor(
         config: ChatConfig,
         rulesetId: String?,
     ): String {
+        // TODO(#151): 接入 RulesetRegistry 后启用 rulesetId 选择非默认规则集
         val endpoints = registry.listEndpoints()
         if (endpoints.isEmpty()) {
             throw IllegalStateException("未配置任何 LLM 端点，无法发起对话")
@@ -141,10 +145,15 @@ class DefaultRulesetEngine @Inject constructor(
      *
      * 通过类名识别（含 "OpenAI" / "Anthropic"）+ HTTP 状态码判断，
      * 避免本模块直接依赖 SDK errors 子包。
+     *
+     * 注：SDK 异常类位于 `com.openai.errors` / `com.anthropic.errors` 包下，
+     * 简单名不含厂商前缀、包名小写，故 [String.contains] 必须 `ignoreCase = true`
+     * 才能命中 qualifiedName 中的包路径（与 OnboardingViewModel.classifyError 对齐）。
      */
     private fun isPersistentError(e: Throwable): Boolean {
         val className = e::class.qualifiedName ?: e::class.simpleName.orEmpty()
-        val isSdkError = className.contains("OpenAI") || className.contains("Anthropic")
+        val isSdkError =
+            className.contains("OpenAI", ignoreCase = true) || className.contains("Anthropic", ignoreCase = true)
         if (!isSdkError) return false
         val code = extractHttpCode(e.message.orEmpty()) ?: extractHttpCode(className)
             ?: return false

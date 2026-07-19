@@ -231,12 +231,13 @@ class OpenAiCompatibleClient(
     /**
      * 判断异常是否为持久性 HTTP 错误（4xx 非 429）。
      *
-     * OpenAI SDK 的 4xx 异常继承自 [com.openai.errors.OpenAIError]，统一通过类名识别，
-     * 避免本模块直接依赖 errors 子包（保持二进制兼容空间）。
+     * OpenAI SDK 的 4xx 异常位于 `com.openai.errors` 包下（如 BadRequestException），
+     * 简单名不含 "OpenAI" 前缀、包名小写，故 [String.contains] 必须 `ignoreCase = true`
+     * 才能命中 qualifiedName 中的包路径（与 OnboardingViewModel.classifyError 对齐）。
      */
     private fun isPersistentHttpError(e: Throwable): Boolean {
         val className = e::class.qualifiedName ?: e::class.simpleName.orEmpty()
-        if (!className.contains("OpenAI")) return false
+        if (!className.contains("OpenAI", ignoreCase = true)) return false
         // 类名形如 OpenAIService4xxError / OpenAIBadRequestException / ...429
         val code = extractHttpCode(e.message.orEmpty())
         if (code != null) {

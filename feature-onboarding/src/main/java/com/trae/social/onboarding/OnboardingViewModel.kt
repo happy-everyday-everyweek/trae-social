@@ -326,9 +326,17 @@ class OnboardingViewModel @Inject constructor(
         }
     }
 
-    /** 通过反射读取 SDK 异常的 code()，失败返回 null。 */
+    /**
+     * 通过反射读取 SDK 异常的 [com.openai.errors.OpenAIServiceException.statusCode]/
+     * [com.anthropic.errors.AnthropicServiceException.statusCode]（两者均返回 Int）。
+     *
+     * 注：SDK 暴露的是 `statusCode()` 而非 `code()`——OpenAI 的 `code()` 返回
+     * `Optional<String>`（错误码字符串，非 HTTP 状态码），Anthropic 则根本没有 `code()`。
+     * 旧实现 `getMethod("code")` 恒抛 NoSuchMethodException 被吞，导致 HTTP 状态码识别
+     * 退化为不可靠的 message 正则兜底。
+     */
     private fun extractHttpCode(t: Throwable): Int? = runCatching {
-        val method = t::class.java.getMethod("code")
+        val method = t::class.java.getMethod("statusCode")
         (method.invoke(t) as? Int)
     }.getOrNull()
 

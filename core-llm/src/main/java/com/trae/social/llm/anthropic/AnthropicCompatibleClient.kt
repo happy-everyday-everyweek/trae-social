@@ -187,7 +187,7 @@ class AnthropicCompatibleClient(
 
     private fun isPersistentHttpError(e: Throwable): Boolean {
         val className = e::class.qualifiedName ?: e::class.simpleName.orEmpty()
-        if (!className.contains("Anthropic")) return false
+        if (!className.contains("Anthropic", ignoreCase = true)) return false
         val code = extractHttpCode(e.message.orEmpty())
         if (code != null) {
             return code in 400..499 && code != 429
