@@ -76,6 +76,7 @@ import com.trae.social.designsystem.theme.LocalReduceMotion
 import com.trae.social.designsystem.theme.LocalSocialColors
 import com.trae.social.designsystem.theme.LocalSocialSpacing
 import com.trae.social.designsystem.theme.LocalSocialTypography
+import java.util.Locale
 
 /**
  * 推文卡片。
@@ -633,11 +634,14 @@ private fun InteractionButton(
 
 /**
  * 数量格式化：超 1 万显示为 "1.2万"。
+ *
+ * 显式指定 [Locale.ROOT]：避免在某些语言环境（如德语/法语区）下默认 Locale
+ * 使用逗号作为小数分隔符，导致输出 "1,2万" 与中文语境不一致。
  */
 private fun formatCount(count: Int): String {
     return if (count >= 10000) {
         val wan = count / 10000.0
-        String.format("%.1f万", wan)
+        String.format(Locale.ROOT, "%.1f万", wan)
     } else {
         count.toString()
     }
