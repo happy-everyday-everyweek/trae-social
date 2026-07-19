@@ -1,5 +1,6 @@
 package com.trae.social.profile
 
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.trae.social.core.data.dao.UserProfileFeedbackDao
@@ -203,11 +204,13 @@ class ProfileChatViewModel @Inject constructor(
      * 现在构造整个对象后一次性替换，UI 仅重组 1 次。
      */
     private fun refreshProfile() {
-        _profileSummary.value = ProfileSummaryState(
-            activeVersion = readAccess.activeVersion(),
-            snapshot = readAccess.latestSnapshot(),
-            activeOverrides = readAccess.activeOverrides(),
-        )
+        viewModelScope.launch {
+            _profileSummary.value = ProfileSummaryState(
+                activeVersion = readAccess.activeVersion(),
+                snapshot = readAccess.latestSnapshot(),
+                activeOverrides = readAccess.activeOverrides(),
+            )
+        }
     }
 
     private fun loadHistory() {
@@ -270,10 +273,11 @@ class ProfileChatViewModel @Inject constructor(
 /**
  * 顶部画像摘要卡片状态（#226 修复）。
  *
- * 合并 [UserProfileVersion] / [UserProfileSnapshot] / 生效覆盖列表——三者语义上属
+ * 合并 [UserProfileVersion] / [UserProfileSnapshot] / 生效覆盖（[OverrideRecord] 列表）——三者语义上属
  * 同一原子 UI 单元（顶部摘要卡片），合并为单个数据类后 [ProfileChatViewModel.refreshProfile]
  * 一次性 emit 整个对象，避免 3 次连续 `.value =` 触发 UI 3 次重组。
  */
+@Immutable
 data class ProfileSummaryState(
     val activeVersion: UserProfileVersion? = null,
     val snapshot: UserProfileSnapshot? = null,
