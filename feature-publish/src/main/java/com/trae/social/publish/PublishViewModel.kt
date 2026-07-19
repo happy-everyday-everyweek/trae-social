@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkManager
+import com.trae.social.core.data.AccountIds
 import com.trae.social.core.data.entity.InteractionEntity
 import com.trae.social.core.data.entity.InteractionType
 import com.trae.social.core.data.entity.TweetEntity
@@ -228,6 +229,7 @@ class PublishViewModel @Inject constructor(
     companion object {
         const val MAX_CAPTURES = 4
         const val MAX_CAPTION_LENGTH = 280
-        const val AUTHOR_SELF = "user-self"
+        // #220：自身账号 ID 已抽到 AccountIds.USER_SELF_ID，此处保留别名供本文件使用
+        const val AUTHOR_SELF = AccountIds.USER_SELF_ID
     }
 }

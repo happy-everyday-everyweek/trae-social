@@ -1,12 +1,12 @@
 package com.trae.social.core.profiling.analysis
 
+import com.trae.social.core.data.AccountIds
 import com.trae.social.core.data.dao.UserActionDao
 import com.trae.social.core.data.model.UserActionEvent
 import com.trae.social.core.data.model.UserActionType
 import com.trae.social.core.data.repository.CommentRepository
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.data.repository.TweetRepository
-import com.trae.social.core.data.seed.PersonaSeeder
 import com.trae.social.core.profiling.mapping.ProfileMappers
 import com.trae.social.llm.ChatConfig
 import com.trae.social.llm.ChatMessage
@@ -54,12 +54,6 @@ class EventTextPreParser @Inject constructor(
     private val userActionDao: UserActionDao,
     private val configRepository: ConfigRepository,
 ) {
-
-    /**
-     * 当前用户账号 ID，单点引用 [PersonaSeeder.USER_SELF_ID]，避免多处硬编码同一字符串
-     * 未来改动漏同步（见 PR #150 review Q3）。
-     */
-    private val userSelfId = PersonaSeeder.USER_SELF_ID
 
     /**
      * 对事件列表中携带文本的事件进行 LLM 预解析，提取文本信号写回 extra。
@@ -187,7 +181,7 @@ class EventTextPreParser @Inject constructor(
             UserActionType.PUBLISH_TWEET -> {
                 val tweet = tweetRepository.getById(targetId) ?: return null
                 // 仅解析真实用户发布的推文，排除 AI 生成推文
-                if (tweet.authorId != userSelfId || tweet.isAiGenerated) return null
+                if (tweet.authorId != AccountIds.USER_SELF_ID || tweet.isAiGenerated) return null
                 tweet.text
             }
             UserActionType.TWEET_COMMENT -> {
@@ -197,7 +191,7 @@ class EventTextPreParser @Inject constructor(
                     commentRepository.getById(commentId)?.content
                 } else {
                     // 兼容未携带 commentId 的历史事件
-                    val comments = commentRepository.getByTweetAndAuthor(targetId, userSelfId)
+                    val comments = commentRepository.getByTweetAndAuthor(targetId, AccountIds.USER_SELF_ID)
                     comments.minByOrNull { abs(it.createdAt - event.occurredAt) }?.content
                 }
             }

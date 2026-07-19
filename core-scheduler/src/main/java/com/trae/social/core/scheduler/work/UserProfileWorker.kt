@@ -5,6 +5,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.trae.social.core.data.AccountIds
 import com.trae.social.core.data.dao.UserActionDao
 import com.trae.social.core.data.dao.UserProfileDao
 import com.trae.social.core.data.dao.UserProfileFeedbackDao
@@ -229,14 +230,13 @@ class UserProfileWorker @AssistedInject constructor(
 
     // #218：logEvent 实现抽到 SchedulerLogger.log，此处保留薄包装统一 action 标识
     private suspend fun logEvent(startedAt: Long, status: String, error: String?) {
-        SchedulerLogger.log(logDao, "user_profile", LOG_ACCOUNT_ID, startedAt, status, error)
+        // #220：统一引用 AccountIds.USER_SELF_ID，与 EventCleanupWorker / PersonaSeeder 一致
+        SchedulerLogger.log(logDao, "user_profile", AccountIds.USER_SELF_ID, startedAt, status, error)
     }
 
     private companion object {
         const val MIN_NEW_EVENTS = 20
         const val FEEDBACK_EFFECT_WINDOW_MS = 14L * 24 * 60 * 60 * 1000 // 14 天
-        // #146：日志 accountId 用 user-self（真实账号，满足外键约束）
-        const val LOG_ACCOUNT_ID = "user-self"
         // M4：prompt 模板版本，模板内容变更时递增以使指纹失效
         const val PROMPT_TEMPLATE_VERSION = 1
     }

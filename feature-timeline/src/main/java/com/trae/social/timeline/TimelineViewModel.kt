@@ -3,6 +3,7 @@ package com.trae.social.timeline
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.trae.social.core.data.AccountIds
 import com.trae.social.core.data.entity.AccountEntity
 import com.trae.social.core.data.entity.TweetEntity
 import com.trae.social.core.data.repository.AccountRepository
@@ -117,8 +118,8 @@ class TimelineViewModel @Inject constructor(
     private companion object {
         const val STOP_TIMEOUT_MILLIS = 5_000L
         const val TIME_PATTERN = "HH:mm"
-        // #13：自身账号固定 ID（与 PersonaSeeder.USER_SELF_ID / ProfileViewModel.SELF_ID 一致）
-        const val SELF_ID = "user-self"
+        // #220：自身账号 ID 已抽到 AccountIds.USER_SELF_ID，此处保留别名供本文件使用
+        const val SELF_ID = AccountIds.USER_SELF_ID
     }
 }
 

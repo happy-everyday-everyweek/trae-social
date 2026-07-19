@@ -162,9 +162,9 @@ fun CommentSheet(
                             comments.add(
                                 CommentItem(
                                     id = UUID.randomUUID().toString(),
-                                    // 与 DB 加载一致：user-self 账号 displayName="我"、avatarSeed="user-self"
+                                    // 与 DB 加载一致：user-self 账号 displayName="我"、avatarSeed="user"（与 username 一致，见 PersonaSeeder#ensureUserSelfAccount）
                                     authorName = "我",
-                                    authorAvatarSeed = "user-self",
+                                    authorAvatarSeed = "user",
                                     content = text,
                                     createdAt = System.currentTimeMillis(),
                                 )

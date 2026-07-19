@@ -6,6 +6,7 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import androidx.paging.filter
 import androidx.paging.map
+import com.trae.social.core.data.AccountIds
 import com.trae.social.core.data.entity.CommentEntity
 import com.trae.social.core.data.entity.InteractionEntity
 import com.trae.social.core.data.entity.InteractionType
@@ -470,8 +471,8 @@ class FeedViewModel @Inject constructor(
     )
 
     private companion object {
-        /** 当前用户账号 ID，与 PersonaSeeder.USER_SELF_ID / PublishViewModel.AUTHOR_SELF 一致 */
-        const val USER_SELF_ID = "user-self"
+        // #220：自身账号 ID 已抽到 AccountIds.USER_SELF_ID，此处保留别名供本文件使用
+        const val USER_SELF_ID = AccountIds.USER_SELF_ID
         /** #141：作者缓存 TTL（5 分钟），超时后重新查库刷新人设信息 */
         const val AUTHOR_CACHE_TTL_MS = 5 * 60 * 1000L
     }

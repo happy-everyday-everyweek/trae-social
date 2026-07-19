@@ -2,6 +2,7 @@ package com.trae.social.core.data.seed
 
 import android.content.Context
 import androidx.room.withTransaction
+import com.trae.social.core.data.AccountIds
 import com.trae.social.core.data.dao.AccountDao
 import com.trae.social.core.data.dao.TweetDao
 import com.trae.social.core.data.db.AppDatabase
@@ -262,6 +263,8 @@ class PersonaSeeder @Inject constructor(
         private const val PERSONAS_FILE_PREFIX = "personas_"
         private const val ACTIVE_WINDOW_SIZE = 24
         private const val DAY_MS = 24L * 60L * 60L * 1000L
-        const val USER_SELF_ID = "user-self"
+        // #220：USER_SELF_ID 已抽到 AccountIds.USER_SELF_ID，此处保留别名仅向后兼容
+        // 已有外部引用（如 EventTextPreParser.userSelfId），新代码应直接引用 AccountIds
+        const val USER_SELF_ID = AccountIds.USER_SELF_ID
     }
 }
