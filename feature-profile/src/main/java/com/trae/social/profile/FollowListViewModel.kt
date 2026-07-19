@@ -99,6 +99,18 @@ class FollowListViewModel @Inject constructor(
             // 不更新 _uiState（因为 currentState 不是 Success），跳过覆盖后 _uiState 仍是
             // Loading，UI 永久显示"加载中…"。改为：跳过覆盖时恢复 _uiState 到 load 开始前
             // 的状态（prevUiState），让 UI 至少显示原列表（虽然数据略旧，但比卡死好）。
+            //
+            // 主 review 第 6 轮修复（M1 回归再次修复）：第 5 轮的"无条件恢复 prevUiState"
+            // 仍有缺陷——await 期间 toggleFollow 可能把 _uiState 乐观更新到 Success（如果
+            // toggleFollow 进入时 currentState 已经是 Success），此时恢复 prevUiState 会
+            // 覆盖 toggleFollow 的乐观更新；更严重的是当 prevUiState is Loading（load 重入
+            // 或单次 load 期间 toggleFollow 把 Loading 切到 Success 后又被恢复），恢复
+            // prevUiState = Loading 会把 Success 覆盖回 Loading，UI 永久卡加载中。
+            // 改为：二次检查跳过时，只在"当前 _uiState 是 Loading 且 prevUiState 不是 Loading"
+            // 时才恢复 prevUiState——即只有 load 自己切的 Loading 且 prevUiState 是 Success
+            // 时才恢复；如果当前已经是 Success（toggleFollow 已乐观更新），保持不动；
+            // 如果 prevUiState 也是 Loading（load 重入），保持 Loading（inflight 完成后用户
+            // 重新触发 load 拿到 DB 最新状态）。
             if (inflightToggles.isNotEmpty()) {
                 Timber.d("load 跳过：有 inflight toggle=%s，避免覆盖乐观更新", inflightToggles)
                 return@launch
@@ -135,10 +147,18 @@ class FollowListViewModel @Inject constructor(
                 emptySet<String>() to emptyList<AccountEntity>()
             }
             // 二次检查：DB 查询 await 期间若有 toggleFollow 添加 inflight，跳过覆盖保持乐观更新。
-            // 恢复 _uiState 到 prevUiState，避免卡在 Loading 态（第 5 轮 M1 修复）。
+            // 第 5 轮：恢复 _uiState 到 prevUiState 避免卡 Loading。
+            // 第 6 轮（M1 回归再次修复）：只在"当前 _uiState 是 Loading 且 prevUiState 不是 Loading"
+            // 时才恢复——避免覆盖 toggleFollow 已写入的 Success，或 prevUiState 也是 Loading 时
+            // 无意义的"恢复到 Loading"。
             if (inflightToggles.isNotEmpty()) {
-                Timber.d("load 跳过覆盖：await 期间有 inflight toggle=%s，恢复 prevUiState", inflightToggles)
-                _uiState.value = prevUiState
+                val currentState = _uiState.value
+                if (currentState is FollowListUiState.Loading && prevUiState !is FollowListUiState.Loading) {
+                    Timber.d("load 跳过覆盖：await 期间有 inflight toggle=%s，恢复 prevUiState", inflightToggles)
+                    _uiState.value = prevUiState
+                } else {
+                    Timber.d("load 跳过覆盖：await 期间有 inflight toggle=%s，保持当前 _uiState=%s", inflightToggles, currentState)
+                }
                 return@launch
             }
             _followingIds.value = dbFollowingIds
