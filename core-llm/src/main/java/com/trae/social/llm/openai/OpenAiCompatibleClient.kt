@@ -70,6 +70,9 @@ class OpenAiCompatibleClient(
             endpoint.apiKey?.takeIf { it.isNotBlank() }?.let { apiKey(it) }
             // baseUrl 已包含版本路径（如 "https://api.openai.com/v1/"）
             baseUrl(endpoint.baseUrl)
+            // 显式设置 maxRetries=2，与 AnthropicCompatibleClient 与旧 RetryInterceptor 等价
+            // （含首次共 3 次尝试）。避免依赖 SDK 默认值导致两端行为不一致。
+            maxRetries(2)
         }
         .build()
 
@@ -231,23 +234,27 @@ class OpenAiCompatibleClient(
     /**
      * 判断异常是否为持久性 HTTP 错误（4xx 非 429）。
      *
-     * OpenAI SDK 的 4xx 异常位于 `com.openai.errors` 包下（如 BadRequestException），
-     * 简单名不含 "OpenAI" 前缀、包名小写，故 [String.contains] 必须 `ignoreCase = true`
-     * 才能命中 qualifiedName 中的包路径（与 OnboardingViewModel.classifyError 对齐）。
+     * OpenAI Java SDK 的具体异常（`BadRequestException` / `UnauthorizedException` /
+     * `PermissionDeniedException` / `NotFoundException` / `UnprocessableEntityException`
+     * / `RateLimitException` 等）均继承自 `com.openai.errors.OpenAIServiceException`，
+     * 统一暴露 `int statusCode()` 方法（已通过 javap 验证）。这里用反射读取，避免本
+     * 模块直接依赖 errors 子包。
+     *
+     * 旧实现用 `className.contains("OpenAI")` 大小写敏感匹配，但 SDK 异常位于
+     * `com.openai.errors` 包，简单名不含 "OpenAI"、包名为小写 `openai`，
+     * 恒返回 false（详见 PR #264 review）。反射方式直接命中基类 `statusCode()` 方法，
+     * 对所有 SDK 4xx 异常统一生效，且无类名拼写风险。
      */
     private fun isPersistentHttpError(e: Throwable): Boolean {
-        val className = e::class.qualifiedName ?: e::class.simpleName.orEmpty()
-        if (!className.contains("OpenAI", ignoreCase = true)) return false
-        // 类名形如 OpenAIService4xxError / OpenAIBadRequestException / ...429
-        val code = extractHttpCode(e.message.orEmpty())
-        if (code != null) {
-            return code in 400..499 && code != 429
-        }
-        // 类名直接含 4xx 后缀（如 OpenAIService400Error）
-        val regex = Regex("""\b4\d{2}\b""")
-        val match = regex.find(className)
-        return match != null && match.value != "429"
+        val code = extractSdkStatusCode(e) ?: extractHttpCode(e.message.orEmpty()) ?: return false
+        return code in 400..499 && code != 429
     }
+
+    /** 通过反射读取 SDK 异常的 `statusCode()` 方法。非 SDK 异常返回 null。 */
+    private fun extractSdkStatusCode(e: Throwable): Int? = runCatching {
+        val method = e::class.java.getMethod("statusCode")
+        (method.invoke(e) as? Int) ?: (method.invoke(e) as? Number)?.toInt()
+    }.getOrNull()
 
     private fun extractHttpCode(message: String): Int? {
         val regex = Regex("""\b(4\d{2}|5\d{2})\b""")

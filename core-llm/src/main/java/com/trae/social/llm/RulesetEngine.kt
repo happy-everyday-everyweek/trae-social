@@ -12,15 +12,17 @@ import kotlinx.coroutines.flow.Flow
  *
  * 调用方可选声明使用某个自定义规则集 ID（开发者代码注册），不传走默认规则集。
  *
- * 默认规则集实现：多端点排序 + 多模态预处理管道 + 静默降级 + 流式 partial-emit 中断不重试。
+ * 默认规则集实现：多端点排序 + 多模态预处理管道 + 静默降级 + 流式中断重生成。
  */
 interface RulesetEngine {
 
     /**
      * 流式对话：逐 token 返回增量文本。
      *
-     * 流式 emit 部分后中断时，已 emit token 无法回撤，引擎终止当前 flow 由调用方决定重试；
-     * 尚未 emit 时遭遇非持久性错误，走降级链重试下一位端点。
+     * **流式 emit 部分后中断**：当底层 client 在已 emit 部分 token 后遭遇异常时，
+     * 引擎直接抛出 `IOException`，不进入下一端点的降级链——避免下游消费者收到
+     * 「端点 A 部分内容 + 端点 B 完整内容」的跨模型内容拼接。调用方收到该异常后
+     * 可自行决定是否整体重试。尚未 emit 时遭遇非持久性错误，引擎会降级到下一端点重试流式。
      */
     suspend fun chat(
         messages: List<ChatMessage>,
@@ -41,6 +43,10 @@ interface RulesetEngine {
 
     /**
      * 连通性测试：向指定端点发送 ping，期望非空响应即视为成功。
+     *
+     * 异常**向上抛出**而非吞掉——调用方用 `runCatching` 捕获后可分类 SDK 异常
+     * 给出具体错误原因（如 401 / 403 / 5xx / 网络错误）。端点不存在 / client 创建
+     * 失败时返回 false（非异常路径）。
      */
     suspend fun ping(endpointId: String): Boolean
 }

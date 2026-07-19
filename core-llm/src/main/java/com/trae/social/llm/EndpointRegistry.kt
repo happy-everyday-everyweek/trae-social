@@ -67,7 +67,12 @@ class EndpointRegistry @Inject constructor(
     /**
      * 按 endpointId 获取 client。不存在则懒创建并缓存。
      *
-     * 端点不存在 / API Key 缺失时返回 null（调用方应处理 null 情况）。
+     * 端点不存在 / **API Key 缺失** 时返回 null（调用方应处理 null 情况）。
+     *
+     * **API Key 缺失快速失败**：当端点未配置 API Key 时直接返回 null，不构造 SDK client，
+     * 避免发起注定 401 的网络请求浪费 RTT 与配额（与旧 AuthInterceptor 行为一致，
+     * 旧 AuthInterceptor 在 Key 为空时直接抛 IOException 不发起网络调用）。
+     * （#151 review 反馈：缺失 API Key 时不再快速失败）
      */
     suspend fun getClient(endpointId: String): LlmClient? {
         clients[endpointId]?.let { return it }
@@ -77,6 +82,10 @@ class EndpointRegistry @Inject constructor(
             val entity = configProvider.getEndpoint(endpointId) ?: return null
             val apiKey = runCatching { configProvider.getEndpointApiKey(endpointId) }
                 .getOrNull()
+            if (apiKey.isNullOrBlank()) {
+                Timber.w("EndpointRegistry 端点 API Key 缺失，跳过 client 创建 endpointId=%s", endpointId)
+                return null
+            }
             val config = EndpointConfig.fromEntity(entity, apiKey)
             val client = createClient(config) ?: return null
             clients[endpointId] = client
