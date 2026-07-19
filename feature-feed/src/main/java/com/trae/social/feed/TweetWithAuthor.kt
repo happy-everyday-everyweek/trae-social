@@ -1,7 +1,7 @@
 package com.trae.social.feed
 
 import androidx.compose.runtime.saveable.Saver
-import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.mapSaver
 import com.trae.social.core.data.entity.TweetEntity
 
 /**
@@ -21,47 +21,47 @@ data class TweetWithAuthor(
 ) {
     companion object {
         /**
-         * #212：将 TweetWithAuthor 展平为 Bundle 可保存的 List<Any?>，
-         * 字段顺序与 [TweetEntity] 构造参数一致，末尾追加作者元信息。
+         * #212：将 TweetWithAuthor 序列化为 Bundle 可保存的 Map<String, Any?>，
+         * 使用 key 而非位置索引，避免字段重排导致的保存/恢复错位。
          */
-        val Saver: Saver<TweetWithAuthor, Any> = listSaver(
+        val Saver: Saver<TweetWithAuthor, Any> = mapSaver(
             save = {
                 val t = it.tweet
-                listOf(
-                    t.id,
-                    t.authorId,
-                    t.text,
-                    t.mediaPath,
-                    t.mediaTheme,
-                    t.createdAt,
-                    t.likeCount,
-                    t.commentCount,
-                    t.retweetCount,
-                    t.isAiGenerated,
-                    t.deduplicationKey,
-                    it.authorName,
-                    it.authorUsername,
-                    it.authorAvatarSeed,
+                mapOf(
+                    "id" to t.id,
+                    "authorId" to t.authorId,
+                    "text" to t.text,
+                    "mediaPath" to t.mediaPath,
+                    "mediaTheme" to t.mediaTheme,
+                    "createdAt" to t.createdAt,
+                    "likeCount" to t.likeCount,
+                    "commentCount" to t.commentCount,
+                    "retweetCount" to t.retweetCount,
+                    "isAiGenerated" to t.isAiGenerated,
+                    "deduplicationKey" to t.deduplicationKey,
+                    "authorName" to it.authorName,
+                    "authorUsername" to it.authorUsername,
+                    "authorAvatarSeed" to it.authorAvatarSeed,
                 )
             },
-            restore = { items ->
+            restore = { map ->
                 TweetWithAuthor(
                     tweet = TweetEntity(
-                        id = items[0] as String,
-                        authorId = items[1] as String,
-                        text = items[2] as String,
-                        mediaPath = items[3] as String?,
-                        mediaTheme = items[4] as String?,
-                        createdAt = items[5] as Long,
-                        likeCount = items[6] as Int,
-                        commentCount = items[7] as Int,
-                        retweetCount = items[8] as Int,
-                        isAiGenerated = items[9] as Boolean,
-                        deduplicationKey = items[10] as String,
+                        id = map["id"] as String,
+                        authorId = map["authorId"] as String,
+                        text = map["text"] as String,
+                        mediaPath = map["mediaPath"] as String?,
+                        mediaTheme = map["mediaTheme"] as String?,
+                        createdAt = map["createdAt"] as Long,
+                        likeCount = map["likeCount"] as Int,
+                        commentCount = map["commentCount"] as Int,
+                        retweetCount = map["retweetCount"] as Int,
+                        isAiGenerated = map["isAiGenerated"] as Boolean,
+                        deduplicationKey = map["deduplicationKey"] as String,
                     ),
-                    authorName = items[11] as String,
-                    authorUsername = items[12] as String,
-                    authorAvatarSeed = items[13] as String,
+                    authorName = map["authorName"] as String,
+                    authorUsername = map["authorUsername"] as String,
+                    authorAvatarSeed = map["authorAvatarSeed"] as String,
                 )
             },
         )

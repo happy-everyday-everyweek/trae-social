@@ -36,7 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.Saver
-import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.mapSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -89,9 +89,9 @@ fun FeedScreen(
     // 互动弹层状态
     // #212：改用 rememberSaveable，使屏幕旋转或系统回收后已打开的评论弹层/大图查看器/
     // 转发确认弹窗不被关闭。TweetWithAuthor 使用其伴生 Saver，FullScreenImageTarget 使用下方定义的 Saver。
-    var commentTarget by rememberSaveable(saver = TweetWithAuthor.Saver) { mutableStateOf<TweetWithAuthor?>(null) }
-    var fullScreenTarget by rememberSaveable(saver = FullScreenImageTargetSaver) { mutableStateOf<FullScreenImageTarget?>(null) }
-    var retweetTarget by rememberSaveable(saver = TweetWithAuthor.Saver) { mutableStateOf<TweetWithAuthor?>(null) }
+    var commentTarget by rememberSaveable(stateSaver = TweetWithAuthor.Saver) { mutableStateOf<TweetWithAuthor?>(null) }
+    var fullScreenTarget by rememberSaveable(stateSaver = FullScreenImageTargetSaver) { mutableStateOf<FullScreenImageTarget?>(null) }
+    var retweetTarget by rememberSaveable(stateSaver = TweetWithAuthor.Saver) { mutableStateOf<TweetWithAuthor?>(null) }
 
     val refreshState = pagingItems.loadState.refresh
     val isInitialLoading = refreshState is LoadState.Loading && pagingItems.itemCount == 0
@@ -215,16 +215,20 @@ private data class FullScreenImageTarget(
 
 /**
  * #212：FullScreenImageTarget 的 Saver。imageUris 转 ArrayList<String> 以兼容 Bundle 序列化。
+ * 改用 mapSaver（key-based），避免字段顺序耦合导致的保存/恢复错位。
  */
-private val FullScreenImageTargetSaver: Saver<FullScreenImageTarget, Any> = listSaver(
+private val FullScreenImageTargetSaver: Saver<FullScreenImageTarget, Any> = mapSaver(
     save = {
-        listOf(ArrayList(it.imageUris), it.initialIndex)
+        mapOf(
+            "imageUris" to ArrayList(it.imageUris),
+            "initialIndex" to it.initialIndex,
+        )
     },
-    restore = { items ->
+    restore = { map ->
         @Suppress("UNCHECKED_CAST")
         FullScreenImageTarget(
-            imageUris = items[0] as List<String>,
-            initialIndex = items[1] as Int,
+            imageUris = map["imageUris"] as List<String>,
+            initialIndex = map["initialIndex"] as Int,
         )
     },
 )
