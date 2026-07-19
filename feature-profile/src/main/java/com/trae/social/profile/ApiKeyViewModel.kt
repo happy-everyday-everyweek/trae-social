@@ -37,8 +37,18 @@ class ApiKeyViewModel @Inject constructor(
 
     private fun loadAll() {
         viewModelScope.launch {
-            val endpoints = runCatching { configRepository.listEndpoints() }
-                .getOrElse { emptyList() }
+            // 主 review 第 3 轮修复：原 runCatching 会吞 CancellationException（破坏协程取消语义）
+            // 和 Error（OOM 被吞继续覆盖 UI 状态，加剧崩溃）。改为 try/catch 显式重抛
+            // CancellationException，catch (Exception) 让 Error 自然传播。与同模块
+            // ProfileViewModel / FollowListViewModel 等保持一致。
+            val endpoints = try {
+                configRepository.listEndpoints()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "ApiKeyViewModel.loadAll: listEndpoints 失败")
+                emptyList()
+            }
             val configs = endpoints.map { it.toEndpointConfig() }
             _state.value = ApiKeyUiState(
                 loading = false,
@@ -56,7 +66,8 @@ class ApiKeyViewModel @Inject constructor(
         apiKey: String,
     ) {
         viewModelScope.launch {
-            runCatching {
+            // 主 review 第 3 轮修复：runCatching → try/catch 重抛 CancellationException。
+            try {
                 configRepository.addEndpoint(
                     displayName = displayName,
                     protocol = protocol,
@@ -68,10 +79,13 @@ class ApiKeyViewModel @Inject constructor(
                     capabilities = defaultCapabilitiesFor(protocol),
                     apiKey = apiKey.takeIf { it.isNotEmpty() },
                 )
-            }.onSuccess {
                 cacheInvalidator.invalidateCache()
                 loadAll()
-            }.onFailure { Timber.w(it, "新增端点失败") }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "新增端点失败")
+            }
         }
     }
 
@@ -84,7 +98,8 @@ class ApiKeyViewModel @Inject constructor(
         model: String,
     ) {
         viewModelScope.launch {
-            runCatching {
+            // 主 review 第 3 轮修复：runCatching → try/catch 重抛 CancellationException。
+            try {
                 // 读取现有端点的 capabilities 保留——避免 UI 编辑保存时用 DEFAULT_CAPABILITIES
                 // 覆盖迁移所得能力（如 Anthropic 端点不应有 JSON_MODE_NATIVE，
                 // OpenAI 端点应有 VISION_INPUT）。
@@ -101,34 +116,45 @@ class ApiKeyViewModel @Inject constructor(
                     model = model,
                     capabilities = capabilities,
                 )
-            }.onSuccess {
                 cacheInvalidator.invalidateCache()
                 loadAll()
-            }.onFailure { Timber.w(it, "更新端点失败") }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "更新端点失败")
+            }
         }
     }
 
     /** 单独保存 API Key（避免每次保存端点都需重输 Key）。 */
     fun setApiKey(endpointId: String, apiKey: String) {
         viewModelScope.launch {
-            runCatching { configRepository.setEndpointApiKey(endpointId, apiKey) }
-                .onSuccess {
-                    cacheInvalidator.invalidateCache()
-                    loadAll()
-                }
-                .onFailure { Timber.w(it, "保存 API Key 失败") }
+            // 主 review 第 3 轮修复：runCatching → try/catch 重抛 CancellationException。
+            try {
+                configRepository.setEndpointApiKey(endpointId, apiKey)
+                cacheInvalidator.invalidateCache()
+                loadAll()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "保存 API Key 失败")
+            }
         }
     }
 
     /** 删除端点。 */
     fun deleteEndpoint(id: String) {
         viewModelScope.launch {
-            runCatching { configRepository.deleteEndpoint(id) }
-                .onSuccess {
-                    cacheInvalidator.invalidateCache()
-                    loadAll()
-                }
-                .onFailure { Timber.w(it, "删除端点失败") }
+            // 主 review 第 3 轮修复：runCatching → try/catch 重抛 CancellationException。
+            try {
+                configRepository.deleteEndpoint(id)
+                cacheInvalidator.invalidateCache()
+                loadAll()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "删除端点失败")
+            }
         }
     }
 
@@ -139,12 +165,16 @@ class ApiKeyViewModel @Inject constructor(
      */
     fun reorderEndpoints(orderedIds: List<String>) {
         viewModelScope.launch {
-            runCatching { configRepository.reorderEndpoints(orderedIds) }
-                .onSuccess {
-                    cacheInvalidator.invalidateCache()
-                    loadAll()
-                }
-                .onFailure { Timber.w(it, "重排端点失败") }
+            // 主 review 第 3 轮修复：runCatching → try/catch 重抛 CancellationException。
+            try {
+                configRepository.reorderEndpoints(orderedIds)
+                cacheInvalidator.invalidateCache()
+                loadAll()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "重排端点失败")
+            }
         }
     }
 
@@ -159,8 +189,15 @@ class ApiKeyViewModel @Inject constructor(
     }
 
     private suspend fun LlmEndpointEntity.toEndpointConfig(): EndpointConfig {
-        val keyPreview = runCatching { configRepository.endpointApiKeyPreview(id) }
-            .getOrNull()
+        // 主 review 第 3 轮修复：runCatching → try/catch 重抛 CancellationException。
+        val keyPreview = try {
+            configRepository.endpointApiKeyPreview(id)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "ApiKeyViewModel.toEndpointConfig: endpointApiKeyPreview 失败 id=%s", id)
+            null
+        }
         return EndpointConfig(
             id = id,
             displayName = displayName,
