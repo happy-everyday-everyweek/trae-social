@@ -90,6 +90,7 @@ import com.trae.social.designsystem.components.ActionButton
 import com.trae.social.designsystem.theme.LocalReduceMotion
 import com.trae.social.designsystem.theme.LocalSocialColors
 import com.trae.social.designsystem.theme.LocalSocialTypography
+import com.trae.social.designsystem.theme.MinTouchTargetSize
 import timber.log.Timber
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -566,7 +567,7 @@ private fun ControlButton(
 ) {
     Box(
         modifier = modifier
-            .size(44.dp)
+            .size(MinTouchTargetSize)
             .clip(CircleShape)
             .background(Color.Black.copy(alpha = 0.6f))
             .border(width = 1.dp, color = Color.White.copy(alpha = 0.2f), shape = CircleShape)

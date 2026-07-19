@@ -21,6 +21,7 @@ import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.trae.social.designsystem.BuildConfig
 import com.trae.social.designsystem.theme.LocalSocialColors
+import com.trae.social.designsystem.theme.MinTouchTargetSize
 
 /**
  * 圆形头像组件。
@@ -33,14 +34,14 @@ import com.trae.social.designsystem.theme.LocalSocialColors
  * 负值导致未定义行为。size < 1.dp 时会在 debug 构建中输出 warning 日志以便定位调用方 bug。
  *
  * @param url 图片地址，为空时直接显示占位
- * @param size 头像直径，默认 44dp
+ * @param size 头像直径，默认 [MinTouchTargetSize]（满足无障碍触控热区标准）
  * @param modifier 外部修饰符
  * @param contentDescription 无障碍描述
  */
 @Composable
 fun Avatar(
     url: String?,
-    size: Dp = 44.dp,
+    size: Dp = MinTouchTargetSize,
     modifier: Modifier = Modifier,
     contentDescription: String? = null,
 ) {

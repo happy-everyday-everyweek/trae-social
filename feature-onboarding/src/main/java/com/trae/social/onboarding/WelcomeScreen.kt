@@ -43,6 +43,7 @@ import com.trae.social.designsystem.components.ActionButton
 import com.trae.social.designsystem.theme.LocalReduceMotion
 import com.trae.social.designsystem.theme.LocalSocialColors
 import com.trae.social.designsystem.theme.LocalSocialTypography
+import com.trae.social.designsystem.theme.MinTouchTargetSize
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
@@ -214,7 +215,7 @@ private fun WelcomeIllustration(modifier: Modifier = Modifier) {
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .padding(start = 24.dp, top = 20.dp)
-                .size(44.dp)
+                .size(MinTouchTargetSize)
                 .clip(CircleShape)
                 .background(green.copy(alpha = 0.85f)),
         )

@@ -40,6 +40,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.trae.social.core.data.entity.AccountEntity
 import com.trae.social.designsystem.components.SocialDivider
+import com.trae.social.designsystem.theme.MinTouchTargetSize
 import com.trae.social.designsystem.theme.socialColors
 import com.trae.social.designsystem.theme.LocalSocialTypography
 
@@ -139,7 +140,7 @@ private fun FollowAccountRow(
                 imageLoader = imageLoader,
                 contentDescription = "头像",
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.size(44.dp).clip(CircleShape)
+                modifier = Modifier.size(MinTouchTargetSize).clip(CircleShape)
                     .background(colors.tertiaryBackground),
             )
             Spacer(Modifier.width(12.dp))
