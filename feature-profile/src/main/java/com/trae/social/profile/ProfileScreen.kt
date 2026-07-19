@@ -467,8 +467,14 @@ private fun MediaTab(
         EmptyTab(text = "还没有媒体内容")
         return
     }
-    // #8：收集所有媒体 URI，点击网格项时传入列表与下标，支持全屏查看器左右切换
-    val uris = remember(media) { media.mapNotNull { ProfileUtils.toImageUri(it.mediaPath) } }
+    // #238：用 (tweetId, uri) 配对，以 tweetId 作为 LazyVerticalGrid key（URI 可能重复，
+    // 不能直接作 key；tweetId 唯一）。`uris` 仍保留以便 onImageClick 传完整列表。
+    val mediaWithUris = remember(media) {
+        media.mapNotNull { tweet ->
+            ProfileUtils.toImageUri(tweet.mediaPath)?.let { uri -> tweet.id to uri }
+        }
+    }
+    val uris = mediaWithUris.map { it.second }
     // #235：MediaTab 网格项 ImageRequest remember 上下文。
     // context 由 LocalContext 提供，组合内稳定，不需作为 key。
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -478,7 +484,7 @@ private fun MediaTab(
     ) {
         // #8：直接以 uris 为数据源并使用 itemsIndexed 精确定位点击下标，
         // 避免重复 URI 时 indexOf 返回首个匹配导致下标错位
-        itemsIndexed(uris) { index, uri ->
+        itemsIndexed(uris, key = { i, _ -> mediaWithUris[i].first }) { index, uri ->
             // #235：网格项 ImageRequest remember，避免每次重组重新构造触发图片请求重启。
             val gridRequest = remember(uri) {
                 coil.request.ImageRequest.Builder(context)
