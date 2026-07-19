@@ -36,8 +36,9 @@ object ThemePreferences {
      */
     fun initialize(context: Context) {
         ensurePrefs(context)
-        val name = prefs?.getString(KEY_THEME_MODE, ThemeMode.SYSTEM.name)
-        themeMode = try { ThemeMode.valueOf(name ?: ThemeMode.SYSTEM.name) } catch (e: Exception) {
+        themeMode = try {
+            ThemeMode.valueOf(prefs!!.getString(KEY_THEME_MODE, ThemeMode.SYSTEM.name) ?: ThemeMode.SYSTEM.name)
+        } catch (e: Exception) {
             ThemeMode.SYSTEM
         }
     }
@@ -59,7 +60,10 @@ object ThemePreferences {
      * 获取 [prefs]，若未初始化则用 [context] 兜底初始化。
      *
      * 使用 applicationContext 避免持有 Activity 实例导致泄漏。
+     *
+     * 加 [Synchronized] 防止并发调用导致重复初始化（object 单例，[prefs] 为 var）。
      */
+    @Synchronized
     private fun ensurePrefs(context: Context): SharedPreferences =
         prefs ?: context.applicationContext
             .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
