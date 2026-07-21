@@ -7,6 +7,7 @@ import com.trae.social.core.data.entity.AccountEntity
 import com.trae.social.core.data.entity.PersonaDynamicFieldEntity
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.Flow
 
 /**
  * 账号仓库：封装账号查询与人设动态字段更新。
@@ -23,6 +24,10 @@ class AccountRepository @Inject constructor(
     }
 
     suspend fun getById(id: String): AccountEntity? = accountDao.getById(id)
+
+    // #184：observe 版本——TimelineViewModel.selfProfile 改用 Flow 订阅，
+    // PersonaUpdateWorker 更新人设后头部自动刷新
+    fun observeById(id: String): Flow<AccountEntity?> = accountDao.observeById(id)
 
     /**
      * 获取当前时刻活跃的虚拟账号列表。

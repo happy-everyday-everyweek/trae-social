@@ -24,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -97,6 +98,8 @@ fun FullScreenImageViewer(
                 ZoomableImage(
                     imageUrl = mediaPathToCoilUrl(item.mediaPath),
                     imageLoader = imageLoader,
+                    // #187：透传 onDismiss，供 ZoomableImage 的 onTap 实现单击关闭
+                    onDismiss = onDismiss,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -160,17 +163,23 @@ fun FullScreenImageViewer(
  * 且无平移边界约束（图片可被拖出视口）。改用 detectTransformGestures，
  * 仅响应多指手势（scale != 1f 才消费拖拽），并在 [onSizeChanged] 取得视口尺寸后
  * 将 offset 钳制到 [-halfDelta, +halfDelta] 范围内，避免图片飘出视口。
+ *
+ * #187：补充 onTap 与 Feed/Profile 对齐——放大时单击先复位缩放与位移，
+ * 未放大时单击关闭查看器，原先仅能靠右上角关闭按钮或系统返回键退出。
  */
 @Composable
 private fun ZoomableImage(
     imageUrl: String,
     imageLoader: ImageLoader,
+    onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     // 视口像素尺寸，用于计算平移边界
     var viewport by remember { mutableStateOf(IntSize.Zero) }
+    // #187：始终捕获最新的 onDismiss，避免 pointerInput(Unit) 不重启导致回调过期
+    val currentOnDismiss by rememberUpdatedState(onDismiss)
 
     Box(
         modifier = modifier
@@ -178,6 +187,15 @@ private fun ZoomableImage(
             .onSizeChanged { viewport = it }
             .pointerInput(Unit) {
                 detectTapGestures(
+                    // #187：放大时单击先复位缩放与位移，未放大时才关闭查看器（与 Feed 一致）
+                    onTap = {
+                        if (scale > 1f) {
+                            scale = 1f
+                            offset = Offset.Zero
+                        } else {
+                            currentOnDismiss()
+                        }
+                    },
                     onDoubleTap = {
                         if (scale > 1f) {
                             scale = 1f

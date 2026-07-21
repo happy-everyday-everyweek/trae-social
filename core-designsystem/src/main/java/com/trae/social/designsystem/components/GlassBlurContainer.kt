@@ -11,8 +11,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
@@ -46,8 +46,14 @@ enum class GlassBlurTier {
  * 滚动状态标记：true 时模糊半径减半，降低滚动期 GPU 开销。
  *
  * 由外层滚动容器通过 [provideIsScrolling] 提供，磨砂玻璃组件自动读取。
+ *
+ * #178：使用 [compositionLocalOf] 而非 `staticCompositionLocalOf`。该值在滚动期间通过
+ * `snapshotFlow { isScrollInProgress }` 高频变化，且 `provideIsScrolling` 包裹了整个
+ * Scaffold（含 NavHost 与所有页面）。`staticCompositionLocalOf` 在值变化时会强制重组
+ * Provider 包裹的整个子树（不会按 reader 精确触发），导致每次滚动状态切换时所有页面
+ * 都被重组。改用 [compositionLocalOf] 后只有读取该值的 [GlassBlurContainer] 会重组。
  */
-val LocalIsScrolling = staticCompositionLocalOf { false }
+val LocalIsScrolling = compositionLocalOf { false }
 
 /**
  * 计算当前设备的磨砂玻璃性能分级。

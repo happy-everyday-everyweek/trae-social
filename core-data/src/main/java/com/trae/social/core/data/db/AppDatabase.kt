@@ -46,9 +46,11 @@ import com.trae.social.core.data.entity.UserProfileVersionEntity
  *   user_profile_versions / user_profile_overrides / user_profile_feedback / user_profile_rollbacks）
  * - version=8（#227：删除 tweets 表冗余 authorId 单列索引，已被复合索引最左前缀覆盖；
  *   #151：新增 llm_endpoints 表，承载多端点配置 + 协议格式 + 能力声明 + 全局排序）
- * - exportSchema=true（RISK-9：schema JSON 输出至 schemas/）
+ * - #87：exportSchema=false。原 exportSchema=true 但 schemas/ 目录仅有 1.json~5.json，
+ *   v6/v7/v8 schema JSON 长期缺失（CI 无法运行 MigrationTestHelper，违反 exportSchema 契约）。
+ *   本仓库无 Android SDK 可执行 assembleDebug 重新生成，故显式关闭 exportSchema 以消除误导性配置。
+ *   旧 schema 文件保留作为历史基准，发布版 schema 变更仍须提供显式 Migration。
  * - TypeConverters 处理 JSON 字段与枚举
- * - 发布版 schema 变更须提供显式 Migration（RISK-9）
  */
 @Database(
     entities = [
@@ -71,7 +73,7 @@ import com.trae.social.core.data.entity.UserProfileVersionEntity
         LlmEndpointEntity::class
     ],
     version = 8,
-    exportSchema = true
+    exportSchema = false
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {

@@ -18,7 +18,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -38,6 +43,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -84,7 +90,11 @@ fun TimelineScreen(
         when (val current = state) {
             is TimelineUiState.Loading -> TimelineLoading()
             is TimelineUiState.Empty -> TimelineEmpty(onPublishClick = onPublishClick)
-            is TimelineUiState.Error -> TimelineError(message = current.message)
+            is TimelineUiState.Error -> TimelineError(
+                message = current.message,
+                // #162：错误态提供重试入口，与 FeedScreen.ErrorPlaceholder 设计一致
+                onRetry = { viewModel.retry() },
+            )
             is TimelineUiState.Success -> TimelineContent(
                 groups = current.groups,
                 selfProfile = selfProfile,
@@ -447,6 +457,14 @@ private fun GridImageLayout(items: List<TimelineItem>, imageLoader: ImageLoader,
                         }
                     }
                 }
+                // #194：末行不足 3 列时补透明占位，避免 weight(1f) 拉伸末行 cell
+                // 破坏 3 列等宽网格。占位与正常 cell 同 weight，使末行 cell 宽度与上方各行一致。
+                val shortfall = GRID_COLUMNS - rowIndices.size
+                if (shortfall > 0) {
+                    repeat(shortfall) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
             }
         }
     }
@@ -626,9 +644,12 @@ private fun EmptyIllustration(modifier: Modifier = Modifier) {
 
 /**
  * 错误态。
+ *
+ * #162：与 FeedScreen.ErrorPlaceholder 设计统一——错误图标 + 标题 + 描述 + 重试按钮，
+ * 支持就地重试，避免用户必须退出再进入才能恢复。
  */
 @Composable
-private fun TimelineError(message: String) {
+private fun TimelineError(message: String, onRetry: () -> Unit) {
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
     val spacing = LocalSocialSpacing.current
@@ -640,17 +661,45 @@ private fun TimelineError(message: String) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
+        // 彩色圆 + 错误图标，与 FeedScreen.ErrorPlaceholder 设计对应
+        Box(
+            modifier = Modifier
+                .size(64.dp)
+                .clip(CircleShape)
+                .background(colors.systemRed.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Default.WifiOff,
+                contentDescription = null,
+                tint = colors.systemRed,
+                modifier = Modifier.size(32.dp),
+            )
+        }
+        Spacer(modifier = Modifier.size(spacing.md))
         Text(
             text = "加载失败",
             style = typography.body,
             color = colors.label,
+            textAlign = TextAlign.Center,
         )
         Spacer(modifier = Modifier.size(spacing.sm))
         Text(
             text = message,
             style = typography.subheadline,
             color = colors.secondaryLabel,
+            textAlign = TextAlign.Center,
         )
+        Spacer(modifier = Modifier.size(spacing.md))
+        // #162：重试按钮，与 FeedScreen 错误态一致
+        OutlinedButton(onClick = onRetry) {
+            Icon(
+                imageVector = Icons.Default.Refresh,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(text = "重试", modifier = Modifier.padding(start = spacing.xs))
+        }
     }
 }
 
@@ -658,6 +707,8 @@ private fun TimelineError(message: String) {
  * 将 TweetEntity.mediaPath（asset 相对路径）转换为 Coil 可加载的地址。
  * 已是完整协议头（http/https/file/content）时原样返回，否则补 "file:///android_asset/" 前缀。
  * IMPL-39：mediaPath 可能是逗号分隔的多图列表，取第一张显示。
+ * #187：与 FeedUtils/ProfileUtils.toSingleImageUri 对齐——补 "file://<path>" 分支处理绝对路径，
+ * 否则相机/相册发布的 "/sdcard/xxx" 会被拼成 "file:///android_asset//sdcard/xxx" 导致 Coil 加载失败。
  */
 internal fun mediaPathToCoilUrl(path: String): String {
     if (path.isBlank()) return path
@@ -668,13 +719,21 @@ internal fun mediaPathToCoilUrl(path: String): String {
         firstPath.startsWith("https://") ||
         firstPath.startsWith("file://") ||
         firstPath.startsWith("content://")
-    return if (hasScheme) firstPath else "file:///android_asset/$firstPath"
+    return when {
+        hasScheme -> firstPath
+        // #187：绝对路径（以 "/" 开头）补 "file://" 前缀，与 Feed/Profile 行为一致
+        firstPath.startsWith("/") -> "file://$firstPath"
+        else -> "file:///android_asset/$firstPath"
+    }
 }
 
 /**
  * 由 avatarSeed 派生确定性头像 asset URI（与 ProfileUtils.avatarUriFromSeed / FeedUtils.avatarUriFromSeed 等价）。
  *
  * #13：feature 模块间不相互依赖工具函数，按项目既有约定在本模块内复制一份。
+ * #187：index 公式与 FeedUtils/ProfileUtils 对齐——先 `and 0x7FFFFFFF` 抹符号位再模 25，
+ * 替代原先 `((seedHash % 25) + 25) % 25 + 1`，避免负 hashCode 时与 Feed/Profile 算出不同 index，
+ * 导致同一 user-self 账号在三处屏幕呈现不同头像。
  */
 internal fun avatarUriFromSeed(avatarSeed: String): String {
     val categories = listOf(
@@ -683,7 +742,7 @@ internal fun avatarUriFromSeed(avatarSeed: String): String {
     )
     val seedHash = avatarSeed.hashCode()
     val category = categories[((seedHash % categories.size) + categories.size) % categories.size]
-    val index = ((seedHash % 25) + 25) % 25 + 1
+    val index = ((seedHash and 0x7FFFFFFF) % 25) + 1
     return "file:///android_asset/gallery/$category/$index.svg"
 }
 

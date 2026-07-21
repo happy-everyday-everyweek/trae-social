@@ -96,7 +96,13 @@ class TweetGenerationWorker @AssistedInject constructor(
             // ------------------------------------------------------------------
             // 0. 限流闸门：配额 + 速率
             // ------------------------------------------------------------------
-            val level: AiActivityLevel = configRepository.getAiActivityLevel()
+            // #173：与 PersonaUpdateWorker / SchedulerInitializer 保持一致，用 runCatching
+            // 保护 DataStore 读取。getAiActivityLevel 内部 dataStore.data.first() 在文件损坏、
+            // 并发写入冲突或首次创建时可能抛 IOException；本 Worker 是 OneTimeWorkRequest，
+            // 异常会进入 catch(t: Throwable) -> Result.retry()，重试 3 次后转为 Result.failure()，
+            // 由于 deduplicationKey 已被 enqueueUniqueWork KEEP 占用，会导致该活跃窗推文永久丢失。
+            val level: AiActivityLevel = runCatching { configRepository.getAiActivityLevel() }
+                .getOrDefault(AiActivityLevel.MEDIUM)
             rateLimiter.reconfigure(level)
 
             // 先查账号以获取时区（IMPL-16：配额按账号时区计算"当日"边界）

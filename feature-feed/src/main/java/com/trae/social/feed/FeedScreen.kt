@@ -32,6 +32,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -85,6 +86,8 @@ fun FeedScreen(
     val likedIds by viewModel.likedTweetIds.collectAsStateWithLifecycle()
     val bookmarkedIds by viewModel.bookmarkedTweetIds.collectAsStateWithLifecycle()
     val isOnboardingSkipped by viewModel.isOnboardingSkipped.collectAsStateWithLifecycle()
+    // #182：feedFlow 不再用 flatMapLatest 监听 _notInterestedTweetIds，过滤改在 UI 层衍生
+    val notInterestedIds by viewModel.notInterestedTweetIds.collectAsStateWithLifecycle()
 
     // 互动弹层状态
     // #212：改用 rememberSaveable，使屏幕旋转或系统回收后已打开的评论弹层/大图查看器/
@@ -94,11 +97,23 @@ fun FeedScreen(
     var retweetTarget by rememberSaveable(stateSaver = TweetWithAuthor.Saver) { mutableStateOf<TweetWithAuthor?>(null) }
 
     val refreshState = pagingItems.loadState.refresh
-    val isInitialLoading = refreshState is LoadState.Loading && pagingItems.itemCount == 0
-    val isError = refreshState is LoadState.Error && pagingItems.itemCount == 0
-    val isEmpty = refreshState is LoadState.NotLoading && pagingItems.itemCount == 0
-    val isRefreshing = refreshState is LoadState.Loading && pagingItems.itemCount > 0
-    val isInListMode = !isInitialLoading && !isError && !isEmpty
+    // #232：用 derivedStateOf 包装派生 Boolean，避免 loadState.refresh 每次 State 变化
+    // 都触发整个 FeedScreen 函数体重组——派生值未变时下游 Composable 可跳过重组。
+    val isInitialLoading by remember {
+        derivedStateOf { refreshState is LoadState.Loading && pagingItems.itemCount == 0 }
+    }
+    val isError by remember {
+        derivedStateOf { refreshState is LoadState.Error && pagingItems.itemCount == 0 }
+    }
+    val isEmpty by remember {
+        derivedStateOf { refreshState is LoadState.NotLoading && pagingItems.itemCount == 0 }
+    }
+    val isRefreshing by remember {
+        derivedStateOf { refreshState is LoadState.Loading && pagingItems.itemCount > 0 }
+    }
+    val isInListMode by remember {
+        derivedStateOf { !isInitialLoading && !isError && !isEmpty }
+    }
 
     // IMPL-33：非列表态（加载/错误/空）时强制清除滚动标记，避免底栏持续半径减半
     LaunchedEffect(isInListMode) {
@@ -149,6 +164,7 @@ fun FeedScreen(
                         pagingItems = pagingItems,
                         likedIds = likedIds,
                         bookmarkedIds = bookmarkedIds,
+                        notInterestedIds = notInterestedIds,
                         imageLoader = viewModel.imageLoader,
                         onImageClick = { uris, index -> fullScreenTarget = FullScreenImageTarget(uris, index) },
                         onLikeClick = { item ->
@@ -241,6 +257,7 @@ private fun FeedList(
     pagingItems: LazyPagingItems<TweetWithAuthor>,
     likedIds: Set<String>,
     bookmarkedIds: Set<String>,
+    notInterestedIds: Set<String>,
     imageLoader: ImageLoader,
     onImageClick: (List<String>, Int) -> Unit,
     onLikeClick: (TweetWithAuthor) -> Unit,
@@ -265,22 +282,30 @@ private fun FeedList(
         items(
             count = pagingItems.itemCount,
             key = pagingItems.itemKey { it.tweet.id },
+            // #237：异构列表显式标注 contentType，让 LazyList 在不同结构 item 间复用
+            // Composition slot（Tweet vs footer），避免每次进入视口重建 Composition。
+            contentType = { index -> "Tweet" },
         ) { index ->
             pagingItems[index]?.let { item ->
-                TweetCard(
-                    data = item,
-                    isLiked = item.tweet.id in likedIds,
-                    isBookmarked = item.tweet.id in bookmarkedIds,
-                    imageLoader = imageLoader,
-                    onImageClick = onImageClick,
-                    onLikeClick = { onLikeClick(item) },
-                    onCommentClick = { onCommentClick(item) },
-                    onRetweetClick = { onRetweetClick(item) },
-                    onBookmarkClick = { onBookmarkClick(item) },
-                    onNotInterestedClick = { onNotInterestedClick(item) },
-                    // #23：列表项进场/位移动画，下拉刷新与新增项有平滑过渡
-                    modifier = Modifier.animateItem(),
-                )
+                // #182：feedFlow 不再用 flatMapLatest 监听 _notInterestedTweetIds，
+                // 改为在 UI 层基于 notInterestedIds 衍生过滤，保留 Pager 与滚动位置。
+                // 隐藏项在 LazyColumn 中保留 key 占位但不渲染内容（高度为 0），避免分页计数错位。
+                if (item.tweet.id !in notInterestedIds) {
+                    TweetCard(
+                        data = item,
+                        isLiked = item.tweet.id in likedIds,
+                        isBookmarked = item.tweet.id in bookmarkedIds,
+                        imageLoader = imageLoader,
+                        onImageClick = onImageClick,
+                        onLikeClick = { onLikeClick(item) },
+                        onCommentClick = { onCommentClick(item) },
+                        onRetweetClick = { onRetweetClick(item) },
+                        onBookmarkClick = { onBookmarkClick(item) },
+                        onNotInterestedClick = { onNotInterestedClick(item) },
+                        // #23：列表项进场/位移动画，下拉刷新与新增项有平滑过渡
+                        modifier = Modifier.animateItem(),
+                    )
+                }
             }
         }
 

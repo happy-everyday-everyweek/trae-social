@@ -11,12 +11,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.DropdownMenu
@@ -36,7 +39,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -93,9 +98,15 @@ fun KeyInputScreen(
         detectedProvider != state.selectedProvider &&
         state.apiKey.length >= 4
 
+    // #189：非 CUSTOM 提供商允许留空 baseUrl（回退官方端点，与 supportingText 文案一致）；
+    // CUSTOM 必须填写合法 http(s) URL。原逻辑对空串一律判定不可提交，与
+    // 「留空则使用提供商官方端点」提示矛盾。
     val canSubmit = state.apiKey.isNotBlank() &&
-        isHttpUrl(state.baseUrl) &&
-        state.model.isNotBlank()
+        state.model.isNotBlank() &&
+        when (state.selectedProvider) {
+            LlmProvider.CUSTOM -> isHttpUrl(state.baseUrl)
+            else -> state.baseUrl.isBlank() || isHttpUrl(state.baseUrl)
+        }
 
     // #34：当前提供商推荐的模型列表，供下拉选择
     val recommendedModels = remember(state.selectedProvider) {
@@ -184,6 +195,39 @@ fun KeyInputScreen(
                     color = colors.systemBlue,
                     style = typography.body,
                 )
+            }
+        }
+
+        // #34：历史 Key 快速选择——加密存储于本地，点击即回填到输入框
+        if (state.historyApiKeys.isNotEmpty()) {
+            Text(
+                text = "历史 Key（点击快速填入）",
+                style = typography.subheadline,
+                color = colors.secondaryLabel,
+            )
+            state.historyApiKeys.forEach { historyKey ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(colors.secondaryBackground)
+                        .clickable { viewModel.selectHistoryApiKey(historyKey) }
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.History,
+                        contentDescription = null,
+                        tint = colors.tertiaryLabel,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        text = maskApiKey(historyKey),
+                        style = typography.body,
+                        color = colors.label,
+                    )
+                }
             }
         }
 
@@ -325,6 +369,18 @@ private fun isHttpUrl(url: String): Boolean {
     } catch (e: Exception) {
         false
     }
+}
+
+/**
+ * #34：对历史 API Key 做脱敏预览，避免在历史列表中暴露完整密钥。
+ *
+ * 规则与 ConfigRepository.endpointApiKeyPreview 一致：
+ * - 长度 <= 8 时仅显示 `***`，避免短 Key 被反推
+ * - 否则取首 4 + `***` + 尾 4，保留前缀便于识别提供商（sk- / sk-ant- 等）
+ */
+private fun maskApiKey(key: String): String {
+    if (key.length <= 8) return "***"
+    return key.take(4) + "***" + key.takeLast(4)
 }
 
 // IMPL-44：displayName 直接使用 core-data LlmProvider.displayName 属性，

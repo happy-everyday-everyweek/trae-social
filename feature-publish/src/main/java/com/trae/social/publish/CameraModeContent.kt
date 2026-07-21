@@ -39,8 +39,10 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -363,6 +365,8 @@ fun CameraModeContent(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
+                // #188：独立加 statusBarsPadding，不依赖父级 inset 处理
+                .statusBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
@@ -600,7 +604,10 @@ private fun BottomCameraBar(
     val typography = LocalSocialTypography.current
 
     Row(
-        modifier = modifier.padding(horizontal = 16.dp, vertical = 24.dp),
+        modifier = modifier
+            // #188：底部控件加 navigationBarsPadding，避免全面屏手势条遮挡快门与比例按钮
+            .navigationBarsPadding()
+            .padding(horizontal = 16.dp, vertical = 24.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {

@@ -388,7 +388,13 @@ private fun ActivityLevelRow(
                     .background(colors.systemBlue)
                     .padding(horizontal = 8.dp, vertical = 2.dp),
             ) {
-                Text("当前", color = androidx.compose.ui.graphics.Color.White, fontSize = 11.sp)
+                // #160：改用 typography.caption2 token（11sp）+ 语义化颜色，
+                // 替代硬编码 fontSize=11.sp 与 Color.White
+                Text(
+                    "当前",
+                    style = typography.caption2,
+                    color = colors.systemBackground,
+                )
             }
         }
     }

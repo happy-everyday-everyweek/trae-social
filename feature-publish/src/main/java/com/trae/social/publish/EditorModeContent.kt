@@ -31,10 +31,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,6 +55,9 @@ import androidx.compose.ui.unit.dp
 import com.trae.social.designsystem.components.ActionButton
 import com.trae.social.designsystem.theme.LocalSocialColors
 import com.trae.social.designsystem.theme.LocalSocialTypography
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.File
 import java.io.FileOutputStream
@@ -137,6 +143,8 @@ fun EditorModeContent(
     val context = LocalContext.current
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
+    // #175：解码移到 IO 线程，需要 coroutine scope
+    val scope = rememberCoroutineScope()
 
     var pickedUri by remember { mutableStateOf<Uri?>(null) }
     var sourceBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -159,8 +167,25 @@ fun EditorModeContent(
     ) { uri ->
         pickedUri = uri
         if (uri != null) {
-            sourceBitmap = runCatching { decodeBitmap(context, uri) }.getOrNull()
-            resetCrop()
+            // #175：decodeBitmap 移到 Dispatchers.IO，避免主线程 I/O + 解码导致 ANR。
+            // 不在此处回收旧 sourceBitmap：ORIGINAL 滤镜下 displayBitmap === sourceBitmap，
+            // Image 仍显示旧 Bitmap 时回收会导致渲染崩溃。旧 sourceBitmap 由 CropOverlay 的
+            // LaunchedEffect（ORIGINAL 时 old displayBitmap === oldSource，切换时回收）处理，
+            // 或在组合离开时由 DisposableEffect 回收。
+            scope.launch {
+                val bitmap = withContext(Dispatchers.IO) {
+                    runCatching { decodeBitmap(context, uri) }.getOrNull()
+                }
+                sourceBitmap = bitmap
+                resetCrop()
+            }
+        }
+    }
+
+    // #175：组合离开时回收 sourceBitmap，避免内存泄漏
+    DisposableEffect(Unit) {
+        onDispose {
+            sourceBitmap?.recycle()
         }
     }
 
@@ -290,7 +315,30 @@ private fun CropOverlay(
 ) {
     val colors = LocalSocialColors.current
     val density = LocalDensity.current
-    val displayBitmap = remember(filter, bitmap) { filter.apply(bitmap) }
+    // #175：displayBitmap 由 filter + bitmap 派生，切换时显式回收旧 Bitmap。
+    // 原实现 remember(filter, bitmap) { filter.apply(bitmap) } 丢弃旧引用仅靠 GC 回收，
+    // 快速切换 5 个滤镜会瞬时累计 80MB+ 未释放 Bitmap。
+    // ORIGINAL 返回源引用（不可回收），其余 preset 通过 createBitmap 产生新 Bitmap。
+    var displayBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    val latestBitmap by rememberUpdatedState(bitmap)
+    LaunchedEffect(filter, bitmap) {
+        val old = displayBitmap
+        val new = filter.apply(bitmap)
+        displayBitmap = new
+        if (old != null && old !== bitmap && old !== new) {
+            old.recycle()
+        }
+    }
+    // #175：组合离开时回收 displayBitmap（非源引用部分），避免内存泄漏
+    DisposableEffect(Unit) {
+        onDispose {
+            val current = displayBitmap
+            if (current != null && current !== latestBitmap) {
+                current.recycle()
+            }
+        }
+    }
+    val currentDisplay = displayBitmap ?: bitmap
 
     Box(
         modifier = modifier
@@ -299,7 +347,7 @@ private fun CropOverlay(
             .onSizeChanged { onContainerSizeChange(it) },
     ) {
         Image(
-            bitmap = displayBitmap.asImageBitmap(),
+            bitmap = currentDisplay.asImageBitmap(),
             contentDescription = "编辑预览",
             contentScale = ContentScale.Fit,
             modifier = Modifier.fillMaxSize(),

@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -91,6 +92,7 @@ fun ProfileScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val selectedTab by viewModel.selectedTab.collectAsStateWithLifecycle()
     val colors = socialColors()
+    val typography = LocalSocialTypography.current
     // #236：tabs 数组用 remember 保持引用稳定，避免 spread 操作符每次重组生成新 Array
     // 导致 Compose skip 用引用相等性判断失效，CapsuleTab 仍被强制重组。
     val profileTabs = remember { ProfileTab.values().map { it.label }.toTypedArray() }
@@ -110,7 +112,8 @@ fun ProfileScreen(
 
     Column(modifier = modifier.fillMaxSize().background(colors.systemBackground)) {
         TopAppBar(
-            title = { Text("我的", fontWeight = FontWeight.SemiBold) },
+            // #160：改用 typography token（headline = 17sp SemiBold），避免硬编码字重
+            title = { Text("我的", style = typography.headline) },
             actions = {
                 IconButton(onClick = onNavigateToSettings) {
                     Icon(Icons.Filled.Settings, contentDescription = "设置")
@@ -292,7 +295,7 @@ private fun TweetsTab(
     val tweets by viewModel.tweetsFlow.collectAsStateWithLifecycle()
     val likedIds by viewModel.likedTweetIds.collectAsStateWithLifecycle()
     if (tweets.isEmpty()) {
-        EmptyTab(text = "还没有发布过推文")
+        EmptyTab(text = "还没有发布过推文", icon = Icons.Filled.ChatBubbleOutline)
         return
     }
     LazyColumn(Modifier.fillMaxSize()) {
@@ -306,7 +309,8 @@ private fun TweetsTab(
                     onLikeClick = { viewModel.toggleLike(tweet.id) },
                     onCommentClick = { viewModel.commentTweet(tweet.id) },
                     onRetweetClick = { viewModel.retweetTweet(tweet.id) },
-                    onImageClick = { uri -> onImageClick(listOf(uri), 0) },
+                    // #191：直接透传 onImageClick，ProfileTweetRow 内部传整条推文的全部图片
+                    onImageClick = onImageClick,
                 )
                 SocialDivider(thickness = 0.5.dp)
             }
@@ -328,7 +332,7 @@ private fun ProfileTweetRow(
     onLikeClick: () -> Unit,
     onCommentClick: () -> Unit,
     onRetweetClick: () -> Unit,
-    onImageClick: (String) -> Unit,
+    onImageClick: (List<String>, Int) -> Unit,
 ) {
     val colors = socialColors()
     val typography = LocalSocialTypography.current
@@ -356,10 +360,13 @@ private fun ProfileTweetRow(
                     color = colors.label,
                 )
             }
-            ProfileUtils.toImageUri(tweet.mediaPath)?.let { uri ->
-                val mediaRequest = remember(uri) {
+            // #191：取推文全部图片 URI，全屏查看器可翻页查看同推文其他图片（不再只取首图）
+            val imageUris = remember(tweet.mediaPath) { ProfileUtils.toImageUriList(tweet.mediaPath) }
+            if (imageUris.isNotEmpty()) {
+                val firstUri = imageUris.first()
+                val mediaRequest = remember(firstUri) {
                     coil.request.ImageRequest.Builder(context)
-                        .data(uri)
+                        .data(firstUri)
                         .crossfade(true)
                         .build()
                 }
@@ -371,8 +378,8 @@ private fun ProfileTweetRow(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxWidth().height(200.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        // #8：图片可点击进入全屏大图查看器
-                        .socialClickable { onImageClick(uri) },
+                        // #191：点击传入整条推文的全部图片 URI，下标 0（缩略图取首图）
+                        .socialClickable { onImageClick(imageUris, 0) },
                 )
             }
             Spacer(Modifier.height(spacing.sm))
@@ -464,17 +471,18 @@ private fun MediaTab(
 ) {
     val media by viewModel.mediaTweetsFlow.collectAsStateWithLifecycle()
     if (media.isEmpty()) {
-        EmptyTab(text = "还没有媒体内容")
+        EmptyTab(text = "还没有媒体内容", icon = Icons.Filled.PhotoLibrary)
         return
     }
-    // #238：用 (tweetId, uri) 配对，以 tweetId 作为 LazyVerticalGrid key（URI 可能重复，
-    // 不能直接作 key；tweetId 唯一）。`uris` 仍保留以便 onImageClick 传完整列表。
+    // #191：每个推文取全部图片 URI（不再只取首图），缩略图取首图，
+    // 点击打开全屏查看器时可翻页查看同推文的其他图片。
+    // #238：以 tweetId 作为 LazyVerticalGrid key（URI 可能重复，不能直接作 key；tweetId 唯一）。
     val mediaWithUris = remember(media) {
         media.mapNotNull { tweet ->
-            ProfileUtils.toImageUri(tweet.mediaPath)?.let { uri -> tweet.id to uri }
+            ProfileUtils.toImageUriList(tweet.mediaPath).takeIf { it.isNotEmpty() }
+                ?.let { uris -> tweet.id to uris }
         }
     }
-    val uris = mediaWithUris.map { it.second }
     // #235：MediaTab 网格项 ImageRequest remember 上下文。
     // context 由 LocalContext 提供，组合内稳定，不需作为 key。
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -482,13 +490,13 @@ private fun MediaTab(
         columns = GridCells.Fixed(3),
         modifier = Modifier.fillMaxSize().padding(2.dp),
     ) {
-        // #8：直接以 uris 为数据源并使用 itemsIndexed 精确定位点击下标，
-        // 避免重复 URI 时 indexOf 返回首个匹配导致下标错位
-        itemsIndexed(uris, key = { i, _ -> mediaWithUris[i].first }) { index, uri ->
+        itemsIndexed(mediaWithUris, key = { _, pair -> pair.first }) { _, pair ->
+            val uris = pair.second
+            val firstUri = uris.first()
             // #235：网格项 ImageRequest remember，避免每次重组重新构造触发图片请求重启。
-            val gridRequest = remember(uri) {
+            val gridRequest = remember(firstUri) {
                 coil.request.ImageRequest.Builder(context)
-                    .data(uri)
+                    .data(firstUri)
                     .crossfade(true)
                     .build()
             }
@@ -496,8 +504,9 @@ private fun MediaTab(
                 Modifier.padding(2.dp).height(120.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(socialColors().tertiaryBackground)
-                    // #8：网格项可点击，打开全屏大图查看器
-                    .socialClickable { onImageClick(uris, index) },
+                    // #191：传入该推文的全部图片 URI，下标 0（缩略图取首图），
+                    // 全屏查看器可翻页查看同推文其他图片
+                    .socialClickable { onImageClick(uris, 0) },
             ) {
                 AsyncImage(
                     model = gridRequest,
@@ -511,11 +520,40 @@ private fun MediaTab(
     }
 }
 
+/**
+ * #162：空状态占位（图标 + 友好文案），与 FeedScreen 的 EmptyPlaceholder 设计统一，
+ * 替代原纯文字占位，避免同类空状态在不同页面观感割裂。
+ */
 @Composable
-private fun EmptyTab(text: String) {
+private fun EmptyTab(text: String, icon: ImageVector = Icons.Filled.PhotoLibrary) {
     val colors = socialColors()
+    val typography = LocalSocialTypography.current
+    val spacing = LocalSocialSpacing.current
     Box(Modifier.fillMaxSize(), Alignment.Center) {
-        Text(text, color = colors.tertiaryLabel, textAlign = TextAlign.Center)
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(spacing.md),
+            modifier = Modifier.padding(spacing.xxl),
+        ) {
+            Box(
+                modifier = Modifier.size(56.dp).clip(CircleShape)
+                    .background(colors.systemBlue.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = colors.systemBlue,
+                    modifier = Modifier.size(28.dp),
+                )
+            }
+            Text(
+                text = text,
+                style = typography.callout,
+                color = colors.tertiaryLabel,
+                textAlign = TextAlign.Center,
+            )
+        }
     }
 }
 
@@ -533,7 +571,7 @@ private fun LikesTab(
     val likedTweets by viewModel.likedTweetsFlow.collectAsStateWithLifecycle()
     val likedIds by viewModel.likedTweetIds.collectAsStateWithLifecycle()
     if (likedTweets.isEmpty()) {
-        EmptyTab(text = "还没有喜欢的内容")
+        EmptyTab(text = "还没有喜欢的内容", icon = Icons.Filled.FavoriteBorder)
         return
     }
     LazyColumn(Modifier.fillMaxSize()) {
@@ -546,7 +584,8 @@ private fun LikesTab(
                     onLikeClick = { viewModel.toggleLike(tweet.id) },
                     onCommentClick = { viewModel.commentTweet(tweet.id) },
                     onRetweetClick = { viewModel.retweetTweet(tweet.id) },
-                    onImageClick = { uri -> onImageClick(listOf(uri), 0) },
+                    // #191：直接透传 onImageClick，ProfileTweetRow 内部传整条推文的全部图片
+                    onImageClick = onImageClick,
                 )
                 SocialDivider(thickness = 0.5.dp)
             }

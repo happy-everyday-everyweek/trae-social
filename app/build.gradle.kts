@@ -110,6 +110,14 @@ android {
     }
 }
 
+// #228：Compose Compiler 报告输出（稳定性报告 + 指标），用于识别 @Unstable 类型导致的
+// 过度重组。生成产物位于 build/compose_reports 与 build/compose_metrics，供后续重组优化参考。
+// 仅在 Kotlin 2.0+ Compose Compiler Gradle 插件下可用（org.jetbrains.kotlin.plugin.compose）。
+composeCompiler {
+    reportsDestination = layout.buildDirectory.dir("compose_reports")
+    metricsDestination = layout.buildDirectory.dir("compose_metrics")
+}
+
 dependencies {
     // 项目内模块
     implementation(project(":core-designsystem"))

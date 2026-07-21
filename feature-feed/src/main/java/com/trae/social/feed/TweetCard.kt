@@ -58,8 +58,10 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -131,7 +133,10 @@ fun TweetCard(
             .fillMaxWidth()
             .background(colors.systemBackground)
             // #19：卡片垂直留白 12→16，提升呼吸感
-            .padding(spacing.lg),
+            .padding(spacing.lg)
+            // #33：列表项整条语义合并，TalkBack 一次朗读整条推文（作者/正文/互动按钮），
+            // 而非逐项零碎朗读。子节点（IconButton 等）仍保留自身 click 语义供聚焦操作。
+            .semantics(mergeDescendants = true) {},
     ) {
         // 顶部行：头像 + 名称 + 时间 + 更多
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -170,7 +175,9 @@ fun TweetCard(
                         text = FeedUtils.formatRelativeTime(tweet.createdAt),
                         style = typography.caption1,
                         color = colors.tertiaryLabel,
+                        // #33：超大字号时配合 ellipsis 防溢出
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -515,6 +522,10 @@ private fun TweetText(
 ) {
     val typography = LocalSocialTypography.current
     val spacing = LocalSocialSpacing.current
+    // #33：动态字号边界处理——读取系统 fontScale，超大字号（>1.3f）时对正文加
+    // maxLines + ellipsis 防止正文撑爆屏幕（sp 自身随 fontScale 缩放，此处仅做裁剪兜底）。
+    val fontScale = LocalConfiguration.current.fontScale
+    val bodyMaxLines = if (fontScale > 1.3f) 8 else Int.MAX_VALUE
     val limit = 280
     var expanded by rememberSaveable(text) { mutableStateOf(false) }
     val needCollapse = text.length > limit
@@ -527,6 +538,9 @@ private fun TweetText(
             text = displayText,
             style = typography.body,
             color = labelColor,
+            // #33：超大字号时限制最大行数并配合 ellipsis，避免长正文在 1.5x+ 字号下撑爆屏幕
+            maxLines = bodyMaxLines,
+            overflow = TextOverflow.Ellipsis,
         )
         if (needCollapse) {
             Spacer(Modifier.height(spacing.xs))

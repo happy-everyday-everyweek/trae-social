@@ -260,26 +260,42 @@ object SchedulerInitializer {
     }
 
     /**
-     * #114：确定指定账号的上次运行时刻。
+     * #114 / #94：确定指定账号的上次运行时刻。
      *
      * 查询该账号最近一条 tweet_generation 日志的时间戳，
      * #72：已移除全局 determineLastRunTime，统一使用本方法按账号查询，避免跨账号补发漏窗。
-     * 无记录时回退为 24 小时前。
+     *
+     * 三条返回路径统一处理，避免补发范围不可预测：
+     * - 路径 A（无成功日志）：返回 `now - 24h`
+     * - 路径 B（DB 异常）：返回 `now - 24h`（与路径 A 一致；原实现返回 null 会被
+     *   [ScheduleRuleResolver.missedWindows] 当作"昨日 00:00"，与路径 A 相差数小时，
+     *   异常恢复时补发范围跳变）
+     * - 路径 C（有成功日志）：返回日志时间戳
+     *
+     * #94：仅按 `result == "success"` 过滤，避免把 `retry_empty_response` / `error_*`
+     * 等失败重试日志当作"上次运行"——失败重试并未真正产出推文，若当作 lastRun 会让
+     * 补发窗口计算基于错误时刻，导致漏补发或多补发。
      */
     private suspend fun determineAccountLastRunTime(
         logDao: SchedulerLogDao,
         accountId: String,
         now: Instant,
-    ): Instant? {
+    ): Instant {
+        // #114：异常路径与无日志路径统一回退为 24h 前，避免 null 触发 missedWindows
+        // 的"昨日 00:00"分支造成补发范围不一致
+        val fallback = now.minusSeconds(24 * 60 * 60)
         return runCatching {
             val recent = logDao.getByAccount(accountId, limit = LAST_RUN_LOOKUP_LIMIT)
-            val lastTweetLog = recent.firstOrNull { it.action == "tweet_generation" }
+            // #94：仅取成功日志作为 lastRun，失败重试日志不计入
+            val lastTweetLog = recent.firstOrNull {
+                it.action == "tweet_generation" && it.result == "success"
+            }
             if (lastTweetLog != null) {
                 Instant.ofEpochMilli(lastTweetLog.timestamp)
             } else {
-                now.minusSeconds(24 * 60 * 60)
+                fallback
             }
-        }.getOrNull()
+        }.getOrDefault(fallback)
     }
 
     /**

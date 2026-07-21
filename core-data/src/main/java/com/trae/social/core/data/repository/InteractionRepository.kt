@@ -33,12 +33,14 @@ class InteractionRepository @Inject constructor(
 
     /**
      * 原子地执行一批互动并更新推文计数（IMPL-6）。
+     *
+     * #115：返回实际执行（未被幂等守卫跳过）的互动数，供 Worker 按真实执行数累加 processed。
      */
     suspend fun executeInteractionsAndUpdateTweet(
         interactions: List<InteractionEntity>,
         executedAt: Long,
         tweetId: String,
-    ) = interactionDao.executeInteractionsAndUpdateTweet(interactions, executedAt, tweetId)
+    ): Int = interactionDao.executeInteractionsAndUpdateTweet(interactions, executedAt, tweetId)
 
     suspend fun countExecutedByType(tweetId: String, type: InteractionType): Int =
         interactionDao.countExecutedByType(tweetId, type)
@@ -46,6 +48,10 @@ class InteractionRepository @Inject constructor(
     // #103：查询某账号已点赞的推文 ID 列表，替代 likeCount > 0 启发式
     suspend fun getLikedTweetIdsByAccount(accountId: String): List<String> =
         interactionDao.getLikedTweetIdsByAccount(accountId)
+
+    // #166：observe 版本——ProfileViewModel 用 Flow 订阅以感知 FeedViewModel 的点赞
+    fun observeLikedTweetIdsByAccount(accountId: String): Flow<List<String>> =
+        interactionDao.observeLikedTweetIdsByAccount(accountId)
 
     // M7 修复：删除某账号对某推文的 LIKE 互动记录（取消点赞时调用）
     suspend fun deleteLikeInteraction(tweetId: String, accountId: String) =

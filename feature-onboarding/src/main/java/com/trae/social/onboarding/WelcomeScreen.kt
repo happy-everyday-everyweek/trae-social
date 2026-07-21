@@ -70,9 +70,9 @@ fun WelcomeScreen(
     val typography = LocalSocialTypography.current
     val reduceMotion = LocalReduceMotion.current
 
-    // #35：进场动画——插画 alpha 与上移并行（500ms），内容淡入随后（400ms）
-    // #200：减弱动效下保留 alpha 渐入（无视觉位移），完全跳过 offset 防止前庭刺激；
-    //   时长压到 150ms 提高响应感（Apple："reduced motion ≠ no feedback"）。
+    // #35：进场动画——插画 alpha 与上移并行，内容淡入随后。
+    // #156：插画 500ms / 内容 400ms 超 300ms UI 动画上限，压缩到 280ms / 250ms。
+    // #200：减弱动效下跳过动画直接 snapTo 终值，避免前庭刺激。
     // 进场动画为一次性播放：spec 与初始 offset 仅在首次组合时按 reduceMotion 计算一次，
     // 后续运行时切换 reduce-motion 不会重跑进场动画（LaunchedEffect(Unit) 也只触发一次）。
     // 这是 onboarding 短页面的有意设计：避免用户在引导页中途切换系统设置时插图位置
@@ -82,22 +82,32 @@ fun WelcomeScreen(
     val illustrationOffset = remember { Animatable(if (reduceMotion) 0f else 40f) }
     val contentAlpha = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
-        // Review fix #3：插画 alpha + offset 并行，完成后内容淡入
-        coroutineScope {
-            val illSpec = tween<Float>(
-                durationMillis = if (reduceMotion) 150 else 500,
-                easing = FastOutSlowInEasing,
-            )
-            launch { illustrationAlpha.animateTo(1f, illSpec) }
-            // 减弱动效下 offset 已为 0，跳过位移动画（直接跳过 animateTo 即可）
-            if (!reduceMotion) {
-                launch { illustrationOffset.animateTo(0f, tween(500, easing = FastOutSlowInEasing)) }
+        if (reduceMotion) {
+            // #156：减弱动效下直接 snapTo 终值，跳过所有动画
+            illustrationAlpha.snapTo(1f)
+            illustrationOffset.snapTo(0f)
+            contentAlpha.snapTo(1f)
+        } else {
+            // Review fix #3：插画 alpha + offset 并行（280ms），完成后内容淡入（250ms）
+            coroutineScope {
+                launch {
+                    illustrationAlpha.animateTo(
+                        1f,
+                        tween(280, easing = FastOutSlowInEasing),
+                    )
+                }
+                launch {
+                    illustrationOffset.animateTo(
+                        0f,
+                        tween(280, easing = FastOutSlowInEasing),
+                    )
+                }
             }
+            contentAlpha.animateTo(
+                1f,
+                tween(250, easing = FastOutSlowInEasing),
+            )
         }
-        contentAlpha.animateTo(
-            1f,
-            tween(if (reduceMotion) 150 else 400, easing = FastOutSlowInEasing),
-        )
     }
 
     // #15：免责声明可折叠，首次展示后用户可收起，减少主流程中的重复提示

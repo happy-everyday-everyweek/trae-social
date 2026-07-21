@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">LLM Social</string>
+
+    <!-- #224：app 模块用户可见文案 i18n 抽取（首批：底部导航栏 Tab 标题 + 发布按钮无障碍文案）。
+         后续按 feature 模块拆分 strings.xml，将 Composable 中的中文字面量逐步迁出。
+         命名约定：<scope>_<element>[_<state>]，如 tab_home / action_publish。 -->
+    <string name="tab_home">首页</string>
+    <string name="tab_timeline">时间线</string>
+    <string name="tab_profile">我的</string>
+    <string name="action_publish">发布</string>
 </resources>

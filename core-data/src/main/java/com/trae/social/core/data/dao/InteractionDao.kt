@@ -46,6 +46,10 @@ abstract class InteractionDao {
     @Query("SELECT tweetId FROM interactions WHERE accountId = :accountId AND type = 'LIKE' AND executedAt IS NOT NULL")
     abstract suspend fun getLikedTweetIdsByAccount(accountId: String): List<String>
 
+    // #166：observe 版本——ProfileViewModel 改用 Flow 订阅，FeedViewModel 点赞后 Profile LIKES Tab 自动刷新
+    @Query("SELECT tweetId FROM interactions WHERE accountId = :accountId AND type = 'LIKE' AND executedAt IS NOT NULL")
+    abstract fun observeLikedTweetIdsByAccount(accountId: String): Flow<List<String>>
+
     // M7 修复：删除某账号对某推文的 LIKE 互动记录（取消点赞时调用）
     @Query("DELETE FROM interactions WHERE tweetId = :tweetId AND accountId = :accountId AND type = 'LIKE'")
     abstract suspend fun deleteLikeInteraction(tweetId: String, accountId: String)
@@ -76,23 +80,29 @@ abstract class InteractionDao {
      * 幂等守卫：[markExecuted] 仅在 `executedAt IS NULL` 时更新（返回受影响行数），
      * 已执行的互动不会重复计数，避免 Worker 重试导致 likeCount 翻倍。
      *
+     * #115：返回实际执行（rowsAffected > 0）的互动数，供调用方按真实执行数累加 processed，
+     * 避免并发重复扫描时 processed 按批大小虚高。
+     *
      * @param interactions 待执行的互动列表（调用方需预先过滤掉无法执行的项，如无内容的评论）
      * @param executedAt 执行时刻
      * @param tweetId 这些互动关联的推文 ID
+     * @return 实际执行（未被幂等守卫跳过）的互动数
      */
     @Transaction
     open suspend fun executeInteractionsAndUpdateTweet(
         interactions: List<InteractionEntity>,
         executedAt: Long,
         tweetId: String,
-    ) {
+    ): Int {
         var likeDelta = 0
         var commentDelta = 0
         var retweetDelta = 0
+        var executedCount = 0
         for (interaction in interactions) {
             val rowsAffected = markExecuted(interaction.id, executedAt)
             // 已执行的互动（rowsAffected == 0）跳过计数，防重复累加
             if (rowsAffected == 0) continue
+            executedCount++
             when (interaction.type) {
                 InteractionType.LIKE -> likeDelta++
                 InteractionType.COMMENT -> {
@@ -118,5 +128,6 @@ abstract class InteractionDao {
         if (likeDelta > 0) updateTweetLikeCount(tweetId, likeDelta)
         if (commentDelta > 0) updateTweetCommentCount(tweetId, commentDelta)
         if (retweetDelta > 0) updateTweetRetweetCount(tweetId, retweetDelta)
+        return executedCount
     }
 }

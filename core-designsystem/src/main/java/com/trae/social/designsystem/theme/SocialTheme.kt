@@ -14,7 +14,6 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.text.TextStyle
 import androidx.core.view.WindowCompat
 
 /**
@@ -81,6 +80,12 @@ fun SocialTheme(
 
 /**
  * 将 [SocialColors] 映射为 Material3 ColorScheme，便于复用 Material 组件默认配色。
+ *
+ * #180：补齐 tertiary / tertiaryContainer / onTertiaryContainer / errorContainer /
+ * onErrorContainer / inverseSurface / inverseOnSurface / inversePrimary / scrim /
+ * surfaceTint 等 token。原实现仅设置部分 token，导致 Material3 组件（Slider、
+ * SegmentedButton、Snackbar、Chip 等）取到默认的粉紫色 (#7D5260/#EFB8C8)，
+ * 与 iOS systemBlue 体系冲突，且 dark/light 切换时不跟随 SocialColors 变化。
  */
 private fun SocialColors.toMaterialColorScheme(dark: Boolean) =
     if (dark) {
@@ -89,18 +94,35 @@ private fun SocialColors.toMaterialColorScheme(dark: Boolean) =
             onPrimary = Color.White,
             primaryContainer = systemBlue.copy(alpha = 0.25f),
             onPrimaryContainer = Color.White,
+            // #180：inversePrimary 在 inverseSurface 背景上使用，取明色 systemBlue 互补
+            inversePrimary = Color(0xFF007AFF),
             secondary = systemBlue,
             onSecondary = Color.White,
+            // #180：tertiary 映射到 systemPurple，作为第三级强调色
+            tertiary = systemPurple,
+            onTertiary = Color.White,
+            tertiaryContainer = systemPurple.copy(alpha = 0.25f),
+            onTertiaryContainer = Color.White,
             background = systemBackground,
             onBackground = label,
             surface = systemBackground,
             onSurface = label,
             surfaceVariant = secondaryBackground,
             onSurfaceVariant = secondaryLabel,
+            // #180：surfaceTint 在 M3 中默认等于 primary，控制 elevation 上的色调叠加
+            surfaceTint = systemBlue,
+            // #180：inverseSurface 用于 Snackbar 反色背景等，深色模式下取浅色 (label)
+            inverseSurface = label,
+            inverseOnSurface = systemBackground,
             error = systemRed,
             onError = Color.White,
+            // #180：errorContainer 用于错误状态下的浅色背景容器
+            errorContainer = systemRed.copy(alpha = 0.25f),
+            onErrorContainer = Color.White,
             outline = separator,
             outlineVariant = separator,
+            // #180：scrim 用于 Modal/Dialog 等遮罩，统一为半透明黑
+            scrim = Color.Black.copy(alpha = 0.6f),
         )
     } else {
         lightColorScheme(
@@ -108,23 +130,45 @@ private fun SocialColors.toMaterialColorScheme(dark: Boolean) =
             onPrimary = Color.White,
             primaryContainer = systemBlue.copy(alpha = 0.15f),
             onPrimaryContainer = systemBlue,
+            // #180：inversePrimary 在 inverseSurface 背景上使用，取深色 systemBlue 互补
+            inversePrimary = Color(0xFF0A84FF),
             secondary = systemBlue,
             onSecondary = Color.White,
+            // #180：tertiary 映射到 systemPurple，作为第三级强调色
+            tertiary = systemPurple,
+            onTertiary = Color.White,
+            tertiaryContainer = systemPurple.copy(alpha = 0.15f),
+            onTertiaryContainer = systemPurple,
             background = systemBackground,
             onBackground = label,
             surface = systemBackground,
             onSurface = label,
             surfaceVariant = secondaryBackground,
             onSurfaceVariant = secondaryLabel,
+            // #180：surfaceTint 在 M3 中默认等于 primary，控制 elevation 上的色调叠加
+            surfaceTint = systemBlue,
+            // #180：inverseSurface 用于 Snackbar 反色背景等，明色模式下取深色 (label)
+            inverseSurface = label,
+            inverseOnSurface = systemBackground,
             error = systemRed,
             onError = Color.White,
+            // #180：errorContainer 用于错误状态下的浅色背景容器
+            errorContainer = systemRed.copy(alpha = 0.15f),
+            onErrorContainer = systemRed,
             outline = separator,
             outlineVariant = separator,
+            // #180：scrim 用于 Modal/Dialog 等遮罩，统一为半透明黑
+            scrim = Color.Black.copy(alpha = 0.6f),
         )
     }
 
 /**
  * 将 [SocialTypography] 映射为 Material3 Typography，便于复用 Material 组件默认文字样式。
+ *
+ * #180：labelLarge 原映射为 [TextStyle.Default]，导致 Material3 原生按钮
+ * （Button/OutlinedButton/TextButton/FilterChip/SegmentedButton）文字落到默认 14sp/400
+ * Roboto 样式，与 SocialTypography 体系不一致。此处映射到 subheadline（15sp Normal），
+ * 与 bodySmall 保持一致，保证按钮文字仍走 SocialTypography 字体回退链与字号体系。
  */
 private fun SocialTypography.toMaterialTypography(): Typography = Typography(
     displayLarge = largeTitle,
@@ -139,7 +183,7 @@ private fun SocialTypography.toMaterialTypography(): Typography = Typography(
     bodyLarge = body,
     bodyMedium = callout,
     bodySmall = subheadline,
-    labelLarge = TextStyle.Default,
+    labelLarge = subheadline,
     labelMedium = caption1,
     labelSmall = caption2,
 )

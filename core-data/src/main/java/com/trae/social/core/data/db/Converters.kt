@@ -34,7 +34,10 @@ class Converters {
     @TypeConverter
     fun jsonToStringList(value: String?): List<String> {
         if (value.isNullOrBlank()) return emptyList()
-        return json.decodeFromString(stringListSerializer, value)
+        // #176：损坏 JSON 降级为空列表，避免 SerializationException 经 Room 生成代码
+        // 向上传播导致整个查询崩溃（AccountEntity.emojiPreference/catchphrase 等依赖此 converter）
+        return runCatching { json.decodeFromString(stringListSerializer, value) }
+            .getOrDefault(emptyList())
     }
 
     @TypeConverter
@@ -46,7 +49,9 @@ class Converters {
     @TypeConverter
     fun jsonToBooleanList(value: String?): List<Boolean> {
         if (value.isNullOrBlank()) return emptyList()
-        return json.decodeFromString(booleanListSerializer, value)
+        // #176：同 jsonToStringList，损坏 JSON 降级为空列表而非抛异常
+        return runCatching { json.decodeFromString(booleanListSerializer, value) }
+            .getOrDefault(emptyList())
     }
 
     @TypeConverter
@@ -57,6 +62,9 @@ class Converters {
     @TypeConverter
     fun stringToInteractionType(value: String?): InteractionType? {
         if (value.isNullOrBlank()) return null
-        return runCatching { InteractionType.valueOf(value) }.getOrNull()
+        // #172：InteractionEntity.type 为非空字段，无效枚举值返回 null 会被 Room 注入非空字段
+        // 触发 Intrinsics.checkNotNull NPE 导致整个查询崩溃。脏数据降级为 LIKE（首个枚举值）
+        // 让该行可读而非整查询失败，与 jsonToStringList 的空列表降级策略对称。
+        return runCatching { InteractionType.valueOf(value) }.getOrDefault(InteractionType.LIKE)
     }
 }

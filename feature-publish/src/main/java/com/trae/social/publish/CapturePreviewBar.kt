@@ -20,6 +20,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.trae.social.designsystem.theme.MinTouchTargetSize
 import com.trae.social.designsystem.theme.LocalSocialColors
 
 /**
@@ -70,21 +71,29 @@ fun CapturePreviewBar(
                     modifier = Modifier.size(64.dp),
                 )
                 // 右上角删除按钮
+                // #153：可视尺寸保持 16dp，触控热区扩展到 44dp（MinTouchTargetSize）
+                // 满足 WCAG 2.5.5 / Apple HIG 44dp 最低触控目标标准，避免误触缩略图本身
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .size(16.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(Color.Black.copy(alpha = 0.6f))
+                        .size(MinTouchTargetSize)
                         .clickable { onItemRemoved(index) },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "删除",
-                        tint = Color.White,
-                        modifier = Modifier.size(12.dp),
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(16.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(Color.Black.copy(alpha = 0.6f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "删除",
+                            tint = Color.White,
+                            modifier = Modifier.size(12.dp),
+                        )
+                    }
                 }
             }
         }

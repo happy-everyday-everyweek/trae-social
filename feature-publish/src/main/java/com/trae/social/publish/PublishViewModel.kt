@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import timber.log.Timber
+import java.io.File
 import java.util.UUID
 import javax.inject.Inject
 
@@ -113,14 +114,22 @@ class PublishViewModel @Inject constructor(
     }
 
     fun removeCapture(index: Int) {
+        // #193：删除条目的同时清理落盘文件，避免 cacheDir 残留泄漏
+        val removedPath = _uiState.value.captures.getOrNull(index)
         _uiState.update { state ->
             if (index !in state.captures.indices) state
             else state.copy(captures = state.captures.toMutableList().apply { removeAt(index) })
         }
+        if (removedPath != null) {
+            runCatching { File(removedPath).delete() }
+                .onFailure { Timber.w(it, "删除截图文件失败 %s", removedPath) }
+        }
     }
 
     fun updateCaption(text: String) {
-        _uiState.update { it.copy(caption = text.take(MAX_CAPTION_LENGTH)) }
+        // #174：使用 codePointCount + offsetByCodePoints 在码点边界截断，
+        // 避免 String.take(n) 按 UTF-16 code unit 切开代理对产生非法 Unicode
+        _uiState.update { it.copy(caption = text.truncateByCodePoints(MAX_CAPTION_LENGTH)) }
     }
 
     fun setRatio(ratio: CaptureRatio) {
@@ -202,8 +211,9 @@ class PublishViewModel @Inject constructor(
         }.onFailure { t ->
             Timber.w(t, "InteractionWorker 入队失败，回退直接落库单条互动")
             runCatching {
-                // P1 修复：从虚拟账号池随机选一个真实 ID 作为互动发起者
-                val virtualAccounts = accountRepository.getAccounts(1).filter { it.isVirtual }
+                // #208：改用 getVirtualAccountsList 直接获取全部虚拟账号池，
+                // 不再依赖 getAccounts(1) 的分页大小与默认排序，语义明确
+                val virtualAccounts = accountRepository.getVirtualAccountsList()
                 if (virtualAccounts.isEmpty()) {
                     Timber.w("无可用虚拟账号，跳过回退互动落库")
                     return@runCatching
@@ -232,4 +242,19 @@ class PublishViewModel @Inject constructor(
         // #220：自身账号 ID 已抽到 AccountIds.USER_SELF_ID，此处保留别名供本文件使用
         const val AUTHOR_SELF = AccountIds.USER_SELF_ID
     }
+}
+
+/**
+ * #174：按 Unicode 码点数安全截断字符串。
+ *
+ * [String.take] 按 UTF-16 code unit 计数，当 n 落在代理对中间时会产生 dangling surrogate。
+ * 本函数用 [String.codePointCount] 计算码点数，用 [String.offsetByCodePoints] 定位码点边界，
+ * 保证不在代理对中间切开。超出 [maxCodePoints] 时截断至边界位置。
+ */
+private fun String.truncateByCodePoints(maxCodePoints: Int): String {
+    if (maxCodePoints <= 0) return ""
+    val total = codePointCount(0, length)
+    if (total <= maxCodePoints) return this
+    val endIndex = offsetByCodePoints(0, maxCodePoints)
+    return substring(0, endIndex)
 }

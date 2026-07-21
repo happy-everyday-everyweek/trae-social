@@ -1,5 +1,10 @@
 package com.trae.social.onboarding
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -79,22 +84,32 @@ fun ConnectionTestScreen(
 
         Spacer(Modifier.size(24.dp))
 
-        when (val status = state.testStatus) {
-            is OnboardingViewModel.TestStatus.Idle -> IdleState(
-                onTest = { viewModel.testConnection() },
-            )
-            is OnboardingViewModel.TestStatus.Loading -> LoadingState()
-            is OnboardingViewModel.TestStatus.Success -> SuccessState(
-                isSaving = state.isSaving,
-                saveError = state.saveError,
-                onComplete = onComplete,
-                onRetry = onComplete,
-            )
-            is OnboardingViewModel.TestStatus.Error -> ErrorState(
-                message = status.message,
-                onRetry = { viewModel.testConnection() },
-                onBack = onBack,
-            )
+        // #161：四种测试状态用 AnimatedContent 包裹，fadeIn/fadeOut tween(200) 平滑过渡，
+        // 避免状态切换硬切造成布局跳动与突兀感
+        AnimatedContent(
+            targetState = state.testStatus,
+            transitionSpec = {
+                fadeIn(tween(200)) togetherWith fadeOut(tween(200))
+            },
+            label = "testStatus",
+        ) { status ->
+            when (status) {
+                is OnboardingViewModel.TestStatus.Idle -> IdleState(
+                    onTest = { viewModel.testConnection() },
+                )
+                is OnboardingViewModel.TestStatus.Loading -> LoadingState()
+                is OnboardingViewModel.TestStatus.Success -> SuccessState(
+                    isSaving = state.isSaving,
+                    saveError = state.saveError,
+                    onComplete = onComplete,
+                    onRetry = onComplete,
+                )
+                is OnboardingViewModel.TestStatus.Error -> ErrorState(
+                    message = status.message,
+                    onRetry = { viewModel.testConnection() },
+                    onBack = onBack,
+                )
+            }
         }
 
         Spacer(Modifier.weight(1f))

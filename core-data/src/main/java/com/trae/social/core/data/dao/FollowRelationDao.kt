@@ -6,6 +6,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.trae.social.core.data.entity.FollowRelationEntity
+import kotlinx.coroutines.flow.Flow
 
 /**
  * 关注关系数据访问对象。
@@ -39,4 +40,12 @@ interface FollowRelationDao {
 
     @Query("SELECT COUNT(*) FROM follow_relations WHERE followerId = :followerId")
     suspend fun countFollowing(followerId: String): Int
+
+    // #184：observe 版本——FollowListViewModel.toggleFollow 写库后 ProfileViewModel 自动刷新计数
+    @Query("SELECT COUNT(*) FROM follow_relations WHERE followeeId = :followeeId")
+    fun observeFollowersCount(followeeId: String): Flow<Int>
+
+    // #184：observe 版本——与 observeFollowersCount 配套
+    @Query("SELECT COUNT(*) FROM follow_relations WHERE followerId = :followerId")
+    fun observeFollowingCount(followerId: String): Flow<Int>
 }

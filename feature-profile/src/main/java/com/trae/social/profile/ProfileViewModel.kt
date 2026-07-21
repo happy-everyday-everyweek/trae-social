@@ -65,6 +65,9 @@ class ProfileViewModel @Inject constructor(
      *
      * loadInitialLikedTweetIds 是异步的，若用户在 DB 查询返回前点击了 toggleLike，
      * 后续 DB 结果的整体覆盖会丢弃用户操作。此标记用于在 DB 结果返回时跳过覆盖。
+     *
+     * #166：改为 observe Flow 后，用户手动 toggleLike 的乐观更新会被 DB Flow 重发覆盖；
+     * 此标记延续原语义——用户手动切换后跳过 DB Flow 的整体覆盖，避免乐观状态被回滚。
      */
     @Volatile
     private var userToggledLike = false
@@ -72,7 +75,7 @@ class ProfileViewModel @Inject constructor(
     init {
         loadProfile()
         loadActivityLevel()
-        loadInitialLikedTweetIds()
+        observeLikedTweetIds()
     }
 
     private fun loadProfile() {
@@ -81,6 +84,10 @@ class ProfileViewModel @Inject constructor(
             // 主 review 第 6 轮修复：catch (Throwable) → catch (Exception) 让 Error（OOM 等）
             // 自然传播，避免 OOM 后还继续覆盖 UI 状态加剧崩溃，与同模块 ApiKeyViewModel /
             // FollowListViewModel 策略一致。本文件 8 处 catch 同步统一。
+            //
+            // #184：关注/粉丝计数改为 observe Flow（observeFollowingCount / observeFollowersCount），
+            // 此处仅加载自身账号资料；计数刷新由 observeProfileCounts 处理，FollowListViewModel.toggleFollow
+            // 写库后 ProfileViewModel 自动收到新计数。
             val account = try {
                 accountRepository.getById(SELF_ID)
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -92,6 +99,7 @@ class ProfileViewModel @Inject constructor(
                 _uiState.value = ProfileUiState.Empty
                 return@launch
             }
+            // #184：计数初值用同步快照，后续由 observeProfileCounts Flow 持续刷新
             val following = try {
                 followRelationDao.countFollowing(SELF_ID)
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -111,6 +119,44 @@ class ProfileViewModel @Inject constructor(
                 followingCount = following,
                 followersCount = followers,
             )
+            // #184：启动 observe，后续 FollowListViewModel.toggleFollow 写库后自动刷新计数
+            observeProfileCounts()
+        }
+    }
+
+    /**
+     * #184：observe 关注/粉丝计数，FollowListViewModel.toggleFollow 写库后自动刷新 ProfileUiState。
+     *
+     * 仅当 _uiState 已是 Success 时合并新计数，避免覆盖 Loading/Empty 状态。
+     */
+    private fun observeProfileCounts() {
+        viewModelScope.launch {
+            try {
+                followRelationDao.observeFollowingCount(SELF_ID).collect { count ->
+                    val current = _uiState.value
+                    if (current is ProfileUiState.Success) {
+                        _uiState.value = current.copy(followingCount = count)
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "observe followingCount 失败")
+            }
+        }
+        viewModelScope.launch {
+            try {
+                followRelationDao.observeFollowersCount(SELF_ID).collect { count ->
+                    val current = _uiState.value
+                    if (current is ProfileUiState.Success) {
+                        _uiState.value = current.copy(followersCount = count)
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "observe followersCount 失败")
+            }
         }
     }
 
@@ -129,7 +175,7 @@ class ProfileViewModel @Inject constructor(
     }
 
     /**
-     * 恢复已点赞状态。
+     * 恢复并持续同步已点赞状态。
      *
      * #103：此前按 likeCount > 0 启发式还原，但 likeCount 包含虚拟账号的点赞，
      * 导致未点赞推文被误标为已点赞。现在查询 interactions 表中当前用户的
@@ -137,25 +183,25 @@ class ProfileViewModel @Inject constructor(
      *
      * #140：竞态修复——若用户在 DB 查询返回前已手动切换点赞（userToggledLike=true），
      * 跳过整体覆盖，避免丢弃用户操作。
+     *
+     * #166：改为 observe Flow 持续订阅，FeedViewModel.likeTweet 写入 interactions 表后
+     * ProfileViewModel._likedTweetIds 自动收到新值，LIKES Tab 实时刷新，无需杀进程重启。
+     * userToggledLike 标记延续 #140 语义——用户手动 toggleLike 后跳过 DB Flow 整体覆盖，
+     * 避免乐观状态被 DB 慢一轮的 Flow 重发回滚。
      */
-    private fun loadInitialLikedTweetIds() {
+    private fun observeLikedTweetIds() {
         viewModelScope.launch {
-            // 主 review 第 2 轮修复：原 runCatching 会吞 CancellationException。
-            val likedIds = try {
-                // #103：查询 interactions 表中当前用户已执行的 LIKE 互动，
-                // 替代此前 likeCount > 0 的启发式判断
-                interactionRepository.getLikedTweetIdsByAccount(SELF_ID)
+            try {
+                interactionRepository.observeLikedTweetIdsByAccount(SELF_ID).collect { likedIds ->
+                    // #140 / #166：仅当用户尚未手动切换点赞时才用 DB 结果覆盖
+                    if (!userToggledLike) {
+                        _likedTweetIds.value = likedIds.toSet()
+                    }
+                }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Timber.w(e, "恢复已点赞状态失败")
-                null
-            }
-            if (likedIds != null) {
-                // #140：仅当用户尚未手动切换点赞时才用 DB 结果覆盖
-                if (!userToggledLike) {
-                    _likedTweetIds.value = likedIds.toSet()
-                }
+                Timber.w(e, "observe 已点赞状态失败")
             }
         }
     }

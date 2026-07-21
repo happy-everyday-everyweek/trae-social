@@ -3,7 +3,6 @@ package com.trae.social.publish
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.EaseOutBack
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -19,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -79,6 +79,7 @@ fun PublishScreen(
     val colors = LocalSocialColors.current
     val scope = rememberCoroutineScope()
     val hapticFeedback = LocalHapticFeedback.current
+    val reduceMotion = LocalReduceMotion.current
 
     var selectedTab by remember { mutableStateOf(0) } // 0 = 相机, 1 = 编辑器
     var selectedCaptureIndex by remember { mutableStateOf(-1) }
@@ -94,13 +95,10 @@ fun PublishScreen(
             when (event) {
                 PublishEvent.Published -> {
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                    // #207：仅置位标志，动画完成回调由下方 LaunchedEffect(showPublishAnimation) 处理。
+                    // 原实现在此处 scope.launch { delay; onPublished() }，组合销毁时协程被取消
+                    // 导致 onPublished 永远不触发（旋转屏/返回键场景必现）。
                     showPublishAnimation = true
-                    // 动画时长 700ms（三阶段），结束后回调
-                    scope.launch {
-                        kotlinx.coroutines.delay(PUBLISH_ANIM_DURATION_MS.toLong())
-                        showPublishAnimation = false
-                        onPublished()
-                    }
                 }
                 // IMPL-15：发布失败时显示错误提示 + 重试按钮，保留输入
                 PublishEvent.PublishFailed -> {
@@ -118,6 +116,19 @@ fun PublishScreen(
                     }
                 }
             }
+        }
+    }
+
+    // #207：动画完成回调由 LaunchedEffect(showPublishAnimation) 驱动，
+    // 协程与标志位绑定而非事件 collector 内的 scope.launch，避免组合销毁时被取消。
+    // #157：减弱动效下使用更短时长，让用户尽快看到发布结果。
+    LaunchedEffect(showPublishAnimation) {
+        if (showPublishAnimation) {
+            val duration = if (reduceMotion) REDUCED_PUBLISH_ANIM_DURATION_MS
+                else PUBLISH_ANIM_DURATION_MS
+            kotlinx.coroutines.delay(duration.toLong())
+            showPublishAnimation = false
+            onPublished()
         }
     }
 
@@ -207,6 +218,8 @@ fun PublishScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        // #188：底部控件加 navigationBarsPadding，避免全面屏手势条遮挡发布按钮
+                        .navigationBarsPadding()
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -255,14 +268,16 @@ fun PublishScreen(
 /**
  * 缩小飞入信息流动画覆盖层。
  *
- * 三阶段（总时长 [PUBLISH_ANIM_DURATION_MS] = 700ms）：
- * - 阶段1（0-300ms）：scale 1->0.6 + 上移至屏幕中上部；
- * - 阶段2（300-600ms）：继续缩小 + 淡出 + "发布成功"提示淡入；
- * - 阶段3（600-700ms）：成功提示淡出，随后回调 onPublished。
+ * #157：总时长压到 [PUBLISH_ANIM_DURATION_MS] = 280ms（原 700ms），缓动统一改为
+ * [FastOutSlowInEasing]（原 EaseOutBack 弹性过冲）。发布是 deliberate 提交动作，
+ * 应 crisp 而非 bouncy，弹性过冲与"确定、可靠"的产品人格不匹配。
+ * 减弱动效下使用 [REDUCED_PUBLISH_ANIM_DURATION_MS]，移除位移/缩放仅保留淡入淡出。
  *
- * #25：整体进度使用 [tween]（FastOutSlowInEasing，700ms）确定性驱动，
- * 与 onPublished 的 delay(700) 和阶段边界对齐；各阶段缩放/位移使用 [EaseOutBack]
- * 弹性缓动提供弹性质感。
+ * 三阶段（按比例分配）：
+ * - 阶段1（0-PHASE_1_RATIO）：scale 1->0.6 + 上移至屏幕中上部；
+ * - 阶段2（PHASE_1_RATIO-PHASE_2_RATIO）：继续缩小 + 淡出 + "发布成功"提示淡入；
+ * - 阶段3（PHASE_2_RATIO-1）：成功提示淡出，随后回调 onPublished。
+ *
  * 使用 [graphicsLayer] 应用变换。
  * RISK-8 降级：当 imagePath 为空时仅显示成功提示（fade + scale），不显示预览图。
  */
@@ -273,16 +288,19 @@ private fun PublishFlyInOverlay(
     modifier: Modifier = Modifier,
 ) {
     val progress = remember { Animatable(0f) }
+    val reduceMotion = LocalReduceMotion.current
+    // #157：减弱动效下使用更短时长，让用户尽快看到发布结果
+    val durationMs = if (reduceMotion) REDUCED_PUBLISH_ANIM_DURATION_MS
+        else PUBLISH_ANIM_DURATION_MS
 
-    LaunchedEffect(visible) {
+    LaunchedEffect(visible, reduceMotion) {
         if (visible) {
             progress.snapTo(0f)
-            // Review fix #2：进度驱动器改回 tween(700) 保证确定性，与 onPublished 的
-            // delay(700) 和阶段边界（3/7、6/7）对齐。弹性质感由各属性的 EaseOutBack 提供。
+            // #157：进度驱动器用 tween + FastOutSlowInEasing（原 EaseOutBack 改为 crisp 缓动）
             progress.animateTo(
                 targetValue = 1f,
                 animationSpec = tween(
-                    durationMillis = PUBLISH_ANIM_DURATION_MS,
+                    durationMillis = durationMs,
                     easing = FastOutSlowInEasing,
                 ),
             )
@@ -298,34 +316,28 @@ private fun PublishFlyInOverlay(
         exit = fadeOut(tween(0)),
         modifier = modifier,
     ) {
-        // Review fix：spring 可能 overshoot 使 progress > 1.0，coerceIn 避免 EaseOutBack 对 p>1 外推抖动
         val p = progress.value.coerceIn(0f, 1f)
         val typography = LocalSocialTypography.current
-        val reduceMotion = LocalReduceMotion.current
-        // #203：成功提示用缓动——
-        // - 默认：EaseOutBack 在阶段2入场时带轻微回弹（成功反馈适合一点"喜悦"）
-        // - 减弱动效：FastOutSlowInEasing 无 overshoot，但仍保留 scale 渐变以便视觉感知"出现"
-        val successEasing = if (reduceMotion) FastOutSlowInEasing else EaseOutBack
+        // #157：所有缓动统一改为 FastOutSlowInEasing（原 EaseOutBack 弹性过冲已移除），
+        // 成功提示与缩放均使用 crisp 缓动，与 deliberate 发布动作匹配
+        val easing = FastOutSlowInEasing
 
-        // #205 P2：图片缩放接入减弱动效——
-        // - 默认：阶段1/阶段2均用 EaseOutBack 弹性缓动，保持弹性质感一致（缩小飞行的弹性感）
-        // - 减弱动效：FastOutSlowInEasing 无 overshoot，但仍保留 scale 渐变以提供"消失感"反馈，
-        //   与 TweetCard 点赞 / SocialBottomBar.PublishButton 等接入点一致——
-        //   scale 不属于"位移类动画"，无需移除，仅去掉 overshoot 即可。
-        val scaleEasing = if (reduceMotion) FastOutSlowInEasing else EaseOutBack
-        val scaleVal = when {
-            p < PHASE_1_RATIO -> {
-                val frac = scaleEasing.transform(p / PHASE_1_RATIO)
-                lerpUnclamped(1f, 0.6f, frac)
+        // #157：减弱动效下移除缩放动画（仅保留淡入淡出），符合 ReduceMotion.kt
+        // 「移除 transform/位移类动画，仅保留 opacity 与 color 过渡」原则
+        val scaleVal = if (reduceMotion) 1f
+            else when {
+                p < PHASE_1_RATIO -> {
+                    val frac = easing.transform(p / PHASE_1_RATIO)
+                    lerpUnclamped(1f, 0.6f, frac)
+                }
+                p < PHASE_2_RATIO -> {
+                    val frac = easing.transform(
+                        (p - PHASE_1_RATIO) / (PHASE_2_RATIO - PHASE_1_RATIO)
+                    )
+                    lerpUnclamped(0.6f, 0.15f, frac)
+                }
+                else -> 0.15f
             }
-            p < PHASE_2_RATIO -> {
-                val frac = scaleEasing.transform(
-                    (p - PHASE_1_RATIO) / (PHASE_2_RATIO - PHASE_1_RATIO)
-                )
-                lerpUnclamped(0.6f, 0.15f, frac)
-            }
-            else -> 0.15f
-        }
         // 图片透明度：阶段1保持 1，阶段2淡出至 0
         val alphaVal = when {
             p < PHASE_1_RATIO -> 1f
@@ -335,13 +347,10 @@ private fun PublishFlyInOverlay(
             }
             else -> 0f
         }
-        // #25：默认分支用 EaseOutBack 弹性缓动，上抛感更自然
-        // #205 P2：减弱动效下完全移除位移（图片居中淡出），符合 ReduceMotion.kt doc
-        //   「移除 transform/位移类动画，仅保留 opacity 与 color 过渡」原则——
-        //   600px 纵向飞行是减弱动效要消除的前庭刺激；与 WelcomeScreen 减弱动效下
-        //   跳过 illustrationOffset.animateTo 一致。
+        // #157：减弱动效下完全移除位移（图片居中淡出），符合 ReduceMotion.kt 原则；
+        // 默认用 FastOutSlowInEasing（原 EaseOutBack 改为 crisp 缓动，避免弹性"弹过头再回落"）
         val translationYVal = if (reduceMotion) 0f
-            else lerpUnclamped(400f, -200f, EaseOutBack.transform(p))
+            else lerpUnclamped(400f, -200f, FastOutSlowInEasing.transform(p))
 
         // 成功提示：阶段2淡入，阶段3淡出
         val successAlpha = when {
@@ -355,27 +364,24 @@ private fun PublishFlyInOverlay(
                 lerp(1f, 0f, frac)
             }
         }
-        // #25/#203：成功提示缩放——阶段2/3 均用 successEasing
-        // - 起点 0.85（原 0.3 太小：成功对勾从屏幕角落"突然冒出"，违反"nothing appears from
-        //   nothing"——Emil 原则起点应 >= 0.9；考虑到成功图标较粗、且仅在阶段2才出现，
-        //   0.85 是"出现即有形"和"明显的进场感"的折中）。
-        // - 减弱动效下，successEasing = FastOutSlowInEasing，无 overshoot。
-        val successScale = when {
-            p < PHASE_1_RATIO -> 0.85f
-            p < PHASE_2_RATIO -> {
-                val frac = successEasing.transform(
-                    (p - PHASE_1_RATIO) / (PHASE_2_RATIO - PHASE_1_RATIO)
-                )
-                lerpUnclamped(0.85f, 1f, frac)
+        // #157：成功提示缩放也改用 FastOutSlowInEasing（原 EaseOutBack 移除）；
+        // 减弱动效下保持 1f 不缩放
+        val successScale = if (reduceMotion) 1f
+            else when {
+                p < PHASE_1_RATIO -> 0.85f
+                p < PHASE_2_RATIO -> {
+                    val frac = easing.transform(
+                        (p - PHASE_1_RATIO) / (PHASE_2_RATIO - PHASE_1_RATIO)
+                    )
+                    lerpUnclamped(0.85f, 1f, frac)
+                }
+                else -> {
+                    val frac = easing.transform(
+                        (p - PHASE_2_RATIO) / (1f - PHASE_2_RATIO)
+                    )
+                    lerpUnclamped(1f, 0.8f, frac)
+                }
             }
-            else -> {
-                // #25：阶段3用 successEasing，收束带回弹（减弱动效下无回弹）
-                val frac = successEasing.transform(
-                    (p - PHASE_2_RATIO) / (1f - PHASE_2_RATIO)
-                )
-                lerpUnclamped(1f, 0.8f, frac)
-            }
-        }
 
         Box(
             modifier = Modifier
@@ -434,12 +440,15 @@ private fun lerp(start: Float, stop: Float, fraction: Float): Float =
     start + (stop - start) * fraction.coerceIn(0f, 1f)
 
 /**
- * 不钳制的线性插值：保留 EaseOutBack 等缓动的过冲值（>1），
- * 避免 coerceIn 截断而丢失弹性效果。
+ * 不钳制的线性插值：保留过冲值（>1），
+ * 避免 coerceIn 截断而丢失效果。
  */
 private fun lerpUnclamped(start: Float, stop: Float, fraction: Float): Float =
     start + (stop - start) * fraction
 
-private const val PUBLISH_ANIM_DURATION_MS = 700
-private const val PHASE_1_RATIO = 3f / 7f // 300/700
-private const val PHASE_2_RATIO = 6f / 7f // 600/700
+// #157：总时长从 700ms 压到 280ms（< 300ms UI 动画标准），缓动改为 FastOutSlowInEasing
+private const val PUBLISH_ANIM_DURATION_MS = 280
+// #157：减弱动效下的更短时长，仅保留淡入淡出反馈
+private const val REDUCED_PUBLISH_ANIM_DURATION_MS = 150
+private const val PHASE_1_RATIO = 3f / 7f
+private const val PHASE_2_RATIO = 6f / 7f
