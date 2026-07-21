@@ -1,5 +1,6 @@
 package com.trae.social.profile
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.trae.social.core.data.AccountIds
@@ -33,7 +34,15 @@ import timber.log.Timber
 /**
  * 个人主页 ViewModel（IMPL-2）。
  *
- * 加载自身账号资料、推文/媒体列表与关注统计，读取当前 AI 活跃度档位。
+ * 加载目标账号资料、推文/媒体列表与关注统计，读取当前 AI 活跃度档位。
+ *
+ * #11：通过 [SavedStateHandle] 读取路由参数 `accountId`，作为目标账号 ID。
+ * - PROFILE Tab 路由无 `accountId` 参数，[targetAccountId] 回退为 [SELF_ID]，
+ *   行为等同原实现（显示自身账号）。
+ * - ACCOUNT_DETAIL 路由携带 `accountId` 参数，[targetAccountId] 为该账号 ID，
+ *   ProfileScreen 显示目标账号资料、推文、媒体；点赞/转发等交互仍以 [SELF_ID]
+ *   作为行为主体（当前登录用户），LIKES Tab 仅在查看自身时显示。
+ *
  * 自身账号固定 ID 为 [SELF_ID]（与 PersonaSeeder.USER_SELF_ID / PublishViewModel.AUTHOR_SELF 一致）。
  */
 @HiltViewModel
@@ -44,8 +53,23 @@ class ProfileViewModel @Inject constructor(
     private val followRelationDao: FollowRelationDao,
     // #134：注入 InteractionRepository，使 retweetTweet 能创建实际互动记录
     private val interactionRepository: InteractionRepository,
+    // #11：注入 SavedStateHandle 读取 ACCOUNT_DETAIL 路由的 accountId 参数
+    private val savedStateHandle: SavedStateHandle,
     @SvgImageLoader val imageLoader: ImageLoader,
 ) : ViewModel() {
+
+    /**
+     * #11：目标账号 ID。PROFILE Tab 路由无 accountId 参数时回退 [SELF_ID]，
+     * ACCOUNT_DETAIL 路由携带 accountId 时使用该值，用于加载目标账号资料/推文/媒体/计数。
+     */
+    val targetAccountId: String = savedStateHandle
+        .get<String?>(KEY_ACCOUNT_ID_ARG)
+        ?: SELF_ID
+
+    /**
+     * #11：是否查看自身账号。UI 据此决定标题、设置入口、推荐关注入口、LIKES Tab 的显隐。
+     */
+    val isSelfProfile: Boolean = targetAccountId == SELF_ID
 
     private val _uiState = MutableStateFlow<ProfileUiState>(ProfileUiState.Loading)
     val uiState: StateFlow<ProfileUiState> = _uiState.asStateFlow()
@@ -86,29 +110,33 @@ class ProfileViewModel @Inject constructor(
             // FollowListViewModel 策略一致。本文件 8 处 catch 同步统一。
             //
             // #184：关注/粉丝计数改为 observe Flow（observeFollowingCount / observeFollowersCount），
-            // 此处仅加载自身账号资料；计数刷新由 observeProfileCounts 处理，FollowListViewModel.toggleFollow
+            // 此处仅加载目标账号资料；计数刷新由 observeProfileCounts 处理，FollowListViewModel.toggleFollow
             // 写库后 ProfileViewModel 自动收到新计数。
+            //
+            // #11：加载 [targetAccountId] 对应账号资料（PROFILE Tab 路由下 == SELF_ID，
+            // ACCOUNT_DETAIL 路由下为目标账号 ID），替换原硬编码 SELF_ID。
             val account = try {
-                accountRepository.getById(SELF_ID)
+                accountRepository.getById(targetAccountId)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Timber.w(e, "加载自身账号失败"); null
+                Timber.w(e, "加载目标账号失败 accountId=%s", targetAccountId); null
             }
             if (account == null) {
                 _uiState.value = ProfileUiState.Empty
                 return@launch
             }
             // #184：计数初值用同步快照，后续由 observeProfileCounts Flow 持续刷新
+            // #11：计数针对 targetAccountId（目标账号的关注/粉丝数）
             val following = try {
-                followRelationDao.countFollowing(SELF_ID)
+                followRelationDao.countFollowing(targetAccountId)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Timber.w(e, "加载关注数失败"); 0
             }
             val followers = try {
-                followRelationDao.countFollowers(SELF_ID)
+                followRelationDao.countFollowers(targetAccountId)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -128,11 +156,14 @@ class ProfileViewModel @Inject constructor(
      * #184：observe 关注/粉丝计数，FollowListViewModel.toggleFollow 写库后自动刷新 ProfileUiState。
      *
      * 仅当 _uiState 已是 Success 时合并新计数，避免覆盖 Loading/Empty 状态。
+     *
+     * #11：observe [targetAccountId] 的计数（PROFILE Tab 路由下 == SELF_ID，
+     * ACCOUNT_DETAIL 路由下为目标账号 ID）。
      */
     private fun observeProfileCounts() {
         viewModelScope.launch {
             try {
-                followRelationDao.observeFollowingCount(SELF_ID).collect { count ->
+                followRelationDao.observeFollowingCount(targetAccountId).collect { count ->
                     val current = _uiState.value
                     if (current is ProfileUiState.Success) {
                         _uiState.value = current.copy(followingCount = count)
@@ -146,7 +177,7 @@ class ProfileViewModel @Inject constructor(
         }
         viewModelScope.launch {
             try {
-                followRelationDao.observeFollowersCount(SELF_ID).collect { count ->
+                followRelationDao.observeFollowersCount(targetAccountId).collect { count ->
                     val current = _uiState.value
                     if (current is ProfileUiState.Success) {
                         _uiState.value = current.copy(followersCount = count)
@@ -207,18 +238,21 @@ class ProfileViewModel @Inject constructor(
     }
 
     /**
-     * 推文流（按作者 = 自身）。
+     * 推文流（按作者 = [targetAccountId]）。
      *
      * 作为 [mediaTweetsFlow] 的唯一上游——避免对同一 Room 查询
-     * `observeByAuthor(SELF_ID)` 建立第二份独立 StateFlow 订阅（#225）。
+     * `observeByAuthor(targetAccountId)` 建立第二份独立 StateFlow 订阅（#225）。
+     *
+     * #11：观察目标账号的推文（PROFILE Tab 路由下 == SELF_ID，
+     * ACCOUNT_DETAIL 路由下为目标账号 ID），原硬编码 SELF_ID 替换为 [targetAccountId]。
      */
-    val tweetsFlow: StateFlow<List<TweetEntity>> = tweetRepository.observeByAuthor(SELF_ID)
+    val tweetsFlow: StateFlow<List<TweetEntity>> = tweetRepository.observeByAuthor(targetAccountId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /**
-     * 媒体推文流（自身的含图推文）。
+     * 媒体推文流（[targetAccountId] 的含图推文）。
      *
-     * #225 修复：派生自 [tweetsFlow] 而非重新订阅 `observeByAuthor(SELF_ID)`，
+     * #225 修复：派生自 [tweetsFlow] 而非重新订阅 `observeByAuthor(targetAccountId)`，
      * 与 tweetsFlow 共享同一 Room 触发器订阅与 SQL 查询流。
      */
     val mediaTweetsFlow: StateFlow<List<TweetEntity>> = tweetsFlow
@@ -409,6 +443,11 @@ class ProfileViewModel @Inject constructor(
         // #220：自身账号 ID 已抽到 AccountIds.USER_SELF_ID，此处保留别名仅向后兼容
         // （FollowListViewModel 等仍引用 ProfileViewModel.SELF_ID），新代码应直接引用 AccountIds
         const val SELF_ID = AccountIds.USER_SELF_ID
+
+        // #11：ACCOUNT_DETAIL 路由参数键，与 AppRoutes.ACCOUNT_DETAIL_ID_ARG 保持一致。
+        // 此处不依赖 app 模块（feature-profile 不能反向依赖 app），直接用字符串常量对齐。
+        // SavedStateHandle 通过此键读取 navArgument("accountId") 注入的值。
+        const val KEY_ACCOUNT_ID_ARG = "accountId"
     }
 }
 

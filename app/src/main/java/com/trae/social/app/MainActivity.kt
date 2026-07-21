@@ -602,15 +602,17 @@ private fun MainScaffold(
                 ) {
                     // M1 修复：屏幕进入/离开埋点
                     ScreenTracking(route = AppRoutes.ACCOUNT_DETAIL, builder = actionBuilder)
-                    // #11：账号详情页。当前复用 ProfileScreen（默认显示自身账号），
-                    // 后续扩展 ProfileScreen/ProfileViewModel 接收 targetAccountId 后
-                    // 可在此传入路由参数渲染目标账号资料。
+                    // #11：账号详情页。accountId 由 navArgument 注入 ProfileViewModel 的
+                    // SavedStateHandle，ProfileViewModel.targetAccountId 据此加载目标账号资料。
+                    // onBack 显示返回箭头；isSelfProfile=false 时 ProfileScreen 隐藏设置入口、
+                    // 推荐关注入口与 LIKES Tab。
                     ProfileScreen(
                         onNavigateToSettings = { navController.navigate(AppRoutes.SETTINGS) },
                         onNavigateToFollowList = { type ->
                             navController.navigate(AppRoutes.followList(type))
                         },
                         modifier = Modifier.fillMaxSize(),
+                        onBack = { navController.popBackStack() },
                     )
                 }
                 composable(

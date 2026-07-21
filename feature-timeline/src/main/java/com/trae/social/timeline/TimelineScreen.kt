@@ -731,20 +731,45 @@ internal fun mediaPathToCoilUrl(path: String): String {
  * 由 avatarSeed 派生确定性头像 asset URI（与 ProfileUtils.avatarUriFromSeed / FeedUtils.avatarUriFromSeed 等价）。
  *
  * #13：feature 模块间不相互依赖工具函数，按项目既有约定在本模块内复制一份。
- * #187：index 公式与 FeedUtils/ProfileUtils 对齐——先 `and 0x7FFFFFFF` 抹符号位再模 25，
- * 替代原先 `((seedHash % 25) + 25) % 25 + 1`，避免负 hashCode 时与 Feed/Profile 算出不同 index，
- * 导致同一 user-self 账号在三处屏幕呈现不同头像。
+ *
+ * #84 / #187：与 FeedUtils / ProfileUtils 对齐——在 200 张图的全池上取单一模
+ * （flatIndex % 200）再映射到 (类别, 桶内下标)，并对 seedHash 做 [mixHash] 雪崩混合
+ * 散布 String.hashCode 的位聚集，使相邻 seed 映射到远端桶，降低碰撞概率。
+ * 替代原 `category % 8 + index % 25` 双模组合，与 Feed/Profile 三处对齐，确保同一
+ * avatarSeed 在 Feed/Profile/Timeline 三处产出相同头像 URI。
+ *
+ * gallery 资源为 8 类别 × 25 张 = 200 张唯一图片（见
+ * app/src/main/assets/gallery/index.json）。账号总数 221 > 200，鸽巢原理保证至少
+ * 21 个账号必然与其他账号共享头像——此为资源数量上限决定，无法在纯函数内消除。
  */
 internal fun avatarUriFromSeed(avatarSeed: String): String {
-    val categories = listOf(
-        "landscape", "city", "food", "nature",
-        "pet", "sport", "tech", "art"
-    )
-    val seedHash = avatarSeed.hashCode()
-    val category = categories[((seedHash % categories.size) + categories.size) % categories.size]
-    val index = ((seedHash and 0x7FFFFFFF) % 25) + 1
+    val flatIndex = (mixHash(avatarSeed.hashCode()) and 0x7FFFFFFF) % TOTAL_AVATAR_IMAGES
+    val category = avatarCategories[flatIndex / IMAGES_PER_CATEGORY]
+    val index = (flatIndex % IMAGES_PER_CATEGORY) + 1
     return "file:///android_asset/gallery/$category/$index.svg"
 }
+
+/**
+ * MurmurHash3 32-bit finalizer（雪崩混合），与 FeedUtils.mixHash / ProfileUtils.mixHash 对齐，
+ * 用于打散 String.hashCode 的位聚集，使输入的微小变化能均匀传播到所有输出位，降低取模后的聚集碰撞。
+ */
+private fun mixHash(h: Int): Int {
+    var x = h
+    x = x xor (x ushr 16)
+    x = x * (0x85EBCA6B.toInt())
+    x = x xor (x ushr 13)
+    x = x * (0xC2B2AE35.toInt())
+    x = x xor (x ushr 16)
+    return x
+}
+
+// #84：与 FeedUtils / ProfileUtils 对齐的 8 类别 × 25 张 = 200 张头像池常量
+private val avatarCategories = listOf(
+    "landscape", "city", "food", "nature",
+    "pet", "sport", "tech", "art"
+)
+private const val IMAGES_PER_CATEGORY = 25
+private const val TOTAL_AVATAR_IMAGES = 200 // avatarCategories.size * IMAGES_PER_CATEGORY
 
 private const val GRID_COLUMNS = 3
 private const val GRID_MAX_DISPLAY = 9

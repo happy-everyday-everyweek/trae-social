@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
@@ -78,8 +79,13 @@ private data class FullScreenImageState(
  *
  * 顶部设置入口；资料卡（头像/昵称/简介/统计）；推文/媒体/喜欢 Tab。
  *
- * @param onNavigateToSettings 点击设置入口
+ * #11：通过 [viewModel.isSelfProfile] 区分查看自身 / 其他账号。查看自身时显示
+ * 设置入口、推荐关注入口与 LIKES Tab；查看其他账号时隐藏上述入口，并显示
+ * 返回箭头（[onBack]）。复用同一 Composable，避免账号详情页重复实现。
+ *
+ * @param onNavigateToSettings 点击设置入口（仅 [ProfileViewModel.isSelfProfile] = true 时显示）
  * @param onNavigateToFollowList 点击关注/粉丝统计，参数为列表类型
+ * @param onBack 返回回调，非 null 时显示返回箭头（用于 ACCOUNT_DETAIL 路由）
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -87,15 +93,25 @@ fun ProfileScreen(
     onNavigateToSettings: () -> Unit,
     onNavigateToFollowList: (FollowListType) -> Unit,
     modifier: Modifier = Modifier,
+    onBack: (() -> Unit)? = null,
     viewModel: ProfileViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val selectedTab by viewModel.selectedTab.collectAsStateWithLifecycle()
+    // #11：是否查看自身账号，控制标题、设置入口、推荐关注入口、LIKES Tab 的显隐
+    val isSelfProfile = viewModel.isSelfProfile
     val colors = socialColors()
     val typography = LocalSocialTypography.current
     // #236：tabs 数组用 remember 保持引用稳定，避免 spread 操作符每次重组生成新 Array
     // 导致 Compose skip 用引用相等性判断失效，CapsuleTab 仍被强制重组。
-    val profileTabs = remember { ProfileTab.values().map { it.label }.toTypedArray() }
+    // #11：查看其他账号时不显示 LIKES Tab（LIKES 仅对自身有意义），tabs 仅含 TWEETS/MEDIA。
+    val profileTabs = remember(isSelfProfile) {
+        if (isSelfProfile) {
+            ProfileTab.values().map { it.label }.toTypedArray()
+        } else {
+            arrayOf(ProfileTab.TWEETS.label, ProfileTab.MEDIA.label)
+        }
+    }
     // #8：全屏大图查看器状态（媒体网格与推文图片共用）
     var fullScreenState by remember { mutableStateOf<FullScreenImageState?>(null) }
     // #233：onImageClick 用 remember 缓存，避免每次 ProfileScreen 重组（selectedTab
@@ -113,10 +129,22 @@ fun ProfileScreen(
     Column(modifier = modifier.fillMaxSize().background(colors.systemBackground)) {
         TopAppBar(
             // #160：改用 typography token（headline = 17sp SemiBold），避免硬编码字重
-            title = { Text("我的", style = typography.headline) },
+            // #11：查看自身时标题"我的"，查看其他账号时"账号资料"
+            title = { Text(if (isSelfProfile) "我的" else "账号资料", style = typography.headline) },
+            navigationIcon = {
+                // #11：ACCOUNT_DETAIL 路由下显示返回箭头
+                if (onBack != null) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                }
+            },
             actions = {
-                IconButton(onClick = onNavigateToSettings) {
-                    Icon(Icons.Filled.Settings, contentDescription = "设置")
+                // #11：仅查看自身时显示设置入口
+                if (isSelfProfile) {
+                    IconButton(onClick = onNavigateToSettings) {
+                        Icon(Icons.Filled.Settings, contentDescription = "设置")
+                    }
                 }
             },
         )
@@ -139,18 +167,21 @@ fun ProfileScreen(
                     imageLoader = viewModel.imageLoader,
                 )
                 // #146 A/E 场景 6 followRecommend：推荐关注入口
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .socialClickable { onNavigateToFollowList(FollowListType.RECOMMENDED) }
-                        .padding(horizontal = spacing.lg, vertical = spacing.md),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text("推荐关注", fontWeight = FontWeight.Medium, color = colors.label)
-                    Text("基于你的兴趣 >", color = colors.tertiaryLabel)
+                // #11：仅查看自身时显示
+                if (isSelfProfile) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .socialClickable { onNavigateToFollowList(FollowListType.RECOMMENDED) }
+                            .padding(horizontal = spacing.lg, vertical = spacing.md),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text("推荐关注", fontWeight = FontWeight.Medium, color = colors.label)
+                        Text("基于你的兴趣 >", color = colors.tertiaryLabel)
+                    }
+                    SocialDivider()
                 }
-                SocialDivider()
                 CapsuleTab(
                     tabs = *profileTabs,
                     selectedIndex = selectedTab.ordinal,
@@ -168,6 +199,8 @@ fun ProfileScreen(
                         onImageClick = onImageClick,
                     )
                     // #138：LIKES Tab 展示已点赞推文，而非硬编码空占位符
+                    // #11：仅查看自身时显示（isSelfProfile=false 时 profileTabs 不含 LIKES，
+                    // selectedTab 在外部重置为 TWEETS/MEDIA 不会进入此分支）
                     ProfileTab.LIKES -> LikesTab(
                         viewModel = viewModel,
                         imageLoader = viewModel.imageLoader,
