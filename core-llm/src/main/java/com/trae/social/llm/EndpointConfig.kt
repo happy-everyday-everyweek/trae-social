@@ -2,13 +2,12 @@ package com.trae.social.llm
 
 import com.trae.social.core.data.config.LlmProtocol
 import com.trae.social.core.data.config.ModelCapability
-import com.trae.social.core.data.entity.LlmEndpointEntity
 import timber.log.Timber
 
 /**
  * 端点配置的运行时视图（#151）。
  *
- * 由 [com.trae.social.llm.EndpointRegistry] 从 [LlmEndpointEntity] + API Key 组装，
+ * 由 [com.trae.social.llm.DefaultEndpointRegistry] 从 [EndpointSnapshot] + API Key 组装，
  * 供规则集引擎与各 client 实现读取。
  *
  * API Key 由 registry 在创建时一次性从 [com.trae.social.llm.EndpointConfigProvider]
@@ -81,28 +80,33 @@ data class EndpointConfig(
 
     companion object {
         /**
-         * 从持久化 entity + API Key 构造运行时配置。
+         * 从 [EndpointSnapshot] + API Key 构造运行时配置（#307：取代旧 `fromEntity`，
+         * 解耦 core-llm 与 Room 持久化层 `LlmEndpointEntity`）。
          *
-         * 主 review 第 2 轮修复：原实现对未知 protocol id 静默 fallback 到 [LlmProtocol.OPENAI_COMPATIBLE]，
-         * 与 m-6 修复（createClient 的 else 分支返回 null）语义冲突——上游 fallback 后 else 分支永远
-         * 不可达，相当于死代码。改为返回 null，由 [EndpointRegistry.getClient] 跳过该端点
-         * （与 m-2 的 anySkipped 语义对齐），避免用 OpenAI SDK 调用非 OpenAI 端点引发难定位错误。
+         * 主 review 第 2 轮修复（沿用旧 `fromEntity` 语义）：原实现对未知 protocol id 静默
+         * fallback 到 [LlmProtocol.OPENAI_COMPATIBLE]，与 m-6 修复（createClient 的 else 分支
+         * 返回 null）语义冲突——上游 fallback 后 else 分支永远不可达，相当于死代码。
+         * 改为返回 null，由 [EndpointRegistry.getClient] 跳过该端点（与 m-2 的 anySkipped
+         * 语义对齐），避免用 OpenAI SDK 调用非 OpenAI 端点引发难定位错误。
          */
-        fun fromEntity(entity: LlmEndpointEntity, apiKey: String?): EndpointConfig? {
-            val protocol = LlmProtocol.fromId(entity.protocol)
+        fun fromSnapshot(snapshot: EndpointSnapshot, apiKey: String?): EndpointConfig? {
+            val protocol = LlmProtocol.fromId(snapshot.protocol)
                 ?: run {
-                    Timber.w("EndpointConfig.fromEntity 未知 protocol=%s，跳过端点 endpointId=%s", entity.protocol, entity.id)
+                    Timber.w(
+                        "EndpointConfig.fromSnapshot 未知 protocol=%s，跳过端点 endpointId=%s",
+                        snapshot.protocol, snapshot.id,
+                    )
                     return null
                 }
             return EndpointConfig(
-                id = entity.id,
-                displayName = entity.displayName,
+                id = snapshot.id,
+                displayName = snapshot.displayName,
                 protocol = protocol,
-                baseUrl = entity.baseUrl,
-                model = entity.model,
-                capabilities = ModelCapability.parseSet(entity.capabilities),
+                baseUrl = snapshot.baseUrl,
+                model = snapshot.model,
+                capabilities = ModelCapability.parseSet(snapshot.capabilities),
                 apiKey = apiKey,
-                orderIndex = entity.orderIndex,
+                orderIndex = snapshot.orderIndex,
             )
         }
     }

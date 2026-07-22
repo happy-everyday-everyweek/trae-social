@@ -1,7 +1,6 @@
 package com.trae.social.llm
 
 import com.trae.social.core.data.config.ModelCapability
-import com.trae.social.core.data.entity.LlmEndpointEntity
 import com.trae.social.llm.interceptor.RateLimitedException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -31,6 +30,10 @@ import javax.inject.Singleton
  *
  * 该实现不感知多模态预处理管道（图像 URL → base64 等）；当前所有调用方均为纯文本，
  * 多模态降级链留待后续接入。
+ *
+ * #306：依赖 [EndpointRegistry] 接口而非具体类，便于单元测试注入 stub / fake。
+ * #307：[prepareMessages] 接收 core-llm 拥有的 [EndpointSnapshot]，不再持有 Room
+ * 持久化层 `LlmEndpointEntity`。
  */
 @Singleton
 class DefaultRulesetEngine @Inject constructor(
@@ -186,7 +189,7 @@ class DefaultRulesetEngine @Inject constructor(
     private fun prepareMessages(
         messages: List<ChatMessage>,
         config: ChatConfig,
-        endpoint: LlmEndpointEntity,
+        endpoint: EndpointSnapshot,
     ): List<ChatMessage> {
         if (!config.jsonMode) return messages
         val capabilities = ModelCapability.parseSet(endpoint.capabilities)
