@@ -1,64 +1,34 @@
 package com.trae.social.publish
 
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import android.provider.Settings
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.PressInteraction
-import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cameraswitch
-import androidx.compose.material.icons.filled.FlashAuto
-import androidx.compose.material.icons.filled.GridOff
-import androidx.compose.material.icons.filled.GridOn
-import androidx.compose.material.icons.filled.FlashOff
-import androidx.compose.material.icons.filled.FlashOn
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
-import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -66,43 +36,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
-import com.trae.social.designsystem.components.ActionButton
-import com.trae.social.designsystem.theme.LocalReduceMotion
-import com.trae.social.designsystem.theme.LocalSocialColors
-import com.trae.social.designsystem.theme.LocalSocialTypography
-import com.trae.social.designsystem.theme.MinTouchTargetSize
 import timber.log.Timber
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import java.io.File
-import java.io.FileOutputStream
-import java.util.UUID
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
-import kotlin.math.abs
 import kotlin.math.atan2
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -419,486 +368,6 @@ fun CameraModeContent(
         }
     }
 }
-
-/**
- * 闪光灯按钮：点击在 Off/On/Auto 间循环。
- */
-@Composable
-private fun FlashToggleButton(
-    mode: FlashMode,
-    onChange: (FlashMode) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val icon = when (mode) {
-        FlashMode.OFF -> Icons.Default.FlashOff
-        FlashMode.ON -> Icons.Default.FlashOn
-        FlashMode.AUTO -> Icons.Default.FlashAuto
-    }
-    ControlButton(
-        icon = icon,
-        contentDescription = "闪光灯 ${mode.label}",
-        onClick = {
-            val next = when (mode) {
-                FlashMode.OFF -> FlashMode.ON
-                FlashMode.ON -> FlashMode.AUTO
-                FlashMode.AUTO -> FlashMode.OFF
-            }
-            onChange(next)
-        },
-        modifier = modifier,
-    )
-}
-
-/**
- * 网格线开关按钮。
- */
-@Composable
-private fun GridToggleButton(
-    enabled: Boolean,
-    onToggle: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val icon = if (enabled) Icons.Filled.GridOn else Icons.Filled.GridOff
-    ControlButton(
-        icon = icon,
-        contentDescription = if (enabled) "关闭网格线" else "开启网格线",
-        onClick = onToggle,
-        modifier = modifier,
-    )
-}
-
-/**
- * 构图辅助覆盖层：九宫格网格线 + 水平仪 + 点击对焦框。
- *
- * - 网格线：将可见预览区域三等分，绘制 2 横 2 竖半透明白线（三分法）；
- * - 水平仪：中心水平指示线，随设备倾斜反向旋转，水平时变绿；
- * - 对焦框：点击位置短暂显示方框并淡出。
- */
-@Composable
-private fun CompositionAidsOverlay(
-    showGrid: Boolean,
-    rollDegrees: Float,
-    hasSensorData: Boolean,
-    focusOffset: Offset?,
-    focusAlpha: Float,
-    ratio: CaptureRatio,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier = modifier) {
-        val canvasW = size.width
-        val canvasH = size.height
-        // 可见预览区域：1:1 时为中心正方形，其余为整块画布
-        val region = if (ratio == CaptureRatio.SQUARE) {
-            val side = canvasW
-            val top = (canvasH - side) / 2f
-            Rect(0f, top, canvasW, top + side)
-        } else {
-            Rect(0f, 0f, canvasW, canvasH)
-        }
-
-        // 九宫格构图线（三分法）
-        if (showGrid) {
-            val gridColor = Color.White.copy(alpha = 0.4f)
-            val strokeW = 1.dp.toPx()
-            val thirdW = region.width / 3f
-            val thirdH = region.height / 3f
-            drawLine(
-                gridColor,
-                start = Offset(region.left + thirdW, region.top),
-                end = Offset(region.left + thirdW, region.bottom),
-                strokeWidth = strokeW,
-            )
-            drawLine(
-                gridColor,
-                start = Offset(region.left + 2 * thirdW, region.top),
-                end = Offset(region.left + 2 * thirdW, region.bottom),
-                strokeWidth = strokeW,
-            )
-            drawLine(
-                gridColor,
-                start = Offset(region.left, region.top + thirdH),
-                end = Offset(region.right, region.top + thirdH),
-                strokeWidth = strokeW,
-            )
-            drawLine(
-                gridColor,
-                start = Offset(region.left, region.top + 2 * thirdH),
-                end = Offset(region.right, region.top + 2 * thirdH),
-                strokeWidth = strokeW,
-            )
-        }
-
-        // 水平仪：中心水平线，反向旋转以指示真实水平方向，水平时变绿
-        // 无传感器数据（如模拟器）时不绘制，避免恒为 0 度导致的假"已水平"提示
-        if (hasSensorData) {
-            val isLevel = abs(rollDegrees) < LEVEL_THRESHOLD_DEG
-            val levelColor = if (isLevel) Color.Green.copy(alpha = 0.9f) else Color.White.copy(alpha = 0.7f)
-            val center = region.center
-            val halfLen = 40.dp.toPx()
-            rotate(degrees = -rollDegrees, pivot = center) {
-                drawLine(
-                    color = levelColor,
-                    start = Offset(center.x - halfLen, center.y),
-                    end = Offset(center.x + halfLen, center.y),
-                    strokeWidth = 2.dp.toPx(),
-                )
-            }
-        }
-
-        // 点击对焦框：在点击位置绘制淡入淡出方框
-        val fo = focusOffset
-        if (fo != null && focusAlpha > 0f) {
-            val ringSize = 80.dp.toPx()
-            drawRect(
-                color = Color.White.copy(alpha = focusAlpha),
-                topLeft = Offset(fo.x - ringSize / 2f, fo.y - ringSize / 2f),
-                size = Size(ringSize, ringSize),
-                style = Stroke(width = 2.dp.toPx()),
-            )
-        }
-    }
-}
-
-/**
- * 圆形控制按钮（顶部）。
- *
- * #27：添加半透明白色边框，避免深色模式下相机预览较暗时"黑叠黑"导致按钮不可见。
- */
-@Composable
-private fun ControlButton(
-    icon: ImageVector,
-    contentDescription: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier = modifier
-            .size(MinTouchTargetSize)
-            .clip(CircleShape)
-            .background(Color.Black.copy(alpha = 0.6f))
-            .border(width = 1.dp, color = Color.White.copy(alpha = 0.2f), shape = CircleShape)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            tint = Color.White,
-            modifier = Modifier.size(22.dp),
-        )
-    }
-}
-
-/**
- * 底部相机控制栏：比例切换 + 拍照按钮。
- *
- * #36：拍照按钮支持长按连拍。
- */
-@Composable
-private fun BottomCameraBar(
-    ratio: CaptureRatio,
-    onRatioChange: (CaptureRatio) -> Unit,
-    onShutter: () -> Unit,
-    onBurstShutter: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val colors = LocalSocialColors.current
-    val typography = LocalSocialTypography.current
-
-    Row(
-        modifier = modifier
-            // #188：底部控件加 navigationBarsPadding，避免全面屏手势条遮挡快门与比例按钮
-            .navigationBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 24.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        // 左侧：比例切换
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            CaptureRatio.values().forEach { r ->
-                val selected = r == ratio
-                val bgColor = if (selected) colors.systemBlue else Color.Black.copy(alpha = 0.6f)
-                val textColor = if (selected) Color.White else Color.White.copy(alpha = 0.7f)
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .background(bgColor)
-                        // #27：未选中时添加半透明边框，深色模式下提升可见性
-                        .then(
-                            if (!selected) {
-                                Modifier.border(
-                                    width = 1.dp,
-                                    color = Color.White.copy(alpha = 0.2f),
-                                    shape = RoundedCornerShape(50),
-                                )
-                            } else {
-                                Modifier
-                            }
-                        )
-                        .clickable { onRatioChange(r) }
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                ) {
-                    Text(
-                        text = r.label,
-                        style = typography.caption1,
-                        color = textColor,
-                    )
-                }
-            }
-        }
-
-        // 中间：拍照按钮
-        ShutterButton(
-            onClick = onShutter,
-            // #36：长按触发连拍
-            onLongClick = onBurstShutter,
-        )
-
-        // 右侧占位以保持拍照按钮水平居中
-        Spacer(Modifier.width(48.dp))
-    }
-}
-
-/**
- * 拍照按钮：72dp 圆形，白色边框 + systemBlue 内圈。
- *
- * #3/#36：按下时弹簧缩放反馈（0.85→1.0）+ 快门触感，给予明确的拍摄触发动效。
- * #36：支持长按连拍（onLongClick），单击拍照（onClick）。
- */
-@Composable
-private fun ShutterButton(
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val colors = LocalSocialColors.current
-    val hapticFeedback = LocalHapticFeedback.current
-    val reduceMotion = LocalReduceMotion.current
-    // #3：自建 InteractionSource 追踪按压状态，驱动缩放动效
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    // review 第 5 轮修复：pointerInput(Unit) 只在首次组合启动一次，捕获的 onClick/onLongClick
-    // 是按值捕获的局部 lambda（内部又捕获 ratio）。用户切换拍照比例后比例变化使上层重组，
-    // 但 pointerInput 不重启，仍持有旧 lambda，导致 SQUARE 模式下成片不做正方形裁剪。
-    // 用 rememberUpdatedState 始终读取最新回调，避免捕获过期值。
-    val currentOnClick by rememberUpdatedState(onClick)
-    val currentOnLongClick by rememberUpdatedState(onLongClick)
-    // #200：按压弹簧——
-    // - 默认：NoBouncy + StiffnessMedium，快门是高频操作不需要 overshoot；
-    //   原 MediumBouncy 让快门每次按都晃几下，连拍时视觉抖动严重。
-    // - 减弱动效：tween(120, FastOutSlowInEasing)，按压反馈不可省（确保用户知道按下去了），
-    //   但要短而平。
-    val scaleSpec = if (reduceMotion) {
-        tween<Float>(durationMillis = 120, easing = FastOutSlowInEasing)
-    } else {
-        spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMedium,
-        )
-    }
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.85f else 1f,
-        animationSpec = scaleSpec,
-        label = "shutterScale",
-    )
-    Box(
-        modifier = modifier
-            .size(72.dp)
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clip(CircleShape)
-            .border(width = 4.dp, color = Color.White, shape = CircleShape)
-            .background(Color.Transparent)
-            // #36：使用 detectTapGestures 替代 clickable，支持单击拍照 + 长按连拍
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onPress = {
-                        // #3：手动发射按压状态，驱动缩放动画
-                        // CI 修复：PressInteraction.Press 构造函数需要 pressPosition 参数
-                        val press = PressInteraction.Press(Offset.Zero)
-                        interactionSource.emit(press)
-                        val released = tryAwaitRelease()
-                        if (released) {
-                            interactionSource.emit(PressInteraction.Release(press))
-                        } else {
-                            interactionSource.emit(PressInteraction.Cancel(press))
-                        }
-                    },
-                    onTap = {
-                        // #3：快门触感反馈
-                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                        currentOnClick()
-                    },
-                    onLongPress = {
-                        // #36：长按触发连拍 + 触感反馈
-                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                        currentOnLongClick()
-                    },
-                )
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(56.dp)
-                .clip(CircleShape)
-                .background(colors.systemBlue),
-        )
-    }
-}
-
-/**
- * 权限缺失时显示的请求卡片。
- */
-@Composable
-private fun PermissionRequestCard(
-    onOpenSettings: () -> Unit,
-    onRequestPermission: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val colors = LocalSocialColors.current
-    val typography = LocalSocialTypography.current
-    Box(
-        modifier = modifier.background(colors.systemBackground),
-        contentAlignment = Alignment.Center,
-    ) {
-        Card(
-            modifier = Modifier.padding(horizontal = 32.dp),
-            colors = CardDefaults.cardColors(containerColor = colors.secondaryBackground),
-            shape = RoundedCornerShape(16.dp),
-        ) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text(
-                    text = "需要相机权限",
-                    style = typography.headline,
-                    color = colors.label,
-                )
-                Text(
-                    text = "请在设置中开启相机权限以使用拍照功能",
-                    style = typography.subheadline,
-                    color = colors.secondaryLabel,
-                )
-                ActionButton(
-                    text = "前往设置",
-                    onClick = onOpenSettings,
-                )
-                Spacer(Modifier.height(4.dp))
-                ActionButton(
-                    text = "再次请求",
-                    onClick = onRequestPermission,
-                )
-            }
-        }
-    }
-}
-
-/**
- * 执行拍照，将 JPEG 落盘到 cacheDir/capture/<timestamp>.jpg。
- */
-internal fun capturePhoto(
-    context: Context,
-    imageCapture: ImageCapture?,
-    executor: Executor,
-    onResult: (String?) -> Unit,
-) {
-    if (imageCapture == null) {
-        onResult(null)
-        return
-    }
-    val captureDir = File(context.cacheDir, "capture").apply { mkdirs() }
-    // review 第 5 轮修复：连拍/快速重拍可能在同一毫秒内产生相同时间戳，导致文件名相同——
-    // 后写覆盖前写（丢图）且 CapturePreviewBar 用路径作 LazyRow key 会抛 "Key must be unique"。
-    // 追加 UUID 保证文件名唯一。
-    val file = File(captureDir, "${System.currentTimeMillis()}-${UUID.randomUUID()}.jpg")
-    val output = ImageCapture.OutputFileOptions.Builder(file).build()
-    imageCapture.takePicture(
-        output,
-        executor,
-        object : ImageCapture.OnImageSavedCallback {
-            override fun onImageSaved(result: ImageCapture.OutputFileResults) {
-                Timber.i("拍照落盘 %s", file.absolutePath)
-                onResult(file.absolutePath)
-            }
-
-            override fun onError(exception: ImageCaptureException) {
-                Timber.w(exception, "拍照失败")
-                onResult(null)
-            }
-        },
-    )
-}
-
-/**
- * 跳转应用设置页（权限设置）。
- */
-private fun openAppSettings(context: Context) {
-    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-        data = Uri.fromParts("package", context.packageName, null)
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    }
-    runCatching { context.startActivity(intent) }
-}
-
-/**
- * IMPL-35 / IMPL-36：将 JPEG 中心裁剪为正方形，覆盖原文件。
- * 在拍照回调线程执行，避免阻塞 UI。
- *
- * P1-5：使用 inJustDecodeBounds 探测尺寸 + 动态 inSampleSize，
- * 避免大图全量解码导致 OOM。
- */
-private fun cropToSquare(path: String): String? {
-    return runCatching {
-        // P1-5：先探测原图尺寸
-        val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(path, boundsOpts)
-        val origW = boundsOpts.outWidth
-        val origH = boundsOpts.outHeight
-        if (origW <= 0 || origH <= 0) return null
-
-        // 目标正方形边长 = min(origW, origH)，采样后不低于 1080px
-        val targetSize = minOf(origW, origH)
-        val sampleTarget = if (targetSize > 1080) 1080 else targetSize
-        var sampleSize = 1
-        while (minOf(origW, origH) / (sampleSize * 2) >= sampleTarget) {
-            sampleSize *= 2
-        }
-
-        // 按采样率解码
-        val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-        val original = BitmapFactory.decodeFile(path, decodeOpts) ?: return null
-
-        val size = minOf(original.width, original.height)
-        val x = (original.width - size) / 2
-        val y = (original.height - size) / 2
-        val cropped = Bitmap.createBitmap(original, x, y, size, size)
-        if (cropped !== original) original.recycle()
-        FileOutputStream(path).use { out ->
-            cropped.compress(Bitmap.CompressFormat.JPEG, 90, out)
-        }
-        cropped.recycle()
-        path
-    }.onFailure { Timber.w(it, "正方形裁剪失败 %s", path) }.getOrNull()
-}
-
-/**
- * 闪光灯模式映射到 CameraX 常量。
- */
-private fun FlashMode.toCameraXFlash(): Int = when (this) {
-    FlashMode.OFF -> ImageCapture.FLASH_MODE_OFF
-    FlashMode.ON -> ImageCapture.FLASH_MODE_ON
-    FlashMode.AUTO -> ImageCapture.FLASH_MODE_AUTO
-}
-
-/**
- * 水平仪判定阈值（度）：|roll| 小于此值视为水平，指示线变绿。
- */
-private const val LEVEL_THRESHOLD_DEG = 2f
 
 // #36：拍照闪光动画参数
 /** 闪光遮罩初始透明度 */
