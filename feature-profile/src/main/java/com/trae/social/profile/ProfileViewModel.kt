@@ -85,16 +85,19 @@ class ProfileViewModel @Inject constructor(
     val likedTweetIds: StateFlow<Set<String>> = _likedTweetIds.asStateFlow()
 
     /**
-     * #140：标记用户是否已手动切换过点赞。
+     * 待确认的乐观点赞增量：tweetId -> 乐观状态（true=已点赞，false=已取消）。
      *
-     * loadInitialLikedTweetIds 是异步的，若用户在 DB 查询返回前点击了 toggleLike，
-     * 后续 DB 结果的整体覆盖会丢弃用户操作。此标记用于在 DB 结果返回时跳过覆盖。
+     * review 修复（#166）：原 userToggledLike 布尔标记在 toggleLike 后永不复位，
+     * 导致首次手动点赞后所有后续 DB Flow 排放被静默丢弃，LIKES Tab 不再实时刷新。
      *
-     * #166：改为 observe Flow 后，用户手动 toggleLike 的乐观更新会被 DB Flow 重发覆盖；
-     * 此标记延续原语义——用户手动切换后跳过 DB Flow 的整体覆盖，避免乐观状态被回滚。
+     * 改为按 tweetId 维度记录待确认增量——DB Flow 排放反映权威状态，叠加尚未被
+     * DB 确认的乐观增量后写入 _likedTweetIds。当 DB Flow 已包含（或不包含）某
+     * tweetId 且与乐观状态一致时，该增量被确认并移除。
+     *
+     * 访问线程：toggleLike() 与 observeLikedTweetIds 的 collector 均运行于
+     * viewModelScope（Dispatchers.Main.immediate），无需额外同步。
      */
-    @Volatile
-    private var userToggledLike = false
+    private val pendingLikeToggles = mutableMapOf<String, Boolean>()
 
     init {
         loadProfile()
@@ -212,22 +215,34 @@ class ProfileViewModel @Inject constructor(
      * 导致未点赞推文被误标为已点赞。现在查询 interactions 表中当前用户的
      * LIKE 类型已执行互动记录，准确还原点赞状态。
      *
-     * #140：竞态修复——若用户在 DB 查询返回前已手动切换点赞（userToggledLike=true），
-     * 跳过整体覆盖，避免丢弃用户操作。
-     *
      * #166：改为 observe Flow 持续订阅，FeedViewModel.likeTweet 写入 interactions 表后
      * ProfileViewModel._likedTweetIds 自动收到新值，LIKES Tab 实时刷新，无需杀进程重启。
-     * userToggledLike 标记延续 #140 语义——用户手动 toggleLike 后跳过 DB Flow 整体覆盖，
-     * 避免乐观状态被 DB 慢一轮的 Flow 重发回滚。
+     *
+     * review 修复：DB Flow 排放为权威状态，叠加尚未被 DB 确认的 pendingLikeToggles
+     * 乐观增量后写入 _likedTweetIds。这样既不会丢弃用户手动操作（乐观增量在 DB 写入
+     * 完成前保护本地状态），也不会永久阻塞 Flow（DB 追上乐观状态后增量自动移除）。
      */
     private fun observeLikedTweetIds() {
         viewModelScope.launch {
             try {
                 interactionRepository.observeLikedTweetIdsByAccount(SELF_ID).collect { likedIds ->
-                    // #140 / #166：仅当用户尚未手动切换点赞时才用 DB 结果覆盖
-                    if (!userToggledLike) {
-                        _likedTweetIds.value = likedIds.toSet()
+                    val dbSet = likedIds.toSet()
+                    val merged = dbSet.toMutableSet()
+                    val iterator = pendingLikeToggles.entries.iterator()
+                    while (iterator.hasNext()) {
+                        val (tweetId, optimisticallyLiked) = iterator.next()
+                        if (optimisticallyLiked == (tweetId in dbSet)) {
+                            // DB 已追上乐观状态，增量确认，移除
+                            iterator.remove()
+                        } else if (optimisticallyLiked) {
+                            // DB 尚未写入 LIKE，保留乐观增量
+                            merged.add(tweetId)
+                        } else {
+                            // DB 尚未删除 LIKE，保留乐观取消
+                            merged.remove(tweetId)
+                        }
                     }
+                    _likedTweetIds.value = merged
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -311,8 +326,8 @@ class ProfileViewModel @Inject constructor(
      */
     fun toggleLike(tweetId: String) {
         val wasLiked = tweetId in _likedTweetIds.value
-        // #140：标记用户已手动切换点赞，防止 loadInitialLikedTweetIds 的 DB 结果覆盖
-        userToggledLike = true
+        // review 修复：记录乐观增量，DB Flow 排放时叠加尚未确认的增量
+        pendingLikeToggles[tweetId] = !wasLiked
         // 乐观更新本地集合
         _likedTweetIds.value = if (wasLiked) {
             _likedTweetIds.value - tweetId
@@ -367,6 +382,9 @@ class ProfileViewModel @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 Timber.w(e, "更新点赞计数失败，回滚本地状态")
+                // review 修复：DB 写入失败，移除待确认乐观增量，让后续 DB Flow 排放
+                // 能正常覆盖（不再被乐观增量保护）
+                pendingLikeToggles.remove(tweetId)
                 // 仅在当前状态仍符合本次预期时回滚，避免与后续 toggle 竞态误覆盖
                 val currentState = _likedTweetIds.value
                 if (wasLiked && tweetId !in currentState) {

@@ -391,7 +391,8 @@ object SchedulerInitializer {
         workManager.enqueueUniquePeriodicWork(
             WorkerTags.PERSONA_UPDATE,
             ExistingPeriodicWorkPolicy.KEEP,
-            WorkerPolicies.personaUpdatePeriodicRequest(level),
+            // review 修复：KEEP 路径为首次注册，应用 setInitialDelay 锚定凌晨 3 点
+            WorkerPolicies.personaUpdatePeriodicRequest(level, isInitialRegistration = true),
         )
         workManager.enqueueUniquePeriodicWork(
             WorkerTags.USER_PROFILE,

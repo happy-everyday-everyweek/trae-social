@@ -151,18 +151,31 @@ object WorkerPolicies {
      * 减少白天高峰期的额外调度压力；周期上限保持 30 天以兼容 LOW 档。
      * 注：PeriodicWorkRequest 不支持 setExpedited（WM 会抛 IllegalStateException），
      * 故仅通过 setInitialDelay + 缩短周期 + 前台服务保障（#70）三项组合缓解 Doze 时延。
+     *
+     * review 修复：[setInitialDelay] 仅在首次注册（[isInitialRegistration]=true，
+     * 即 enqueueRoutineWork 的 KEEP 路径）时应用。档位切换的 REPLACE 路径不再
+     * 重新锚定到凌晨 3 点——否则用户/测试每日切换档位会持续推迟首次执行，
+     * 人设更新可能被无限期延后。
+     *
+     * @param isInitialRegistration true=首次注册（KEEP 路径），应用 setInitialDelay；
+     *   false=档位切换替换（REPLACE 路径），跳过 setInitialDelay 使新周期立即生效。
      */
-    fun personaUpdatePeriodicRequest(level: AiActivityLevel): androidx.work.PeriodicWorkRequest {
+    fun personaUpdatePeriodicRequest(
+        level: AiActivityLevel,
+        isInitialRegistration: Boolean = false,
+    ): androidx.work.PeriodicWorkRequest {
         val periodDays = level.personaUpdatePeriodDays.toLong()
         val effectivePeriodDays = periodDays.coerceIn(1L, 30L)
-        // #95：锚定首执行到下一个本地凌晨 3 点，避开白天用户活跃高峰
-        val initialDelayMillis = computeInitialDelayToNextHour(3)
-        return PeriodicWorkRequestBuilder<PersonaUpdateWorker>(
+        val builder = PeriodicWorkRequestBuilder<PersonaUpdateWorker>(
             effectivePeriodDays, TimeUnit.DAYS,
         )
             .setConstraints(networkConstraints)
             .setBackoffCriteria(backoffPolicy, BACKOFF_INITIAL_SECONDS, TimeUnit.SECONDS)
-            .setInitialDelay(initialDelayMillis, TimeUnit.MILLISECONDS)
+        // #95：仅在首次注册时锚定首执行到下一个本地凌晨 3 点，避开白天用户活跃高峰
+        if (isInitialRegistration) {
+            builder.setInitialDelay(computeInitialDelayToNextHour(3), TimeUnit.MILLISECONDS)
+        }
+        return builder
             .addTag(WorkerTags.PERSONA_UPDATE)
             .build()
     }

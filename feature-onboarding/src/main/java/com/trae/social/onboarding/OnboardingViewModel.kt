@@ -352,6 +352,13 @@ class OnboardingViewModel @Inject constructor(
             ModelCapability.JSON_MODE_NATIVE,
             ModelCapability.STREAMING,
         )
+        // review 修复：KeyInputScreen 的 supportingText 承诺「留空则使用提供商官方端点」，
+        // 但此前 state.baseUrl 为空时直接透传空串给 ConfigRepository，导致 ping 请求
+        // 打到空 URL 报 UnknownHostException。此处对非 CUSTOM 提供商补上官方默认端点。
+        // CUSTOM 不在此列——canSubmit 已要求 CUSTOM 必须填写合法 URL。
+        val effectiveBaseUrl = state.baseUrl.ifBlank {
+            DEFAULT_BASE_URLS[state.selectedProvider] ?: ""
+        }
 
         val pendingId = state.pendingEndpointId
         if (pendingId != null) {
@@ -359,7 +366,7 @@ class OnboardingViewModel @Inject constructor(
                 id = pendingId,
                 displayName = state.selectedProvider.displayName,
                 protocol = protocol,
-                baseUrl = state.baseUrl,
+                baseUrl = effectiveBaseUrl,
                 model = state.model,
                 capabilities = capabilities,
             )
@@ -372,7 +379,7 @@ class OnboardingViewModel @Inject constructor(
         val newId = configRepository.addEndpoint(
             displayName = state.selectedProvider.displayName,
             protocol = protocol,
-            baseUrl = state.baseUrl,
+            baseUrl = effectiveBaseUrl,
             model = state.model,
             capabilities = capabilities,
             apiKey = state.apiKey.takeIf { it.isNotEmpty() },

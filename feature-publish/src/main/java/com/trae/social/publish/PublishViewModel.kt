@@ -68,14 +68,22 @@ data class PublishUiState(
  */
 sealed interface PublishEvent {
     /**
-     * 发布成功，触发缩小飞入动画并返回首页。
-     */
-    data object Published : PublishEvent
-
-    /**
      * 发布失败（IMPL-15），UI 应显示错误并保留输入。
      */
     data object PublishFailed : PublishEvent
+}
+
+/**
+ * #207 review 修复：发布阶段状态，由 ViewModel 持有以在配置变更后存活。
+ *
+ * - [IDLE]：空闲
+ * - [ANIMATING]：发布成功，正在播放飞入动画
+ * - [DONE]：动画完成，UI 应已导航回首页
+ */
+enum class PublishPhase {
+    IDLE,
+    ANIMATING,
+    DONE,
 }
 
 /**
@@ -86,7 +94,7 @@ sealed interface PublishEvent {
  * 2. [TweetRepository.insertTweet] 落库；
  * 3. 通过 WorkManager 入队 [com.trae.social.core.scheduler.work.InteractionWorker]，
  *    触发 3-8 个虚拟账号的点赞/评论/转发/关注排程；
- * 4. 置 isPublishing=true 触发飞入动画，发送 [PublishEvent.Published] 通知 UI 返回首页。
+ * 4. 置 isPublishing=true 触发飞入动画，置 [publishPhase]=ANIMATING 通知 UI 返回首页。
  *
  * 返回首页后信息流由 [TweetRepository.getFeedFlow] 的 Flow 自动更新出新推文。
  */
@@ -102,6 +110,12 @@ class PublishViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(PublishUiState())
     val uiState: StateFlow<PublishUiState> = _uiState.asStateFlow()
+
+    // #207 review 修复：发布阶段状态由 ViewModel 持有，配置变更（旋转屏等）后存活。
+    // 替代原 remember { showPublishAnimation }——后者在配置变更时丢失，且 Published
+    // Channel 事件已被消费无法重发，导致旋转后动画与导航回调均丢失。
+    private val _publishPhase = MutableStateFlow(PublishPhase.IDLE)
+    val publishPhase: StateFlow<PublishPhase> = _publishPhase.asStateFlow()
 
     private val _events = Channel<PublishEvent>(Channel.BUFFERED)
     val events = _events.receiveAsFlow()
@@ -138,6 +152,20 @@ class PublishViewModel @Inject constructor(
 
     fun setFlashMode(mode: FlashMode) {
         _uiState.update { it.copy(flashMode = mode) }
+    }
+
+    /**
+     * #207 review 修复：标记飞入动画已完成，UI 应已导航回首页。
+     */
+    fun markPublishAnimationDone() {
+        _publishPhase.value = PublishPhase.DONE
+    }
+
+    /**
+     * #207 review 修复：重置发布阶段为 IDLE，供下次发布使用。
+     */
+    fun resetPublishPhase() {
+        _publishPhase.value = PublishPhase.IDLE
     }
 
     /**
@@ -185,8 +213,9 @@ class PublishViewModel @Inject constructor(
                     )
                 )
                 triggerAiInteraction(tweetId)
-                // IMPL-15：仅在成功时 emit Published，失败时 emit PublishFailed
-                _events.send(PublishEvent.Published)
+                // #207 review 修复：发布成功后置 publishPhase=ANIMATING（由 ViewModel 持有，
+                // 配置变更后存活），替代原 Channel Published 事件（一次性消费，旋转后丢失）。
+                _publishPhase.value = PublishPhase.ANIMATING
             } catch (t: Throwable) {
                 Timber.e(t, "发布失败")
                 _events.send(PublishEvent.PublishFailed)

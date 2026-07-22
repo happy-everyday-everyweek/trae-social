@@ -56,6 +56,8 @@ import com.trae.social.designsystem.components.ActionButton
 import com.trae.social.designsystem.theme.LocalSocialColors
 import com.trae.social.designsystem.theme.LocalSocialTypography
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
@@ -148,6 +150,8 @@ fun EditorModeContent(
 
     var pickedUri by remember { mutableStateOf<Uri?>(null) }
     var sourceBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    // review 修复：追踪当前解码协程，快速重选时取消前一次未完成的解码，避免 bitmap 泄漏
+    var decodeJob: Job? by remember { mutableStateOf(null) }
     var selectedFilter by remember { mutableStateOf(FilterPreset.ORIGINAL) }
     // 裁剪框以容器尺寸的比例表示（left/top/right/bottom ∈ [0,1]），默认居中 70%
     var cropRect by remember { mutableStateOf(Rect(0.15f, 0.15f, 0.85f, 0.85f)) }
@@ -172,9 +176,22 @@ fun EditorModeContent(
             // Image 仍显示旧 Bitmap 时回收会导致渲染崩溃。旧 sourceBitmap 由 CropOverlay 的
             // LaunchedEffect（ORIGINAL 时 old displayBitmap === oldSource，切换时回收）处理，
             // 或在组合离开时由 DisposableEffect 回收。
-            scope.launch {
+            //
+            // review 修复：取消前一次未完成的解码任务。快速重选 A→B 时，A 的解码协程被取消，
+            // 避免 A 的 bitmap 解码完成后覆盖 B 的结果或成为孤儿（~16MB ARGB_8888 仅靠 GC
+            // finalizer 回收，低内存设备可能 OOM）。解码完成后若协程已被取消，回收刚解码的
+            // bitmap 避免 leak。
+            decodeJob?.cancel()
+            decodeJob = scope.launch {
                 val bitmap = withContext(Dispatchers.IO) {
                     runCatching { decodeBitmap(context, uri) }.getOrNull()
+                }
+                try {
+                    ensureActive()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    // 解码期间用户重选了新图，回收刚解码的 bitmap 避免泄漏
+                    bitmap?.recycle()
+                    throw e
                 }
                 sourceBitmap = bitmap
                 resetCrop()

@@ -129,7 +129,9 @@ private fun SocialColors.toMaterialColorScheme(dark: Boolean) =
             primary = systemBlue,
             onPrimary = Color.White,
             primaryContainer = systemBlue.copy(alpha = 0.15f),
-            onPrimaryContainer = systemBlue,
+            // review 修复：onPrimaryContainer 改用深色蓝（M3 风格），systemBlue (#007AFF)
+            // on primaryContainer @15% alpha (~#D9EBFF) 仅 ~3.9:1 对比度，不满足 WCAG AA。
+            onPrimaryContainer = Color(0xFF001D36),
             // #180：inversePrimary 在 inverseSurface 背景上使用，取深色 systemBlue 互补
             inversePrimary = Color(0xFF0A84FF),
             secondary = systemBlue,
@@ -138,7 +140,9 @@ private fun SocialColors.toMaterialColorScheme(dark: Boolean) =
             tertiary = systemPurple,
             onTertiary = Color.White,
             tertiaryContainer = systemPurple.copy(alpha = 0.15f),
-            onTertiaryContainer = systemPurple,
+            // review 修复：onTertiaryContainer 改用深色紫（M3 风格），systemPurple (#AF52DE)
+            // on tertiaryContainer @15% alpha 仅 ~3.9:1 对比度，不满足 WCAG AA。
+            onTertiaryContainer = Color(0xFF38006A),
             background = systemBackground,
             onBackground = label,
             surface = systemBackground,
@@ -154,7 +158,9 @@ private fun SocialColors.toMaterialColorScheme(dark: Boolean) =
             onError = Color.White,
             // #180：errorContainer 用于错误状态下的浅色背景容器
             errorContainer = systemRed.copy(alpha = 0.15f),
-            onErrorContainer = systemRed,
+            // review 修复：onErrorContainer 改用深色红（M3 风格 #410E0B），systemRed (#FF3B30)
+            // on errorContainer @15% alpha (~#FFE2E0) 仅 ~2.9:1 对比度，严重不满足 WCAG AA。
+            onErrorContainer = Color(0xFF410E0B),
             outline = separator,
             outlineVariant = separator,
             // #180：scrim 用于 Modal/Dialog 等遮罩，统一为半透明黑

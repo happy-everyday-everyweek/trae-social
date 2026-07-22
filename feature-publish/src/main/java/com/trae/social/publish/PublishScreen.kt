@@ -76,6 +76,9 @@ fun PublishScreen(
 ) {
     val viewModel: PublishViewModel = hiltViewModel()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    // #207 review 修复：publishPhase 由 ViewModel 持有，配置变更（旋转屏）后存活，
+    // 替代原 remember { showPublishAnimation }（配置变更时丢失 + Published 事件已消费无法重发）
+    val publishPhase by viewModel.publishPhase.collectAsStateWithLifecycle()
     val colors = LocalSocialColors.current
     val scope = rememberCoroutineScope()
     val hapticFeedback = LocalHapticFeedback.current
@@ -83,23 +86,15 @@ fun PublishScreen(
 
     var selectedTab by remember { mutableStateOf(0) } // 0 = 相机, 1 = 编辑器
     var selectedCaptureIndex by remember { mutableStateOf(-1) }
-    var showPublishAnimation by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     // #236：tabs 数组用 remember 保持引用稳定，避免 spread 操作符每次重组生成新 Array
     // 导致 Compose skip 用引用相等性判断失效，CapsuleTab 仍被强制重组。
     val publishTabs = remember { arrayOf("相机", "编辑器") }
 
-    // 监听发布完成事件：触发飞入动画，动画结束后回调 onPublished
+    // 监听发布失败事件（一次性 Channel 事件）
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
             when (event) {
-                PublishEvent.Published -> {
-                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                    // #207：仅置位标志，动画完成回调由下方 LaunchedEffect(showPublishAnimation) 处理。
-                    // 原实现在此处 scope.launch { delay; onPublished() }，组合销毁时协程被取消
-                    // 导致 onPublished 永远不触发（旋转屏/返回键场景必现）。
-                    showPublishAnimation = true
-                }
                 // IMPL-15：发布失败时显示错误提示 + 重试按钮，保留输入
                 PublishEvent.PublishFailed -> {
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -119,15 +114,17 @@ fun PublishScreen(
         }
     }
 
-    // #207：动画完成回调由 LaunchedEffect(showPublishAnimation) 驱动，
-    // 协程与标志位绑定而非事件 collector 内的 scope.launch，避免组合销毁时被取消。
+    // #207 review 修复：动画完成回调由 LaunchedEffect(publishPhase) 驱动。
+    // publishPhase 由 ViewModel 持有，配置变更后存活——旋转屏时 LaunchedEffect
+    // 重新执行，publishPhase 仍为 ANIMATING，动画重播后正常回调 onPublished。
     // #157：减弱动效下使用更短时长，让用户尽快看到发布结果。
-    LaunchedEffect(showPublishAnimation) {
-        if (showPublishAnimation) {
+    LaunchedEffect(publishPhase) {
+        if (publishPhase == PublishPhase.ANIMATING) {
+            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
             val duration = if (reduceMotion) REDUCED_PUBLISH_ANIM_DURATION_MS
                 else PUBLISH_ANIM_DURATION_MS
             kotlinx.coroutines.delay(duration.toLong())
-            showPublishAnimation = false
+            viewModel.markPublishAnimationDone()
             onPublished()
         }
     }
@@ -252,7 +249,7 @@ fun PublishScreen(
 
         // 缩小飞入动画覆盖层（SubTask 14.4）
         PublishFlyInOverlay(
-            visible = showPublishAnimation,
+            visible = publishPhase == PublishPhase.ANIMATING,
             imagePath = uiState.captures.firstOrNull(),
             modifier = Modifier.fillMaxSize(),
         )

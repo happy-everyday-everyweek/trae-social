@@ -96,20 +96,22 @@ fun FeedScreen(
     var fullScreenTarget by rememberSaveable(stateSaver = FullScreenImageTargetSaver) { mutableStateOf<FullScreenImageTarget?>(null) }
     var retweetTarget by rememberSaveable(stateSaver = TweetWithAuthor.Saver) { mutableStateOf<TweetWithAuthor?>(null) }
 
-    val refreshState = pagingItems.loadState.refresh
     // #232：用 derivedStateOf 包装派生 Boolean，避免 loadState.refresh 每次 State 变化
     // 都触发整个 FeedScreen 函数体重组——派生值未变时下游 Composable 可跳过重组。
+    // review 修复：必须在 lambda 内部直接读取 pagingItems.loadState.refresh，否则
+    // refreshState 作为局部 val 会在首次组合时被按值捕获，derivedStateOf 仅跟踪
+    // pagingItems.itemCount 的 Snapshot State，导致 refresh 变化不再触发重新求值。
     val isInitialLoading by remember {
-        derivedStateOf { refreshState is LoadState.Loading && pagingItems.itemCount == 0 }
+        derivedStateOf { pagingItems.loadState.refresh is LoadState.Loading && pagingItems.itemCount == 0 }
     }
     val isError by remember {
-        derivedStateOf { refreshState is LoadState.Error && pagingItems.itemCount == 0 }
+        derivedStateOf { pagingItems.loadState.refresh is LoadState.Error && pagingItems.itemCount == 0 }
     }
     val isEmpty by remember {
-        derivedStateOf { refreshState is LoadState.NotLoading && pagingItems.itemCount == 0 }
+        derivedStateOf { pagingItems.loadState.refresh is LoadState.NotLoading && pagingItems.itemCount == 0 }
     }
     val isRefreshing by remember {
-        derivedStateOf { refreshState is LoadState.Loading && pagingItems.itemCount > 0 }
+        derivedStateOf { pagingItems.loadState.refresh is LoadState.Loading && pagingItems.itemCount > 0 }
     }
     val isInListMode by remember {
         derivedStateOf { !isInitialLoading && !isError && !isEmpty }
@@ -132,10 +134,10 @@ fun FeedScreen(
             isEmpty -> "empty"
             else -> "list"
         }
-        // Review fix #1：Crossfade 过渡期两态共存，error 分支可能在 refreshState 已变为
+        // Review fix #1：Crossfade 过渡期两态共存，error 分支可能在 refresh 已变为
         // Loading 时仍被组合，此时 `as LoadState.Error` 会 ClassCastException 崩溃。
         // 在 Crossfade 之前安全提取消息，避免强转。
-        val errorMessage = (refreshState as? LoadState.Error)?.error?.message ?: "加载失败"
+        val errorMessage = (pagingItems.loadState.refresh as? LoadState.Error)?.error?.message ?: "加载失败"
         Crossfade(
             targetState = contentKey,
             animationSpec = tween(300),
