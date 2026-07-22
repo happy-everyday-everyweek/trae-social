@@ -20,6 +20,7 @@ import coil.ImageLoader
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -94,10 +95,13 @@ class ProfileViewModel @Inject constructor(
      * DB 确认的乐观增量后写入 _likedTweetIds。当 DB Flow 已包含（或不包含）某
      * tweetId 且与乐观状态一致时，该增量被确认并移除。
      *
-     * 访问线程：toggleLike() 与 observeLikedTweetIds 的 collector 均运行于
-     * viewModelScope（Dispatchers.Main.immediate），无需额外同步。
+     * 主 review 第 4 轮修复：原 `mutableMapOf` 为非线程安全 Map。toggleLike() 运行于
+     * viewModelScope（Dispatchers.Main.immediate），但 Room Flow collector 默认并不
+     * 保证在主线程发射（依赖 Repository/DAO 是否 flowOn）。使用 [ConcurrentHashMap]
+     * 做防御性保护，避免后续若有人在 InteractionRepository 侧给 Flow 加 `.flowOn`
+     * 之外的算子时触发 ConcurrentModificationException 或状态丢失。
      */
-    private val pendingLikeToggles = mutableMapOf<String, Boolean>()
+    private val pendingLikeToggles = ConcurrentHashMap<String, Boolean>()
 
     init {
         loadProfile()

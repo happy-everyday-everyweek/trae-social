@@ -94,8 +94,11 @@ private fun SocialColors.toMaterialColorScheme(dark: Boolean) =
             onPrimary = Color.White,
             primaryContainer = systemBlue.copy(alpha = 0.25f),
             onPrimaryContainer = Color.White,
-            // #180：inversePrimary 在 inverseSurface 背景上使用，取明色 systemBlue 互补
-            inversePrimary = Color(0xFF007AFF),
+            // 主 review 第 4 轮修复：inversePrimary 在 inverseSurface（深色模式下取浅色 label #F2F2F7）
+            // 背景上使用。原 systemBlue (#007AFF) on #F2F2F7 对比度仅 ~2.7:1，不满足 WCAG AA (4.5:1)。
+            // 改用深色蓝 Color(0xFF001D36)，与明色模式 onPrimaryContainer / inversePrimary 策略一致
+            // （明色模式 inversePrimary 取亮色 0xFF0A84FF，深色模式取深色互补 0xFF001D36）。
+            inversePrimary = Color(0xFF001D36),
             secondary = systemBlue,
             onSecondary = Color.White,
             // #180：tertiary 映射到 systemPurple，作为第三级强调色
