@@ -8,7 +8,6 @@ import com.trae.social.core.data.config.LlmProvider
 import com.trae.social.core.data.config.ModelCapability
 import com.trae.social.core.data.di.SecurePreferences
 import com.trae.social.core.data.repository.ConfigRepository
-import com.trae.social.core.data.repository.LlmCacheInvalidator
 import com.trae.social.llm.RulesetEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -45,7 +44,6 @@ import javax.inject.Inject
 class OnboardingViewModel @Inject constructor(
     private val configRepository: ConfigRepository,
     private val rulesetEngine: RulesetEngine,
-    private val cacheInvalidator: LlmCacheInvalidator,
     private val coldStartFiller: ColdStartFiller,
     // #34：直接注入 EncryptedSharedPreferences 用于历史 API Key 存储，
     // 与 ConfigRepository 内部使用的同一加密实例（命名空间隔离，键名以 history_ 前缀）。
@@ -221,11 +219,14 @@ class OnboardingViewModel @Inject constructor(
      *
      * 流程：
      * 1. 调 [ensureEndpoint] 创建或更新端点（写入端点表 + EncryptedSharedPreferences API Key）
-     * 2. 失效 EndpointRegistry 缓存（强制按新配置重建 LlmClient）
-     * 3. 调用 [RulesetEngine.ping] 验证连通性。ping 返回 Boolean，
+     * 2. 调用 [RulesetEngine.ping] 验证连通性。ping 返回 Boolean，
      *    但若 ping 内部抛出 SDK 异常（401 / 403 / 429 / 5xx / 网络错误等），
      *    会向上 propagate——这里 `runCatching` 捕获后用 [classifyError] 给出具体原因，
      *    避免用户看到「连接失败」这种无信息错误（#151 review 反馈：错误分类能力回归）。
+     *
+     * #288：端点 CRUD / API Key 变更后无需手动调 invalidateCache()——ConfigRepository
+     * 在每个写操作内 `_endpointChanges.tryEmit(Unit)`，EndpointRegistry 订阅该流后
+     * 自动 `invalidateCache()`，缓存失效由类型系统（订阅）保证而非人工记忆。
      */
     fun testConnection() {
         val current = _uiState.value
@@ -238,7 +239,6 @@ class OnboardingViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val endpointId = ensureEndpoint(current)
-                cacheInvalidator.invalidateCache()
 
                 // 主 review 第 1 轮 M2 修复：原 runCatching 会吞 CancellationException，
                 // 协程取消（如用户离开页面）被误判为 ping 失败并写入 TestStatus.Error，
@@ -292,11 +292,14 @@ class OnboardingViewModel @Inject constructor(
      * 保存配置并完成引导。
      *
      * 1. 调 [ensureEndpoint] 创建或更新端点（若尚未通过测试创建）
-     * 2. 失效 LLM 客户端缓存
-     * 3. 触发 [ColdStartFiller] 进行冷启动内容填充（RISK-14）
-     * 4. 标记 completed=true，由 UI 层调用 onCompleted 跳转主界面
+     * 2. 触发 [ColdStartFiller] 进行冷启动内容填充（RISK-14）
+     * 3. 标记 completed=true，由 UI 层调用 onCompleted 跳转主界面
      *
      * 首个端点自动成为主端点（orderIndex=0），无需显式 setDefaultProvider。
+     *
+     * #288：端点 CRUD / API Key 变更后无需手动调 invalidateCache()——ConfigRepository
+     * 在每个写操作内 `_endpointChanges.tryEmit(Unit)`，EndpointRegistry 订阅该流后
+     * 自动 `invalidateCache()`，缓存失效由类型系统（订阅）保证而非人工记忆。
      *
      * @param onSaved 保存与冷启动触发完成后的回调（UI 层在此跳转至 done 页或调用 onCompleted）
      */
@@ -310,7 +313,6 @@ class OnboardingViewModel @Inject constructor(
             try {
                 val current = _uiState.value
                 ensureEndpoint(current)
-                cacheInvalidator.invalidateCache()
 
                 // 触发冷启动内容填充（RISK-14）
                 // 主 review 第 1 轮 M2 修复：原 runCatching 会吞 CancellationException，
@@ -362,11 +364,20 @@ class OnboardingViewModel @Inject constructor(
      */
     private suspend fun ensureEndpoint(state: OnboardingUiState): String {
         val protocol = protocolFor(state.selectedProvider)
-        val capabilities = setOf(
-            ModelCapability.TEXT,
-            ModelCapability.JSON_MODE_NATIVE,
-            ModelCapability.STREAMING,
-        )
+        // #297 修复：按 protocol 区分能力，避免给 Anthropic 端点声明 JSON_MODE_NATIVE
+        // 导致 DefaultRulesetEngine 走原生 response_format 失败。
+        // 与 ApiKeyViewModel.defaultCapabilitiesFor(protocol) 保持一致。
+        val capabilities = when (protocol) {
+            LlmProtocol.OPENAI_COMPATIBLE -> setOf(
+                ModelCapability.TEXT,
+                ModelCapability.JSON_MODE_NATIVE,
+                ModelCapability.STREAMING,
+            )
+            LlmProtocol.ANTHROPIC_COMPATIBLE -> setOf(
+                ModelCapability.TEXT,
+                ModelCapability.STREAMING,
+            )
+        }
         // review 修复：KeyInputScreen 的 supportingText 承诺「留空则使用提供商官方端点」，
         // 但此前 state.baseUrl 为空时直接透传空串给 ConfigRepository，导致 ping 请求
         // 打到空 URL 报 UnknownHostException。此处对非 CUSTOM 提供商补上官方默认端点。

@@ -1,9 +1,9 @@
-package com.trae.social.data.gallery.di
+package com.trae.social.core.data.gallery.di
 
-import com.trae.social.data.gallery.ImageUsagePort
-import com.trae.social.data.gallery.LocalImageGallery
-import com.trae.social.data.gallery.LocalImageGalleryImpl
-import com.trae.social.data.gallery.RoomImageUsagePort
+import com.trae.social.core.data.gallery.ImageUsagePort
+import com.trae.social.core.data.gallery.LocalImageGallery
+import com.trae.social.core.data.gallery.LocalImageGalleryImpl
+import com.trae.social.core.data.gallery.RoomImageUsagePort
 import dagger.Binds
 import dagger.Module
 import dagger.Provides

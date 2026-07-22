@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.trae.social.core.data.AccountIds
 import com.trae.social.core.data.config.AiActivityLevel
-import com.trae.social.core.data.config.LlmProvider
 import com.trae.social.core.data.dao.FollowRelationDao
 import com.trae.social.core.data.entity.AccountEntity
 import com.trae.social.core.data.entity.InteractionEntity

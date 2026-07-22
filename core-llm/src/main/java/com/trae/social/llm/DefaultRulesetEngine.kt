@@ -246,7 +246,7 @@ class DefaultRulesetEngine @Inject constructor(
     private fun isPersistentError(e: Throwable): Boolean {
         if (e is IOException) return false
         val code = extractSdkStatusCode(e) ?: return false
-        return code in 400..499 && code != 429
+        return code in 400..499 && code != HTTP_TOO_MANY_REQUESTS
     }
 
     private fun isRateLimited(e: Throwable): Boolean {
@@ -254,7 +254,7 @@ class DefaultRulesetEngine @Inject constructor(
         // IOException（UnknownHost / SocketTimeout 等）的 message 偶然含 "429" 不应被误判为限流。
         if (e is IOException) return false
         val code = extractSdkStatusCode(e) ?: return false
-        return code == 429
+        return code == HTTP_TOO_MANY_REQUESTS
     }
 
     private fun toRateLimited(e: Throwable): RateLimitedException {
@@ -286,5 +286,7 @@ class DefaultRulesetEngine @Inject constructor(
     private companion object {
         const val JSON_MODE_HINT =
             "请严格只输出合法 JSON 对象，不要包含 markdown 代码块标记或额外说明。"
+        // #285：HTTP 429 限流状态码常量化，避免魔数。
+        const val HTTP_TOO_MANY_REQUESTS = 429
     }
 }

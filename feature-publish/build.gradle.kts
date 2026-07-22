@@ -8,7 +8,7 @@ plugins {
 }
 
 android {
-    namespace = "com.trae.social.feature.publish"
+    namespace = "com.trae.social.publish"
     compileSdk = 34
 
     defaultConfig {

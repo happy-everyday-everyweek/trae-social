@@ -1,6 +1,6 @@
 # core-data 数据层
 
-数据层模块，namespace `com.trae.social.core.data`，含两个包路径：`com.trae.social.core.data.*`（DB 主体）与 `com.trae.social.data.gallery.*`（图库系统）。compileSdk 34, minSdk 26, JVM 17。
+数据层模块，namespace `com.trae.social.core.data`，包路径统一为 `com.trae.social.core.data.*`（#291 修复：原 `com.trae.social.data.gallery.*` 已重命名为 `com.trae.social.core.data.gallery.*`）。compileSdk 34, minSdk 26, JVM 17。
 
 ## Room 数据库 AppDatabase
 
@@ -183,7 +183,6 @@
 - `InteractionRepository`：`scheduleInteraction` / `getPendingInteractions` / `executeInteractionsAndUpdateTweet`。
 - `CommentRepository`：`addComment` / `getCommentsForTweet`。
 - `ConfigRepository`：详见下节。
-- `LlmCacheInvalidator`：`fun interface`，`suspend invalidateCache()`，定义在 core-data 避免 feature 依赖 core-llm。
 
 ## ConfigRepository（配置仓库）
 

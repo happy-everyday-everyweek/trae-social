@@ -7,6 +7,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.trae.social.core.data.TweetLimits
 import com.trae.social.core.data.config.AiActivityLevel
 import com.trae.social.core.data.entity.TweetEntity
 import com.trae.social.core.data.repository.AccountRepository
@@ -21,8 +22,8 @@ import com.trae.social.core.profiling.feedback.UserProfileReadAccess
 import com.trae.social.core.scheduler.ratelimit.DailyQuotaChecker
 import com.trae.social.core.scheduler.ratelimit.SchedulerRateLimiter
 import com.trae.social.core.scheduler.rule.DeduplicationKeys
-import com.trae.social.data.gallery.LocalImageGallery
-import com.trae.social.data.gallery.themeToString
+import com.trae.social.core.data.gallery.LocalImageGallery
+import com.trae.social.core.data.gallery.themeToString
 import com.trae.social.llm.ChatConfig
 import com.trae.social.llm.RulesetEngine
 import com.trae.social.llm.interceptor.RateLimitedException
@@ -212,7 +213,7 @@ class TweetGenerationWorker @AssistedInject constructor(
                 imageTheme = parsed.imageTheme
             } else {
                 Timber.w("账号 %s 推文 JSON 解析失败，降级为纯文本", accountId)
-                rawText = rawResponse.take(MAX_TWEET_LENGTH)
+                rawText = rawResponse.take(TweetLimits.MAX_TWEET_LENGTH)
                 withImage = false
                 imageTheme = TweetPromptBuilder.ImageTheme.NONE
             }
@@ -224,7 +225,7 @@ class TweetGenerationWorker @AssistedInject constructor(
             val random = Random(windowStart + accountId.hashCode())
             val withTypos = postProcessor.applyTypos(rawText, personaInput.typoRate, random)
             val withEmojis = postProcessor.appendEmojis(withTypos, personaInput.emojiPreference, random)
-            val finalText = postProcessor.truncate(withEmojis, MAX_TWEET_LENGTH)
+            val finalText = postProcessor.truncate(withEmojis, TweetLimits.MAX_TWEET_LENGTH)
 
             // ------------------------------------------------------------------
             // 8. 配图选取
@@ -472,21 +473,20 @@ class TweetGenerationWorker @AssistedInject constructor(
      */
     private fun imageThemeToGallery(theme: TweetPromptBuilder.ImageTheme): String {
         val galleryTheme = when (theme) {
-            TweetPromptBuilder.ImageTheme.LANDSCAPE -> com.trae.social.data.gallery.GalleryImageTheme.LANDSCAPE
-            TweetPromptBuilder.ImageTheme.FOOD -> com.trae.social.data.gallery.GalleryImageTheme.FOOD
-            TweetPromptBuilder.ImageTheme.CITY -> com.trae.social.data.gallery.GalleryImageTheme.CITY
-            TweetPromptBuilder.ImageTheme.PET -> com.trae.social.data.gallery.GalleryImageTheme.PET
-            TweetPromptBuilder.ImageTheme.SPORT -> com.trae.social.data.gallery.GalleryImageTheme.SPORT
-            TweetPromptBuilder.ImageTheme.ART -> com.trae.social.data.gallery.GalleryImageTheme.ART
-            TweetPromptBuilder.ImageTheme.TECH -> com.trae.social.data.gallery.GalleryImageTheme.TECH
-            TweetPromptBuilder.ImageTheme.NATURE -> com.trae.social.data.gallery.GalleryImageTheme.NATURE
-            TweetPromptBuilder.ImageTheme.NONE -> com.trae.social.data.gallery.GalleryImageTheme.NONE
+            TweetPromptBuilder.ImageTheme.LANDSCAPE -> com.trae.social.core.data.gallery.GalleryImageTheme.LANDSCAPE
+            TweetPromptBuilder.ImageTheme.FOOD -> com.trae.social.core.data.gallery.GalleryImageTheme.FOOD
+            TweetPromptBuilder.ImageTheme.CITY -> com.trae.social.core.data.gallery.GalleryImageTheme.CITY
+            TweetPromptBuilder.ImageTheme.PET -> com.trae.social.core.data.gallery.GalleryImageTheme.PET
+            TweetPromptBuilder.ImageTheme.SPORT -> com.trae.social.core.data.gallery.GalleryImageTheme.SPORT
+            TweetPromptBuilder.ImageTheme.ART -> com.trae.social.core.data.gallery.GalleryImageTheme.ART
+            TweetPromptBuilder.ImageTheme.TECH -> com.trae.social.core.data.gallery.GalleryImageTheme.TECH
+            TweetPromptBuilder.ImageTheme.NATURE -> com.trae.social.core.data.gallery.GalleryImageTheme.NATURE
+            TweetPromptBuilder.ImageTheme.NONE -> com.trae.social.core.data.gallery.GalleryImageTheme.NONE
         }
         return themeToString(galleryTheme)
     }
 
     private companion object {
-        const val MAX_TWEET_LENGTH = 280
         const val RECENT_TWEETS_FOR_DEDUP = 3
 
         /** P1 修复：每个活跃窗内允许发布的推文数上限（与 SchedulerInitializer 保持一致） */

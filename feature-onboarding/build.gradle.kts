@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "com.trae.social.feature.onboarding"
+    namespace = "com.trae.social.onboarding"
     compileSdk = 34
 
     defaultConfig {

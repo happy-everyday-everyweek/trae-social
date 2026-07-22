@@ -144,16 +144,15 @@ popUpTo(graph.findStartDestination().id){ saveState=true } + launchSingleTop + r
 ### 4. AssetProviderModule
 
 - 含 `AssetProviderImpl`（`listAssets` / `openAsset` 委托 `context.assets`）。
-- 三个绑定：`AssetProvider`、`LlmConfigProvider`、`LlmCacheInvalidator`（lambda -> `registry.invalidateCache()`）。
+- 仅提供 `AssetProvider` 绑定（#217 拆分后 LLM 绑定迁至 `AppLlmModule`）。
 
 ### 绑定总结表
 
 | 接口 | 实现 | 提供模块 | 限定符 |
 | --- | --- | --- | --- |
 | `ColdStartFiller` | `AppColdStartFiller` | `AppOnboardingModule` | - |
-| `LlmConfigProvider` | `AppLlmConfigProvider` | （类自带 `@Singleton` 构造注入） | - |
 | `AssetProvider` | `AssetProviderImpl` | `AssetProviderModule` | - |
-| `LlmCacheInvalidator` | lambda -> `registry.invalidateCache()` | `AssetProviderModule` | - |
+| `EndpointConfigProvider` | `AppEndpointConfigProvider` | `AppLlmModule` | - |
 
 ## AndroidManifest 要点
 

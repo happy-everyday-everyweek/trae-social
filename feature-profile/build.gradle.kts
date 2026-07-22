@@ -8,7 +8,7 @@ plugins {
 }
 
 android {
-    namespace = "com.trae.social.feature.profile"
+    namespace = "com.trae.social.profile"
     compileSdk = 34
 
     defaultConfig {

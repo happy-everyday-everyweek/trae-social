@@ -73,7 +73,9 @@ class TweetPostProcessorTest {
         val text = "你好"
         // 使用占位字符串代表 emoji，避免在源码中出现字面 emoji。
         val emojis = listOf("[e1]", "[e2]", "[e3]")
-        // 多次抽样确保覆盖 1 个与 2 个两种情况，且结果始终以原文开头。
+        // #292e：用 for 循环覆盖 50 个种子，确保覆盖追加 1 个与 2 个 emoji 两种情况且结果始终以原文开头。
+        // 理想做法是 JUnit5 @ParameterizedTest 逐种子生成独立用例，但项目当前仅依赖 JUnit4
+        // （gradle/libs.versions.toml 无 junit-jupiter），故以循环内断言替代参数化测试。
         for (seed in 0 until 50) {
             val result = processor.appendEmojis(text, emojis, Random(seed.toLong()))
             assertTrue("结果应以原文开头: $result", result.startsWith(text))

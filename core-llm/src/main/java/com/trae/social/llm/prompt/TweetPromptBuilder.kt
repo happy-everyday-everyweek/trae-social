@@ -1,5 +1,6 @@
 package com.trae.social.llm.prompt
 
+import com.trae.social.core.data.TweetLimits
 import com.trae.social.core.data.entity.AccountEntity
 import com.trae.social.llm.ChatMessage
 import kotlinx.serialization.json.Json
@@ -158,7 +159,7 @@ class TweetPromptBuilder {
             }
             appendLine()
             appendLine("请输出 JSON：{\"text\": \"推文内容\", \"withImage\": true/false, \"imageTheme\": \"landscape/food/city/pet/sport/art/tech/nature/none\", \"interactionTendency\": 0.0-1.0}。")
-            appendLine("约束：text 不超过 280 字符；withImage 为布尔值；imageTheme 必须是上述枚举之一；interactionTendency 为 0.0-1.0 之间的浮点数。")
+            appendLine("约束：text 不超过 ${TweetLimits.MAX_TWEET_LENGTH} 字符；withImage 为布尔值；imageTheme 必须是上述枚举之一；interactionTendency 为 0.0-1.0 之间的浮点数。")
             appendLine("不要输出 JSON 以外的任何说明文字。")
         }
     }
@@ -312,7 +313,7 @@ class TweetPostProcessor {
      * @param text 原文本。
      * @param max 最大字符数，默认 280。
      */
-    fun truncate(text: String, max: Int = 280): String {
+    fun truncate(text: String, max: Int = TweetLimits.MAX_TWEET_LENGTH): String {
         if (text.length <= max) return text
         var cut = if (max <= 1) 0 else max - 1
         // 若 cut 恰好落在代理对的高位代理之后、低位代理之前，

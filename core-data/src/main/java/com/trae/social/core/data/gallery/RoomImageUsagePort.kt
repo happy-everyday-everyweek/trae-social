@@ -1,4 +1,4 @@
-package com.trae.social.data.gallery
+package com.trae.social.core.data.gallery
 
 import com.trae.social.core.data.dao.ImageUsageDao
 import com.trae.social.core.data.entity.ImageUsageEntity

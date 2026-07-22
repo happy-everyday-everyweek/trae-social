@@ -1,4 +1,4 @@
-package com.trae.social.data.gallery
+package com.trae.social.core.data.gallery
 
 import java.io.InputStream
 

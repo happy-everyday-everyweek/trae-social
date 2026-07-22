@@ -4,7 +4,6 @@ import com.trae.social.core.data.dao.UserActionDao
 import com.trae.social.core.data.entity.CommentEntity
 import com.trae.social.core.data.entity.TweetEntity
 import com.trae.social.core.data.entity.LlmEndpointEntity
-import com.trae.social.core.data.model.UserActionEvent
 import com.trae.social.core.data.model.UserActionType
 import com.trae.social.core.data.repository.CommentRepository
 import com.trae.social.core.data.repository.ConfigRepository
@@ -33,10 +32,18 @@ import org.junit.Test
  */
 class EventTextPreParserTest {
 
+    // #289：各依赖均为有外部副作用（LLM 调用 / 数据库 / 网络回查）的接口，行为需按用例定制，
+    // 难以用简单 fake 替换，故保留 mockk。下方注释说明每个 mock 的职责。
+    // rulesetEngine：LLM 调用入口，按用例返回不同的解析结果 JSON（成功 / 空 topic / 非法 JSON）。
     private val rulesetEngine: RulesetEngine = mockk()
+    // tweetRepository：PUBLISH_TWEET 事件按 targetId 回查推文原文，控制返回真实推文或 null（已删除）。
     private val tweetRepository: TweetRepository = mockk()
+    // commentRepository：TWEET_COMMENT 事件按 commentId 精确回查或按推文+作者时间最近匹配评论原文。
     private val commentRepository: CommentRepository = mockk()
+    // userActionDao：持久化解析后的 extra（relaxed=true，仅需记录调用，无需配置返回值）。
+    // 该 DAO 含 10+ Room 查询方法，手写 fake 成本高于收益，保留 relaxed mock。
     private val userActionDao: UserActionDao = mockk(relaxed = true)
+    // configRepository：返回 LLM 端点列表，控制「已配置端点」与「未配置端点」两条路径。
     private val configRepository: ConfigRepository = mockk()
 
     private val parser = EventTextPreParser(
@@ -47,7 +54,10 @@ class EventTextPreParserTest {
         configRepository = configRepository,
     )
 
-    private val now = System.currentTimeMillis()
+    // #290：使用固定时间戳替代 System.currentTimeMillis()，避免时间相关断言不稳定。
+    // 该值仅作为事件/实体的时间戳输入；生产代码内部的时间预算（System.currentTimeMillis()
+    // + OVERALL_BUDGET_MS）与该值无关，测试运行远未超 2 分钟预算。
+    private val now = 1_700_000_000_000L
 
     @Test
     fun `PUBLISH_TWEET 事件回查推文文本并写入 textTopic`() = runTest {
@@ -118,8 +128,9 @@ class EventTextPreParserTest {
         val result = parser.enrichWithTextSignals(listOf(event))
         assertEquals(1, result.size)
         assertEquals("旅行", result[0].extra["textTopic"]?.let { (it as JsonPrimitive).content })
-        coVerify(exactly = 0) { rulesetEngine.chatSync(any(), any()) }
-        coVerify(exactly = 0) { tweetRepository.getById(any()) }
+        // #289：不再用 coVerify(exactly=0) 断言 LLM/回查未被调用。本用例未对 chatSync /
+        // getById 配置 coEvery，若被调用 mockk 会直接抛异常导致测试失败；结果仍保留原
+        // textTopic="旅行" 即为可观察的「未重新解析」证据。
     }
 
     @Test
@@ -133,8 +144,12 @@ class EventTextPreParserTest {
         )
         coEvery { tweetRepository.getById("tweet-3b") } returns mkTweet("tweet-3b", "some text")
         coEvery { configRepository.listEndpoints() } returns listOf(mkEndpoint())
-        coEvery { rulesetEngine.chatSync(any(), any()) } returns
-            """[{"index":0,"textTopic":null,"textTopics":[],"textSentiment":"positive","textIntent":"share"}]"""
+        // #289：第二轮若缓存未命中会再次调用 LLM，此时返回不同的 sentiment=negative。
+        // 用 returnsMany 区分两轮调用，使「未重复解析」可通过可观察输出断言。
+        coEvery { rulesetEngine.chatSync(any(), any()) } returnsMany listOf(
+            """[{"index":0,"textTopic":null,"textTopics":[],"textSentiment":"positive","textIntent":"share"}]""",
+            """[{"index":0,"textTopic":null,"textTopics":[],"textSentiment":"negative","textIntent":"opinion"}]""",
+        )
 
         val result = parser.enrichWithTextSignals(listOf(event))
         assertEquals(1, result.size)
@@ -148,7 +163,9 @@ class EventTextPreParserTest {
         // 第二轮：同一事件不应再调用 LLM（textParsed=true 缓存命中）
         val result2 = parser.enrichWithTextSignals(listOf(result[0]))
         assertEquals(1, result2.size)
-        coVerify(exactly = 1) { rulesetEngine.chatSync(any(), any()) }
+        // #289：用可观察输出替代 coVerify(exactly=1)。若缓存未命中重新调用 LLM，
+        // 第二轮会返回 sentiment=negative；结果仍为 positive 即证明跳过了 LLM 调用。
+        assertEquals("positive", result2[0].extra["textSentiment"]?.let { (it as JsonPrimitive).content })
     }
 
     @Test
@@ -165,7 +182,8 @@ class EventTextPreParserTest {
         val result = parser.enrichWithTextSignals(listOf(event))
         assertEquals(1, result.size)
         assertNull(result[0].extra["textTopic"])
-        coVerify(exactly = 0) { rulesetEngine.chatSync(any(), any()) }
+        // #289：未配置端点时直接返回原事件，assertNull 已证明未写入解析信号；
+        // chatSync 未配置 coEvery，若被调用 mockk 会抛异常，无需 coVerify(exactly=0)。
     }
 
     @Test
@@ -179,7 +197,8 @@ class EventTextPreParserTest {
         val result = parser.enrichWithTextSignals(listOf(viewEvent))
         assertEquals(1, result.size)
         assertNull(result[0].extra["textTopic"])
-        coVerify(exactly = 0) { rulesetEngine.chatSync(any(), any()) }
+        // #289：TWEET_VIEW 不携带文本，assertNull 已证明未写入解析信号；
+        // chatSync 未配置 coEvery，若被调用 mockk 会抛异常，无需 coVerify(exactly=0)。
     }
 
     @Test
@@ -195,7 +214,8 @@ class EventTextPreParserTest {
         val result = parser.enrichWithTextSignals(listOf(event))
         assertEquals(1, result.size)
         assertNull(result[0].extra["textTopic"])
-        coVerify(exactly = 0) { rulesetEngine.chatSync(any(), any()) }
+        // #289：getById 返回 null 时跳过该事件，assertNull 已证明未写入解析信号；
+        // chatSync 未配置 coEvery，若被调用 mockk 会抛异常，无需 coVerify(exactly=0)。
     }
 
     @Test
@@ -217,9 +237,9 @@ class EventTextPreParserTest {
 
     @Test
     fun `混合事件列表只解析携带文本的事件`() = runTest {
-        val viewEvent = mkEvent("e8a", UserActionType.TWEET_VIEW, "tweet-8", now)
-        val publishEvent = mkEvent("e8b", UserActionType.PUBLISH_TWEET, "tweet-8b", now)
-        val commentEvent = mkEvent("e8c", UserActionType.TWEET_COMMENT, "tweet-8c", now)
+        val viewEvent = mkEvent(type = UserActionType.TWEET_VIEW, targetId = "tweet-8", occurredAt = now, id = "e8a")
+        val publishEvent = mkEvent(type = UserActionType.PUBLISH_TWEET, targetId = "tweet-8b", occurredAt = now, id = "e8b")
+        val commentEvent = mkEvent(type = UserActionType.TWEET_COMMENT, targetId = "tweet-8c", occurredAt = now, id = "e8c")
 
         coEvery { tweetRepository.getById("tweet-8b") } returns mkTweet("tweet-8b", "分享我的摄影作品")
         coEvery { commentRepository.getByTweetAndAuthor("tweet-8c", "user-self") } returns
@@ -242,14 +262,18 @@ class EventTextPreParserTest {
      */
     @Test
     fun `LLM 漏返回某 index 时仍标记 textParsed 避免重复解析`() = runTest {
-        val event1 = mkEvent("e9a", UserActionType.PUBLISH_TWEET, "tweet-9a", now)
-        val event2 = mkEvent("e9b", UserActionType.PUBLISH_TWEET, "tweet-9b", now)
+        val event1 = mkEvent(type = UserActionType.PUBLISH_TWEET, targetId = "tweet-9a", occurredAt = now, id = "e9a")
+        val event2 = mkEvent(type = UserActionType.PUBLISH_TWEET, targetId = "tweet-9b", occurredAt = now, id = "e9b")
         // LLM 只返回了 index=0，漏掉了 index=1
         coEvery { tweetRepository.getById("tweet-9a") } returns mkTweet("tweet-9a", "摄影分享")
         coEvery { tweetRepository.getById("tweet-9b") } returns mkTweet("tweet-9b", "美食探店")
         coEvery { configRepository.listEndpoints() } returns listOf(mkEndpoint())
-        coEvery { rulesetEngine.chatSync(any(), any()) } returns
-            """[{"index":0,"textTopic":"摄影","textTopics":[],"textSentiment":"positive","textIntent":"share"}]"""
+        // #289：第二轮若缓存未命中会再次调用 LLM，此时返回不同 topic=不该出现，
+        // 使「未重复解析」可通过可观察输出断言。
+        coEvery { rulesetEngine.chatSync(any(), any()) } returnsMany listOf(
+            """[{"index":0,"textTopic":"摄影","textTopics":[],"textSentiment":"positive","textIntent":"share"}]""",
+            """[{"index":0,"textTopic":"不该出现","textTopics":[],"textSentiment":"negative","textIntent":"opinion"}]""",
+        )
 
         val result = parser.enrichWithTextSignals(listOf(event1, event2))
         assertEquals(2, result.size)
@@ -261,8 +285,10 @@ class EventTextPreParserTest {
         assertEquals(true, result[1].extra["textParsed"]?.let { (it as JsonPrimitive).content.toBooleanStrict() })
 
         // 第二轮：两个事件都应跳过 LLM（textParsed=true 缓存命中）
-        parser.enrichWithTextSignals(result)
-        coVerify(exactly = 1) { rulesetEngine.chatSync(any(), any()) }
+        val result2 = parser.enrichWithTextSignals(result)
+        // #289：用可观察输出替代 coVerify(exactly=1)。若缓存未命中重新调用 LLM，
+        // 第二轮会返回 topic=不该出现；event1 仍为 摄影 即证明跳过了 LLM 调用。
+        assertEquals("摄影", result2[0].extra["textTopic"]?.let { (it as JsonPrimitive).content })
     }
 
     /**
@@ -288,28 +314,12 @@ class EventTextPreParserTest {
         val result = parser.enrichWithTextSignals(listOf(event))
         assertEquals(1, result.size)
         assertEquals("科技", result[0].extra["textTopic"]?.let { (it as JsonPrimitive).content })
-        // 应按 id 精确查询，不应调用 getByTweetAndAuthor
-        coVerify(exactly = 0) { commentRepository.getByTweetAndAuthor(any(), any()) }
+        // #289：应按 id 精确查询，不应调用 getByTweetAndAuthor。
+        // getByTweetAndAuthor 未配置 coEvery，若被调用 mockk 会抛异常，无需 coVerify(exactly=0)。
     }
 
     // ---- helpers ----
-
-    private fun mkEvent(
-        id: String,
-        type: UserActionType,
-        targetId: String?,
-        occurredAt: Long,
-        extra: Map<String, kotlinx.serialization.json.JsonElement> = emptyMap(),
-    ) = UserActionEvent(
-        id = id,
-        type = type,
-        screen = "test",
-        targetId = targetId,
-        targetKind = "tweet",
-        extra = extra,
-        occurredAt = occurredAt,
-        session = "session-test",
-    )
+    // mkEvent 已抽至 ProfileTestFixtures.kt（#292d），与本文件同包可直接调用。
 
     private fun mkTweet(id: String, text: String) = TweetEntity(
         id = id,

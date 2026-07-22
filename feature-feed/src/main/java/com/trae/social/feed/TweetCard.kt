@@ -70,6 +70,7 @@ import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
+import com.trae.social.core.data.TweetLimits
 import com.trae.social.designsystem.components.LoadingShimmer
 import com.trae.social.designsystem.components.SocialDivider
 import com.trae.social.designsystem.components.socialClickable
@@ -526,7 +527,7 @@ private fun TweetText(
     // maxLines + ellipsis 防止正文撑爆屏幕（sp 自身随 fontScale 缩放，此处仅做裁剪兜底）。
     val fontScale = LocalConfiguration.current.fontScale
     val bodyMaxLines = if (fontScale > 1.3f) 8 else Int.MAX_VALUE
-    val limit = 280
+    val limit = TweetLimits.MAX_TWEET_LENGTH
     var expanded by rememberSaveable(text) { mutableStateOf(false) }
     val needCollapse = text.length > limit
     val displayText = if (needCollapse && !expanded) text.take(limit) else text

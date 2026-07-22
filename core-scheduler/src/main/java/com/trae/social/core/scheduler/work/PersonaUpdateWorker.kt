@@ -29,7 +29,7 @@ import timber.log.Timber
  * 周期按 AI 活跃度档位缩放执行（LOW=14 天 / MEDIUM=7 天 / HIGH=3 天）：
  * 1. 选取 batchSize 个最久未更新的虚拟账号（按档位 10/20/40，#75）；
  * 2. 加载其当前动态字段与最近活动事件；
- * 3. 调 [PersonaUpdatePromptBuilder.build] + LlmClient.chatSync；
+ * 3. 调 [PersonaUpdatePromptBuilder.build] + rulesetEngine.chatSync；
  * 4. [PersonaUpdatePromptBuilder.parsePersonaUpdate] 解析；
  * 5. [PersonaUpdatePromptBuilder.shouldRollback] 校验（相似度过低则回退）；
  * 6. [AccountRepository.updateDynamicFields] 写入。

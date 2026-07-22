@@ -214,11 +214,11 @@ private fun SocialApp(
 
     // #210：观察 newIntentFlow，当前无深链 intent-filter，预留 hook；
     // 未来接入深链时在此处解析 intent.data/extras 并 navController.navigate(...)。
-    // TODO 深链接入后需做"已消费"去重，避免旋转重复 navigate
+    // TODO(#293): 深链接入后需做"已消费"去重，避免旋转重复 navigate
     LaunchedEffect(newIntentFlow) {
         newIntentFlow.collect { intent ->
             if (intent != null) {
-                // TODO 深链路由：解析 intent.data 或 extras，调用 navController.navigate(...)
+                // TODO(#293): 深链路由：解析 intent.data 或 extras，调用 navController.navigate(...)
             }
         }
     }

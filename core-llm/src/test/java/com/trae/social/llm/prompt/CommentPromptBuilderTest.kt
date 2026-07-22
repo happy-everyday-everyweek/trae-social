@@ -14,19 +14,7 @@ class CommentPromptBuilderTest {
 
     private val builder = CommentPromptBuilder()
 
-    private fun samplePersona(name: String) = TweetPromptBuilder.PersonaInput(
-        displayName = name,
-        profession = "设计师",
-        ageRange = "25-34",
-        culturalBackground = "华东",
-        worldview = "美即正义",
-        values = "细节决定成败",
-        languageStyle = "文艺",
-        catchphrase = "绝了",
-        emojiPreference = emptyList(),
-        typoRate = 0.0,
-        recentMood = "平静",
-    )
+    // #292c：samplePersona 已抽至 TestPersonas.kt，与本文件同包可直接调用。
 
     @Test
     fun `build 返回 system 与 user 两条消息`() {
@@ -65,12 +53,7 @@ class CommentPromptBuilderTest {
 
     @Test
     fun `parseCommentResults 成功解析标准 JSON 数组`() {
-        val raw = """
-            [{"commenterIndex": 0, "text": "说得好", "type": "COMMENT"},
-             {"commenterIndex": 1, "text": "", "type": "LIKE"},
-             {"commenterIndex": 2, "text": "", "type": "RETWEET"}]
-        """.trimIndent()
-        val results = CommentPromptBuilder.parseCommentResults(raw)
+        val results = CommentPromptBuilder.parseCommentResults(validCommentJson)
         assertEquals(3, results.size)
         assertEquals(0, results[0].commenterIndex)
         assertEquals("说得好", results[0].text)
@@ -116,7 +99,7 @@ class CommentPromptBuilderTest {
 
     @Test
     fun `parseCommentResults 纯文本无 JSON 返回空列表`() {
-        val results = CommentPromptBuilder.parseCommentResults("这不是 JSON")
+        val results = CommentPromptBuilder.parseCommentResults(malformedJson)
         assertTrue(results.isEmpty())
     }
 

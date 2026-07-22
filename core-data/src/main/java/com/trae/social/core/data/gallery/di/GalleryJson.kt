@@ -1,4 +1,4 @@
-package com.trae.social.data.gallery.di
+package com.trae.social.core.data.gallery.di
 
 import javax.inject.Qualifier
 

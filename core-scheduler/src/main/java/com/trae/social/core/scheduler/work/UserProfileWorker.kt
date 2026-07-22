@@ -109,8 +109,8 @@ class UserProfileWorker @AssistedInject constructor(
             // IllegalStateException 后被通用 catch 捕获走 retry 浪费 WorkManager 配额
             val endpoints = configRepository.listEndpoints()
             if (endpoints.isEmpty()) {
-                logEvent(started, "no_default_provider", null)
-                return Result.success(workDataOf(WorkerKeys.KEY_RESULT to "no_default_provider"))
+                logEvent(started, "no_endpoint_configured", null)
+                return Result.success(workDataOf(WorkerKeys.KEY_RESULT to "no_endpoint_configured"))
             }
             // #151 重构后：RulesetEngine 内部自动选主端点 + 降级链，此处只关心调用结果。
             // modelProvider 仍记录主端点 id（endpoints 已按 orderIndex 升序，首项即主端点），

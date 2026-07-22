@@ -117,7 +117,7 @@ class PersonaUpdatePromptBuilderTest {
 
     @Test
     fun `parsePersonaUpdate 成功解析标准 JSON`() {
-        val raw = """{"lifeStory": "新经历", "workInfo": "新工作", "mood": "新情绪"}"""
+        val raw = validPersonaUpdateJson
         val result = PersonaUpdatePromptBuilder.parsePersonaUpdate(raw)
         assertNotNull(result)
         assertEquals("新经历", result!!.lifeStory)
@@ -147,7 +147,7 @@ class PersonaUpdatePromptBuilderTest {
 
     @Test
     fun `parsePersonaUpdate 无 JSON 返回 null`() {
-        assertNull(PersonaUpdatePromptBuilder.parsePersonaUpdate("纯文本无 JSON"))
+        assertNull(PersonaUpdatePromptBuilder.parsePersonaUpdate(malformedJson))
     }
 
     // ---- #146 A/E 场景 7 personaCoEvolve：userInterests 注入测试 ----

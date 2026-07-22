@@ -1,4 +1,4 @@
-package com.trae.social.data.gallery
+package com.trae.social.core.data.gallery
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -13,7 +13,7 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.random.Random
-import com.trae.social.data.gallery.di.GalleryJson
+import com.trae.social.core.data.gallery.di.GalleryJson
 
 /**
  * [LocalImageGallery] 的默认实现。

@@ -487,4 +487,4 @@ RateLimiter(maxTokens = 30, refillIntervalMillis = 60_000, nowProvider)
   Anthropic 端点需通过迁移或代码注入创建，UI protocol 选择器待后续。
 - `migrateLegacyProviderConfigsLocked` 通过 `displayName` 匹配默认 provider 的边缘 case
   （用户改了 displayName 后再触发迁移），建议后续用 `protocol.id` 或新增 `legacyProvider` 字段。
-- `UserProfileWorker` 的 `no_default_provider` 状态字符串未更新为 `no_endpoint_configured`。
+- `UserProfileWorker` 的 `no_default_provider` 状态字符串已更新为 `no_endpoint_configured`（#297 修复）。

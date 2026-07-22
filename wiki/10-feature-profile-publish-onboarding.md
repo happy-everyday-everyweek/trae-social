@@ -42,9 +42,9 @@ namespace `com.trae.social.feature.profile`。依赖 `core-scheduler` / `core-pr
 
 ### ApiKeyManagementScreen
 
-参数 `onBack`。`LazyColumn` + `ProviderConfigCard`（按 `LlmProvider` 列出）。`mutableStateMapOf<LlmProvider, String>` 用于 drafts。API Key 字段 `OutlinedTextField` + `PasswordVisualTransformation`。"设为默认 provider"按钮 IMPL-27 修复：未配置 Key 时禁用。
+参数 `onBack`。`LazyColumn` + `ProviderConfigCard`（按 `LlmEndpointEntity` 列出，按 `orderIndex` 升序）。drafts 以 endpointId 为键。API Key 字段 `OutlinedTextField` + `PasswordVisualTransformation`。支持端点 CRUD（新增 / 编辑 / 删除）+ 拖拽排序，首位端点（orderIndex=0）自动为主端点。
 
-`ApiKeyViewModel`：`@HiltViewModel` 注入 `ConfigRepository` / `LlmCacheInvalidator`。`loadAll` 遍历 `LlmProvider.values()` 读 `apiKeyPreview` / `baseUrl` / `modelName` + `defaultProvider`。`setApiKey` / `setBaseUrl` / `setModelName` 每次保存后 `cacheInvalidator.invalidateCache()` + `refreshProvider`。`setDefaultProvider`。
+`ApiKeyViewModel`：`@HiltViewModel` 注入 `ConfigRepository`。`loadAll` 调 `configRepository.listEndpoints()` 读端点列表 + `endpointApiKeyPreview` 脱敏预览。端点 CRUD 方法（`addEndpoint` / `updateEndpoint` / `setApiKey` / `deleteEndpoint` / `reorderEndpoints`）直接转发到 `ConfigRepository`。#288：无需手动调 `invalidateCache()`——`ConfigRepository` 每个写操作内 `_endpointChanges.tryEmit(Unit)`，`EndpointRegistry` 订阅后自动失效缓存。
 
 ### DevOptionsScreen
 
@@ -218,7 +218,7 @@ namespace `com.trae.social.feature.onboarding`。依赖 `core-llm` / `accompanis
 
 ### OnboardingViewModel
 
-`@HiltViewModel` 注入 `ConfigRepository` / `LlmProviderRegistry` / `ColdStartFiller`。`OnboardingUiState(selectedProvider, apiKey, baseUrl, model, testStatus, isSaving, completed)`。
+`@HiltViewModel` 注入 `ConfigRepository` / `RulesetEngine` / `ColdStartFiller`。`OnboardingUiState(selectedProvider, apiKey, baseUrl, model, testStatus, isSaving, completed, pendingEndpointId, saveError, historyApiKeys)`。#151 重构后旧 `LlmProvider` 枚举仅作"预设包"用途（决定默认 baseUrl / model / protocol），实际配置以多端点形式持久化。
 
 ```kotlin
 sealed class TestStatus {
@@ -231,15 +231,15 @@ sealed class TestStatus {
 
 方法：
 
-- `selectProvider`（重置 baseUrl / model 为该 provider 默认值 + `testStatus = Idle`）
-- `updateApiKey`
-- `updateBaseUrl`
-- `updateModel`（trim + 重置 testStatus）
-- `testConnection`（`persistConfig` + `invalidateCache` + `client.ping`，失败 `classifyErrorByProbing` 调 `chatSync` 捕获具体异常）
-- `saveAndComplete`（`persistConfig` + `setDefaultProvider` + `invalidateCache` + `coldStartFiller.triggerInitialFill`（RISK-14）+ `completed = true`）
+- `selectProvider`（重置 baseUrl / model 为该 provider 默认值 + `testStatus = Idle` + 清空 `pendingEndpointId`）
+- `updateApiKey` / `updateBaseUrl` / `updateModel`（trim + 重置 testStatus + 清空 saveError）
+- `testConnection`（`ensureEndpoint` 创建/更新端点 + `rulesetEngine.ping(endpointId)`，失败 `classifyError` 分类 SDK 异常）
+- `saveAndComplete`（`ensureEndpoint` + `coldStartFiller.triggerInitialFill`（RISK-14）+ `completed = true`）
 - `skip`
 
-`classifyError`（`UnknownHostException` -> DNS，`SocketTimeoutException` -> 超时，`HttpException` 401 / 403 / 404 / 429）。
+#288：`ensureEndpoint` 内的端点 CRUD 已由 `ConfigRepository` 自动触发 `_endpointChanges` 事件流，`EndpointRegistry` 订阅后自动失效缓存，无需手动调 `invalidateCache()`。
+
+`classifyError`（`UnknownHostException` -> DNS，`SocketTimeoutException` -> 超时，`IOException` -> 网络错误，SDK 异常反射 `statusCode()` -> 401 / 403 / 404 / 429）。
 
 默认配置 `DEFAULT_BASE_URLS`（`DEFAULT_MODELS`：OpenAI gpt-4o-mini，Anthropic claude-3-5-sonnet-20240620，Gemini gemini-1.5-flash，CUSTOM gpt-4o-mini）。
 

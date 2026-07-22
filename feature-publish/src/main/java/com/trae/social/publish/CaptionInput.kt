@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.trae.social.core.data.TweetLimits
 import com.trae.social.designsystem.theme.LocalSocialColors
 import com.trae.social.designsystem.theme.LocalSocialTypography
 
@@ -37,7 +38,7 @@ fun CaptionInput(
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
     val count = text.length
-    val nearLimit = count >= PublishViewModel.MAX_CAPTION_LENGTH - 20
+    val nearLimit = count >= TweetLimits.MAX_CAPTION_LENGTH - 20
 
     Column(
         modifier = modifier
@@ -74,7 +75,7 @@ fun CaptionInput(
             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End,
         ) {
             Text(
-                text = "$count/${PublishViewModel.MAX_CAPTION_LENGTH}",
+                text = "$count/${TweetLimits.MAX_CAPTION_LENGTH}",
                 style = typography.caption1,
                 color = if (nearLimit) colors.systemRed else colors.tertiaryLabel,
             )

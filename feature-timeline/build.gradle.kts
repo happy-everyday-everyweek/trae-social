@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "com.trae.social.feature.timeline"
+    namespace = "com.trae.social.timeline"
     compileSdk = 34
 
     defaultConfig {

@@ -34,7 +34,7 @@ import com.trae.social.designsystem.theme.LocalSocialColors
  * - welcome：欢迎页（含免责声明 RISK-12）
  * - provider：提供商选择页
  * - key：API Key / Base URL / 模型输入页
- * - test：连通性测试页（调用 LlmClient.ping）
+ * - test：连通性测试页（调用 RulesetEngine.ping）
  * - done：完成页（保存配置 + 触发冷启动填充 RISK-14）
  *
  * 流程结束时调用 [onCompleted] 通知上层切换至主框架。
