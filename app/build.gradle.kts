@@ -51,21 +51,31 @@ android {
             versionNameSuffix = "-debug"
         }
         release {
-            // CI 构建可传 -PciDisableMinify 关闭 R8 代码混淆，规避 R8 8.6.17
-            // minifyReleaseWithR8 的 ConcurrentModificationException（确定性 bug）。
-            // 本地/正式签名构建默认开启 minify。
-            val ciDisableMinify = project.hasProperty("ciDisableMinify")
-            isMinifyEnabled = !ciDisableMinify
-            isShrinkResources = !ciDisableMinify
+            // #303 修复：release 始终开启 R8 混淆 + 资源压缩。
+            // 此前 CI 传 -PciDisableMinify 关闭 R8 规避 AGP 8.6.0 的 R8 8.6.17
+            // ConcurrentModificationException，导致线上 APK 无混淆、易被逆向。
+            // 已升级 AGP 至 8.7.3 修复该 R8 bug，故移除关闭开关，强制混淆。
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // keystore.properties 不存在时回退使用 debug 签名，保证可构建
-            signingConfig = if (keystorePropertiesFile.exists()) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
+            // #303 修复：release 不再静默回退 debug 签名（会导致线上 APK 用 debug keystore
+            // 签名，任何人都能用同一 debug key 签名恶意应用冒充本应用）。
+            // 仅在以下任一条件成立时启用 release 签名：
+            //   1. keystore.properties 存在（本地正式签名 / CI 通过 secret 注入）
+            //   2. 显式传 -PreleaseSigningDebug=true（仅限本地调试 release 构建，会告警）
+            // 否则 release 构建不绑定 signingConfig，assembleRelease 产出 unsigned APK，
+            // 由发布流程显式失败，避免静默用 debug key 发布。
+            val releaseSigningDebug = project.hasProperty("releaseSigningDebug")
+            if (releaseSigningDebug) {
+                logger.warn("release 构建使用 debug 签名（-PreleaseSigningDebug），严禁用于正式发布")
+            }
+            signingConfig = when {
+                keystorePropertiesFile.exists() -> signingConfigs.getByName("release")
+                releaseSigningDebug -> signingConfigs.getByName("debug")
+                else -> null
             }
         }
     }

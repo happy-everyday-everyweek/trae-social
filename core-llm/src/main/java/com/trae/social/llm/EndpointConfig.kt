@@ -38,6 +38,47 @@ data class EndpointConfig(
     /** 该端点是否可靠支持流式。 */
     val supportsStreaming: Boolean get() = ModelCapability.STREAMING in capabilities
 
+    /**
+     * #305 修复：data class 默认 toString 会输出 [apiKey] 明文，若实例被 Timber/logcat
+     * 记录（错误日志、调试输出、异常 message）则密钥泄漏到设备日志，可被 root 应用或
+     * bug-report 导出读取。重写为脱敏形式。
+     */
+    override fun toString(): String {
+        val maskedKey = when {
+            apiKey.isNullOrBlank() -> "<none>"
+            apiKey.length <= 8 -> "***"
+            else -> apiKey.take(4) + "***" + apiKey.takeLast(4)
+        }
+        return "EndpointConfig(id=$id, displayName=$displayName, protocol=$protocol, " +
+            "baseUrl=$baseUrl, model=$model, capabilities=$capabilities, " +
+            "apiKey=$maskedKey, orderIndex=$orderIndex)"
+    }
+
+    /**
+     * #305：自定义 equals/hashCode，避免 data class 默认实现把 [apiKey] 纳入比较导致
+     * 密钥进入哈希计算/日志的概率极低但无意义。仍按全部字段相等（含 apiKey）判定，
+     * 保证语义与 data class 一致，但与 [toString] 解耦。
+     */
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is EndpointConfig) return false
+        return id == other.id && displayName == other.displayName && protocol == other.protocol &&
+            baseUrl == other.baseUrl && model == other.model && capabilities == other.capabilities &&
+            apiKey == other.apiKey && orderIndex == other.orderIndex
+    }
+
+    override fun hashCode(): Int {
+        var result = id.hashCode()
+        result = 31 * result + displayName.hashCode()
+        result = 31 * result + protocol.hashCode()
+        result = 31 * result + baseUrl.hashCode()
+        result = 31 * result + model.hashCode()
+        result = 31 * result + capabilities.hashCode()
+        result = 31 * result + (apiKey?.hashCode() ?: 0)
+        result = 31 * result + orderIndex
+        return result
+    }
+
     companion object {
         /**
          * 从持久化 entity + API Key 构造运行时配置。

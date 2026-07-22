@@ -390,6 +390,11 @@ class TweetGenerationWorker @AssistedInject constructor(
      * 通过 [ScheduleRuleResolver.nextTriggerTime] 计算下一次触发时刻，并用
      * [TweetRepository.countByAuthorInWindow] 检查窗内已发布数是否已达上限。
      * 计算失败或无下一窗时静默跳过（不影响本次成功结果）。
+     *
+     * #302 修复：sequenceNo 此前恒为 0，导致 postsPerWindow > 1 时同一窗口内第 2 条
+     * 及以后推文的 deduplicationKey 与第 1 条相同，被 enqueueUniqueWork(KEEP) 丢弃，
+     * AI 账号每窗实际只能发 1 条（发布量被腰斩）。改为按目标窗内已发布数计算 sequenceNo，
+     * 保证同一窗口内多条推文的 deduplicationKey 互异。
      */
     private suspend fun scheduleNextTweetGeneration(accountId: String, accountZone: ZoneId) {
         val account = accountRepository.getById(accountId) ?: return
@@ -416,10 +421,22 @@ class TweetGenerationWorker @AssistedInject constructor(
         val currentWindowStart = com.trae.social.core.scheduler.rule.ScheduleRuleResolver
             .windowStartForTrigger(nextTrigger, accountZone, account.activeWindows) ?: nextTrigger
         val windowStartMillis = currentWindowStart.toEpochMilli()
+        // #302：按目标窗内已发布数计算 sequenceNo，使同窗多条推文 dedup key 互异。
+        // nextTriggerTime 已基于 postsInWindowProvider 跳过满窗，故此处 existingInWindow < POSTS_PER_WINDOW。
+        val windowEndMillis = com.trae.social.core.scheduler.rule.ScheduleRuleResolver
+            .windowEndMillisForStart(windowStartMillis, accountZone, account.activeWindows)
+        val sequenceNo = runCatching {
+            tweetRepository.countByAuthorInWindow(accountId, windowStartMillis, windowEndMillis)
+        }.getOrDefault(0).coerceAtLeast(0)
+        // 双重守卫：若窗已满（nextTriggerTime 与此处查询之间存在 TOCTOU 间隙），跳过本次入队
+        if (sequenceNo >= POSTS_PER_WINDOW) {
+            Timber.i("账号 %s 目标窗内已发 %d 条，跳过自链入队", accountId, sequenceNo)
+            return
+        }
         val deduplicationKey = com.trae.social.core.scheduler.rule.DeduplicationKeys.forTweet(
             accountId = accountId,
             windowStart = windowStartMillis,
-            sequenceNo = 0,
+            sequenceNo = sequenceNo,
         )
         val delayMillis = (nextTrigger.toEpochMilli() - System.currentTimeMillis())
             .coerceAtLeast(0L)
@@ -428,7 +445,7 @@ class TweetGenerationWorker @AssistedInject constructor(
             accountId = accountId,
             deduplicationKey = deduplicationKey,
             windowStart = windowStartMillis,
-            sequenceNo = 0,
+            sequenceNo = sequenceNo,
             initialDelayMillis = delayMillis,
         )
         WorkManager.getInstance(applicationContext).enqueueUniqueWork(
@@ -436,7 +453,12 @@ class TweetGenerationWorker @AssistedInject constructor(
             androidx.work.ExistingWorkPolicy.KEEP,
             request,
         )
-        Timber.i("账号 %s 已自链入队下一个 TweetGenerationWorker，触发时刻: %s", accountId, nextTrigger)
+        Timber.i(
+            "账号 %s 已自链入队下一个 TweetGenerationWorker，触发时刻: %s，sequenceNo: %d",
+            accountId,
+            nextTrigger,
+            sequenceNo,
+        )
     }
 
     /**

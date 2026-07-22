@@ -52,11 +52,39 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
+      # #303 修复：CI 从 secret 注入 release keystore，不再静默回退 debug 签名。
+      # 所需 secrets（仓库 Settings → Secrets and variables → Actions 配置）：
+      #   RELEASE_KEYSTORE_BASE64   base64 编码的 .jks/.keystore 文件
+      #   RELEASE_KEYSTORE_PASSWORD keystore 密码
+      #   RELEASE_KEY_ALIAS         key 别名
+      #   RELEASE_KEY_PASSWORD      key 密码
+      # 任一 secret 缺失则本步骤失败，中止发布（避免用 debug key 发布正式 APK）。
+      - name: Decode release keystore
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$RELEASE_KEYSTORE_BASE64" ] || [ -z "$RELEASE_KEYSTORE_PASSWORD" ] || \
+             [ -z "$RELEASE_KEY_ALIAS" ] || [ -z "$RELEASE_KEY_PASSWORD" ]; then
+            echo "::error::缺少 release 签名 secret(s)，无法安全构建正式 release APK。"
+            echo "::error::请配置 RELEASE_KEYSTORE_BASE64 / RELEASE_KEYSTORE_PASSWORD / RELEASE_KEY_ALIAS / RELEASE_KEY_PASSWORD。"
+            echo "::error::拒绝回退到 debug 签名（#303）。"
+            exit 1
+          fi
+          echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > ${{ github.workspace }}/release.keystore
+          cat > ${{ github.workspace }}/keystore.properties <<EOF
+          storeFile=${{ github.workspace }}/release.keystore
+          storePassword=$RELEASE_KEYSTORE_PASSWORD
+          keyAlias=$RELEASE_KEY_ALIAS
+          keyPassword=$RELEASE_KEY_PASSWORD
+          EOF
+
       - name: Assemble release APK
-        # keystore.properties 不存在时回退 debug 签名，CI 仍可构建出可用 release APK
-        # -PciDisableMinify 关闭 R8 混淆，规避 R8 8.6.17 minifyReleaseWithR8 的
-        # ConcurrentModificationException（确定性 bug，CI 产出未混淆的 release APK）
-        run: ./gradlew assembleRelease --no-daemon --no-parallel -PciDisableMinify --stacktrace
+        # #303：R8 混淆已强制开启（AGP 8.7.3 修复了 8.6.0 的 R8 CME bug），
+        # 不再传 -PciDisableMinify。签名由上一步注入的 keystore.properties 提供。
+        run: ./gradlew assembleRelease --no-daemon --no-parallel --stacktrace
 
       - name: Collect APK artifacts
         run: |

@@ -492,24 +492,31 @@ object DataModule {
      *
      * IMPL-10：Keystore 损坏时 catch 异常，删除损坏的 prefs 文件后重建空实例，
      * 避免 app 启动崩溃。用户需重新配置 API Key（已记录的崩溃风险可接受）。
+     *
+     * #301 修复：重建仍失败时不再回退到明文 SharedPreferences（会导致 API Key 明文落盘），
+     * 改为回退到 [InMemorySharedPreferences]（纯内存，进程结束即消失）。
+     * 同时通过 [SecurePrefsAvailability] 暴露降级状态，供 UI 提示用户密钥无法安全持久化。
+     *
+     * 构建逻辑封装在 [SecurePrefsHolder] 中，保证 [SharedPreferences] 与
+     * [SecurePrefsAvailability] 来自同一次构建，状态判定一致。
      */
     @Provides
     @Singleton
-    @SecurePreferences
-    fun provideEncryptedSharedPreferences(
+    fun provideSecurePrefsHolder(
         @ApplicationContext context: Context
-    ): SharedPreferences {
-        return runCatching {
+    ): SecurePrefsHolder {
+        runCatching {
             val masterKey = MasterKey.Builder(context)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
                 .build()
-            EncryptedSharedPreferences.create(
+            val prefs = EncryptedSharedPreferences.create(
                 context,
                 SECURE_PREFS_FILE_NAME,
                 masterKey,
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             )
+            return SecurePrefsHolder(prefs, degraded = false)
         }.getOrElse { e ->
             Timber.e(e, "EncryptedSharedPreferences 创建失败，尝试重建")
             runCatching {
@@ -517,19 +524,38 @@ object DataModule {
                 val masterKey = MasterKey.Builder(context)
                     .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
                     .build()
-                EncryptedSharedPreferences.create(
+                val prefs = EncryptedSharedPreferences.create(
                     context,
                     SECURE_PREFS_FILE_NAME,
                     masterKey,
                     EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                     EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
                 )
+                return SecurePrefsHolder(prefs, degraded = false)
             }.getOrElse { e2 ->
-                Timber.e(e2, "EncryptedSharedPreferences 重建仍失败，回退到普通 SharedPreferences")
-                context.getSharedPreferences("${SECURE_PREFS_FILE_NAME}_fallback", Context.MODE_PRIVATE)
+                // #301：不再回退明文 SharedPreferences，改用纯内存实现避免密钥落盘
+                Timber.e(e2, "EncryptedSharedPreferences 重建仍失败，回退到纯内存 SharedPreferences（密钥不落盘）")
+                SecurePrefsHolder(InMemorySharedPreferences(), degraded = true)
             }
         }
+        // 理论不可达（runCatching 两条路径均已 return），保留以满足编译器
+        return SecurePrefsHolder(InMemorySharedPreferences(), degraded = true)
     }
+
+    @Provides
+    @Singleton
+    @SecurePreferences
+    fun provideEncryptedSharedPreferences(holder: SecurePrefsHolder): SharedPreferences =
+        holder.prefs
+
+    /**
+     * #301：暴露加密存储可用性。EncryptedSharedPreferences 不可用时为 true，
+     * UI（SettingsScreen）据此展示"密钥无法安全存储"警告，避免用户误以为密钥已加密落盘。
+     */
+    @Provides
+    @Singleton
+    fun provideSecurePrefsAvailability(holder: SecurePrefsHolder): SecurePrefsAvailability =
+        SecurePrefsAvailability(holder.degraded)
 
     private const val SECURE_PREFS_FILE_NAME = "social_secure_prefs"
 }

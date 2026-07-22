@@ -90,6 +90,7 @@ class CommentPromptBuilder {
         return buildString {
             appendLine("你将模拟多个不同人设的评论者。为每位评论者生成一条符合其人设的评论。")
             appendLine("评论必须符合对应评论者的语言风格、价值观与情绪，不得偏离人设。")
+            appendLine(PromptUtils.DATA_NOT_INSTRUCTIONS_CLAUSE)
             appendLine("输出前检查内容不包含暴力、仇恨、色情或对真实人物的虚假陈述。")
         }
     }
@@ -99,34 +100,48 @@ class CommentPromptBuilder {
         commenters: List<TweetPromptBuilder.PersonaInput>,
         userTaste: UserTasteHint? = null,
     ): String {
+        // #304：被评推文 / 人设字段 / 用户口味均为外部可控内容，插值前净化
+        val safeAuthorName = PromptUtils.sanitizeForPrompt(tweet.authorName, 60)
+        val safeAuthorProfession = PromptUtils.sanitizeForPrompt(tweet.authorProfession, 60)
+        val safeTweetText = PromptUtils.sanitizeForPrompt(tweet.text, 280)
         return buildString {
             appendLine("【被评推文】")
-            appendLine("作者：${tweet.authorName}（职业：${tweet.authorProfession}）")
-            appendLine("正文：${tweet.text}")
+            appendLine("作者：$safeAuthorName（职业：$safeAuthorProfession）")
+            appendLine("正文：$safeTweetText")
             appendLine()
             appendLine("【原作者人设简介】")
-            appendLine("姓名：${tweet.authorName}；职业：${tweet.authorProfession}")
+            appendLine("姓名：$safeAuthorName；职业：$safeAuthorProfession")
             appendLine()
             appendLine("【评论者人设列表】")
             commenters.forEachIndexed { i, p ->
-                appendLine(" #$i ${p.displayName}（职业：${p.profession}，年龄：${p.ageRange}，风格：${p.languageStyle}，价值观：${p.values}，口癖：${p.catchphrase}，情绪：${p.recentMood}）")
+                val name = PromptUtils.sanitizeForPrompt(p.displayName, 60)
+                val prof = PromptUtils.sanitizeForPrompt(p.profession, 60)
+                val age = PromptUtils.sanitizeForPrompt(p.ageRange, 20)
+                val style = PromptUtils.sanitizeForPrompt(p.languageStyle, 60)
+                val vals = PromptUtils.sanitizeForPrompt(p.values, 120)
+                val catch = PromptUtils.sanitizeForPrompt(p.catchphrase, 80)
+                val mood = PromptUtils.sanitizeForPrompt(p.recentMood, 60)
+                appendLine(" #$i $name（职业：$prof，年龄：$age，风格：$style，价值观：$vals，口癖：$catch，情绪：$mood）")
             }
             appendLine()
             // #146 A/E 场景 4：driven 组注入用户口味提示，引导评论文本贴近用户兴趣
             if (userTaste != null) {
                 appendLine("【用户口味提示】")
                 if (userTaste.topThemes.isNotEmpty()) {
-                    appendLine("用户兴趣 Top 主题：${userTaste.topThemes.joinToString("、")}")
+                    val themes = userTaste.topThemes.joinToString("、") { PromptUtils.sanitizeForPrompt(it, 40) }
+                    appendLine("用户兴趣 Top 主题：$themes")
                 }
                 if (userTaste.topInterestWeights.isNotEmpty()) {
                     val weightedTop = userTaste.topInterestWeights.entries
                         .sortedByDescending { it.value }
                         .take(5)
-                        .joinToString("、") { "${it.key}(${"%.2f".format(it.value)})" }
+                        .joinToString("、") {
+                            "${PromptUtils.sanitizeForPrompt(it.key, 40)}(${"%.2f".format(it.value)})"
+                        }
                     appendLine("高权重主题：$weightedTop")
                 }
                 if (!userTaste.narrative.isNullOrBlank()) {
-                    appendLine("用户背景：${userTaste.narrative.take(120)}")
+                    appendLine("用户背景：${PromptUtils.sanitizeForPrompt(userTaste.narrative, 120)}")
                 }
                 appendLine("生成评论时，在保持评论者人设一致的前提下，可适度贴合用户兴趣主题与语言偏好。")
                 appendLine("注意：不要强行硬塞用户兴趣关键词；只在主题自然相关时融入，避免生硬感。")
