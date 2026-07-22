@@ -96,7 +96,13 @@ class TweetGenerationWorker @AssistedInject constructor(
             // ------------------------------------------------------------------
             // 0. 限流闸门：配额 + 速率
             // ------------------------------------------------------------------
-            val level: AiActivityLevel = configRepository.getAiActivityLevel()
+            // #173：与 PersonaUpdateWorker / SchedulerInitializer 保持一致，用 runCatching
+            // 保护 DataStore 读取。getAiActivityLevel 内部 dataStore.data.first() 在文件损坏、
+            // 并发写入冲突或首次创建时可能抛 IOException；本 Worker 是 OneTimeWorkRequest，
+            // 异常会进入 catch(t: Throwable) -> Result.retry()，重试 3 次后转为 Result.failure()，
+            // 由于 deduplicationKey 已被 enqueueUniqueWork KEEP 占用，会导致该活跃窗推文永久丢失。
+            val level: AiActivityLevel = runCatching { configRepository.getAiActivityLevel() }
+                .getOrDefault(AiActivityLevel.MEDIUM)
             rateLimiter.reconfigure(level)
 
             // 先查账号以获取时区（IMPL-16：配额按账号时区计算"当日"边界）
@@ -129,8 +135,10 @@ class TweetGenerationWorker @AssistedInject constructor(
             // ------------------------------------------------------------------
             // 2. 查最近 3 条该账号推文
             // ------------------------------------------------------------------
-            val recentTweets = tweetRepository.getByAuthor(accountId)
-                .take(RECENT_TWEETS_FOR_DEDUP)
+            // 主 review 第 4 轮修复：原 getByAuthor(accountId).take(N) 会先把账号全部推文加载到
+            // 内存再截断，虚拟账号推文多时存在不必要的内存与 IO 开销。改用 getByAuthorLimit
+            // 在 SQL 层 LIMIT N，与本文件已新增的 #177 查询对齐。
+            val recentTweets = tweetRepository.getByAuthorLimit(accountId, RECENT_TWEETS_FOR_DEDUP)
                 .map { it.text }
 
             // #146 A/E 场景 1（topicBias）：判断本次是否 driven（画像驱动推文主题）。

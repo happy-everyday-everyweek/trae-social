@@ -118,11 +118,11 @@ fun ApiKeyManagementScreen(
                     onDisplayNameChange = { displayNameDrafts[cfg.id] = it },
                     onSaveKey = {
                         viewModel.setApiKey(cfg.id, it)
-                        // 主 review 第 2 轮修复：回退第 1 轮 M4 的 apiKeyDrafts.remove(cfg.id)。
-                        // setApiKey 是 fire-and-forget（内部 viewModelScope.launch + runCatching，
-                        // 失败仅 Timber.w，无 UI 反馈）。M4 同步清草稿会导致保存失败时用户输入丢失
-                        // 且无错误提示。保留草稿让用户可重试；保存成功后 loadAll 会刷新
-                        // cfg.apiKeyPreview，UI 显示"当前: sk-xxx"提示已保存，用户可手动清空输入框。
+                        // #192：保存后立即清空 Key 草稿，避免输入框残留明文导致用户误判未保存
+                        // 而重复提交，也消除敏感信息残留风险。setApiKey 虽为 fire-and-forget，
+                        // 但保存成功后 loadAll 会刷新 cfg.apiKeyPreview（显示"当前: sk-xxx"），
+                        // 用户可据预览变化判断已保存；若保存失败预览不变，用户重新输入即可。
+                        apiKeyDrafts.remove(cfg.id)
                     },
                     onSaveEndpoint = {
                         viewModel.updateEndpoint(

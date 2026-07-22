@@ -39,8 +39,10 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -64,6 +66,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -96,6 +99,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import java.io.File
 import java.io.FileOutputStream
+import java.util.UUID
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import kotlin.math.abs
@@ -363,6 +367,8 @@ fun CameraModeContent(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
+                // #188：独立加 statusBarsPadding，不依赖父级 inset 处理
+                .statusBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
@@ -600,7 +606,10 @@ private fun BottomCameraBar(
     val typography = LocalSocialTypography.current
 
     Row(
-        modifier = modifier.padding(horizontal = 16.dp, vertical = 24.dp),
+        modifier = modifier
+            // #188：底部控件加 navigationBarsPadding，避免全面屏手势条遮挡快门与比例按钮
+            .navigationBarsPadding()
+            .padding(horizontal = 16.dp, vertical = 24.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
@@ -671,6 +680,12 @@ private fun ShutterButton(
     // #3：自建 InteractionSource 追踪按压状态，驱动缩放动效
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
+    // review 第 5 轮修复：pointerInput(Unit) 只在首次组合启动一次，捕获的 onClick/onLongClick
+    // 是按值捕获的局部 lambda（内部又捕获 ratio）。用户切换拍照比例后比例变化使上层重组，
+    // 但 pointerInput 不重启，仍持有旧 lambda，导致 SQUARE 模式下成片不做正方形裁剪。
+    // 用 rememberUpdatedState 始终读取最新回调，避免捕获过期值。
+    val currentOnClick by rememberUpdatedState(onClick)
+    val currentOnLongClick by rememberUpdatedState(onLongClick)
     // #200：按压弹簧——
     // - 默认：NoBouncy + StiffnessMedium，快门是高频操作不需要 overshoot；
     //   原 MediumBouncy 让快门每次按都晃几下，连拍时视觉抖动严重。
@@ -714,12 +729,12 @@ private fun ShutterButton(
                     onTap = {
                         // #3：快门触感反馈
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onClick()
+                        currentOnClick()
                     },
                     onLongPress = {
                         // #36：长按触发连拍 + 触感反馈
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onLongClick()
+                        currentOnLongClick()
                     },
                 )
             },
@@ -797,7 +812,10 @@ internal fun capturePhoto(
         return
     }
     val captureDir = File(context.cacheDir, "capture").apply { mkdirs() }
-    val file = File(captureDir, "${System.currentTimeMillis()}.jpg")
+    // review 第 5 轮修复：连拍/快速重拍可能在同一毫秒内产生相同时间戳，导致文件名相同——
+    // 后写覆盖前写（丢图）且 CapturePreviewBar 用路径作 LazyRow key 会抛 "Key must be unique"。
+    // 追加 UUID 保证文件名唯一。
+    val file = File(captureDir, "${System.currentTimeMillis()}-${UUID.randomUUID()}.jpg")
     val output = ImageCapture.OutputFileOptions.Builder(file).build()
     imageCapture.takePicture(
         output,

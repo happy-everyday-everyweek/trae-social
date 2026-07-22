@@ -46,6 +46,12 @@ object AppRoutes {
     /** 关注列表参数键 */
     const val FOLLOW_LIST_TYPE_ARG = "type"
 
+    /** #11：全屏路由：账号详情页（带参数 {accountId}） */
+    const val ACCOUNT_DETAIL = "account/{accountId}"
+
+    /** #11：账号详情参数键 */
+    const val ACCOUNT_DETAIL_ID_ARG = "accountId"
+
     /**
      * 构造关注列表路由（[FOLLOW_LIST_TYPE_ARG] 为枚举名称）。
      *
@@ -54,6 +60,14 @@ object AppRoutes {
      */
     fun followList(type: FollowListType): String =
         "followlist/${Uri.encode(type.name)}"
+
+    /**
+     * #11：构造账号详情路由。
+     *
+     * accountId 来自 [com.trae.social.core.data.entity.AccountEntity.id]，
+     * 为 UUID 字符串（含 `-`），无需 URL 编码即可作为路径段。
+     */
+    fun accountDetail(accountId: String): String = "account/$accountId"
 
     /**
      * 从路由参数还原 [FollowListType]，与 [followList] 配套使用。

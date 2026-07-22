@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import timber.log.Timber
+import java.io.File
 import java.util.UUID
 import javax.inject.Inject
 
@@ -67,14 +68,22 @@ data class PublishUiState(
  */
 sealed interface PublishEvent {
     /**
-     * 发布成功，触发缩小飞入动画并返回首页。
-     */
-    data object Published : PublishEvent
-
-    /**
      * 发布失败（IMPL-15），UI 应显示错误并保留输入。
      */
     data object PublishFailed : PublishEvent
+}
+
+/**
+ * #207 review 修复：发布阶段状态，由 ViewModel 持有以在配置变更后存活。
+ *
+ * - [IDLE]：空闲
+ * - [ANIMATING]：发布成功，正在播放飞入动画
+ * - [DONE]：动画完成，UI 应已导航回首页
+ */
+enum class PublishPhase {
+    IDLE,
+    ANIMATING,
+    DONE,
 }
 
 /**
@@ -85,7 +94,7 @@ sealed interface PublishEvent {
  * 2. [TweetRepository.insertTweet] 落库；
  * 3. 通过 WorkManager 入队 [com.trae.social.core.scheduler.work.InteractionWorker]，
  *    触发 3-8 个虚拟账号的点赞/评论/转发/关注排程；
- * 4. 置 isPublishing=true 触发飞入动画，发送 [PublishEvent.Published] 通知 UI 返回首页。
+ * 4. 置 isPublishing=true 触发飞入动画，置 [publishPhase]=ANIMATING 通知 UI 返回首页。
  *
  * 返回首页后信息流由 [TweetRepository.getFeedFlow] 的 Flow 自动更新出新推文。
  */
@@ -102,25 +111,46 @@ class PublishViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(PublishUiState())
     val uiState: StateFlow<PublishUiState> = _uiState.asStateFlow()
 
+    // #207 review 修复：发布阶段状态由 ViewModel 持有，配置变更（旋转屏等）后存活。
+    // 替代原 remember { showPublishAnimation }——后者在配置变更时丢失，且 Published
+    // Channel 事件已被消费无法重发，导致旋转后动画与导航回调均丢失。
+    private val _publishPhase = MutableStateFlow(PublishPhase.IDLE)
+    val publishPhase: StateFlow<PublishPhase> = _publishPhase.asStateFlow()
+
     private val _events = Channel<PublishEvent>(Channel.BUFFERED)
     val events = _events.receiveAsFlow()
 
     fun addCapture(path: String) {
         _uiState.update { state ->
-            if (state.captures.size >= MAX_CAPTURES) state
-            else state.copy(captures = state.captures + path)
+            if (state.captures.size >= MAX_CAPTURES) {
+                // review 第 5 轮修复：达上限静默丢弃，但调用方（CameraModeContent.onShutter）
+                // 已把 JPEG 落盘到 cacheDir/capture/。丢弃时同步删除文件，避免孤儿文件泄漏。
+                runCatching { File(path).delete() }
+                    .onFailure { Timber.w(it, "丢弃超额截图文件失败 %s", path) }
+                state
+            } else {
+                state.copy(captures = state.captures + path)
+            }
         }
     }
 
     fun removeCapture(index: Int) {
+        // #193：删除条目的同时清理落盘文件，避免 cacheDir 残留泄漏
+        val removedPath = _uiState.value.captures.getOrNull(index)
         _uiState.update { state ->
             if (index !in state.captures.indices) state
             else state.copy(captures = state.captures.toMutableList().apply { removeAt(index) })
         }
+        if (removedPath != null) {
+            runCatching { File(removedPath).delete() }
+                .onFailure { Timber.w(it, "删除截图文件失败 %s", removedPath) }
+        }
     }
 
     fun updateCaption(text: String) {
-        _uiState.update { it.copy(caption = text.take(MAX_CAPTION_LENGTH)) }
+        // #174：使用 codePointCount + offsetByCodePoints 在码点边界截断，
+        // 避免 String.take(n) 按 UTF-16 code unit 切开代理对产生非法 Unicode
+        _uiState.update { it.copy(caption = text.truncateByCodePoints(MAX_CAPTION_LENGTH)) }
     }
 
     fun setRatio(ratio: CaptureRatio) {
@@ -132,11 +162,33 @@ class PublishViewModel @Inject constructor(
     }
 
     /**
+     * #207 review 修复：标记飞入动画已完成，UI 应已导航回首页。
+     */
+    fun markPublishAnimationDone() {
+        _publishPhase.value = PublishPhase.DONE
+    }
+
+    /**
+     * #207 review 修复：重置发布阶段为 IDLE，供下次发布使用。
+     */
+    fun resetPublishPhase() {
+        _publishPhase.value = PublishPhase.IDLE
+    }
+
+    /**
      * 发布：落库 + 触发 AI 互动 + 发送 Published 事件。
+     *
+     * 主 review 第 4 轮修复：原入口仅以 `isPublishing` 防止重入，但发布成功后 `finally`
+     * 会把 `isPublishing` 置 false，而 `publishPhase` 仍为 ANIMATING。若 UI 未及时导航
+     * 离开（动画期间旋转屏、导航失败等），可再次触发 `publish()` 导致重复发推。
+     * 入口同时判断 `publishPhase != IDLE`，确保动画阶段无法重复发布；
+     * 动画完成后由 [markPublishAnimationDone] 置 DONE，UI 应已 pop 出 Publish back stack entry，
+     * ViewModel 被 clear，下一轮进入时为新实例、publishPhase = IDLE。
      */
     fun publish() {
         val current = _uiState.value
         if (current.isPublishing) return
+        if (_publishPhase.value != PublishPhase.IDLE) return
 
         viewModelScope.launch {
             _uiState.update { it.copy(isPublishing = true) }
@@ -176,8 +228,9 @@ class PublishViewModel @Inject constructor(
                     )
                 )
                 triggerAiInteraction(tweetId)
-                // IMPL-15：仅在成功时 emit Published，失败时 emit PublishFailed
-                _events.send(PublishEvent.Published)
+                // #207 review 修复：发布成功后置 publishPhase=ANIMATING（由 ViewModel 持有，
+                // 配置变更后存活），替代原 Channel Published 事件（一次性消费，旋转后丢失）。
+                _publishPhase.value = PublishPhase.ANIMATING
             } catch (t: Throwable) {
                 Timber.e(t, "发布失败")
                 _events.send(PublishEvent.PublishFailed)
@@ -202,8 +255,9 @@ class PublishViewModel @Inject constructor(
         }.onFailure { t ->
             Timber.w(t, "InteractionWorker 入队失败，回退直接落库单条互动")
             runCatching {
-                // P1 修复：从虚拟账号池随机选一个真实 ID 作为互动发起者
-                val virtualAccounts = accountRepository.getAccounts(1).filter { it.isVirtual }
+                // #208：改用 getVirtualAccountsList 直接获取全部虚拟账号池，
+                // 不再依赖 getAccounts(1) 的分页大小与默认排序，语义明确
+                val virtualAccounts = accountRepository.getVirtualAccountsList()
                 if (virtualAccounts.isEmpty()) {
                     Timber.w("无可用虚拟账号，跳过回退互动落库")
                     return@runCatching
@@ -232,4 +286,19 @@ class PublishViewModel @Inject constructor(
         // #220：自身账号 ID 已抽到 AccountIds.USER_SELF_ID，此处保留别名供本文件使用
         const val AUTHOR_SELF = AccountIds.USER_SELF_ID
     }
+}
+
+/**
+ * #174：按 Unicode 码点数安全截断字符串。
+ *
+ * [String.take] 按 UTF-16 code unit 计数，当 n 落在代理对中间时会产生 dangling surrogate。
+ * 本函数用 [String.codePointCount] 计算码点数，用 [String.offsetByCodePoints] 定位码点边界，
+ * 保证不在代理对中间切开。超出 [maxCodePoints] 时截断至边界位置。
+ */
+private fun String.truncateByCodePoints(maxCodePoints: Int): String {
+    if (maxCodePoints <= 0) return ""
+    val total = codePointCount(0, length)
+    if (total <= maxCodePoints) return this
+    val endIndex = offsetByCodePoints(0, maxCodePoints)
+    return substring(0, endIndex)
 }

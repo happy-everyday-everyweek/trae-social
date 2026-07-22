@@ -54,6 +54,9 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    // #162：错误态使用 Icons.Default.WifiOff / Refresh，与 FeedScreen.ErrorPlaceholder 一致；
+    // 这两个图标位于 material-icons-extended，feature-feed 已引入此依赖。
+    implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.navigation.compose)

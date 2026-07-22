@@ -43,8 +43,10 @@ import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.trae.social.app.R
 import com.trae.social.designsystem.components.GlassBlurContainer
 import com.trae.social.designsystem.components.socialClickable
 import com.trae.social.designsystem.theme.LocalReduceMotion
@@ -53,23 +55,27 @@ import com.trae.social.designsystem.theme.LocalSocialSpacing
 import com.trae.social.designsystem.theme.LocalSocialTypography
 
 /**
- * 底部 Tab 栏配置项：路由、图标、文案。
+ * 底部 Tab 栏配置项：路由、图标、文案资源 ID。
+ *
+ * #224：label 改为持有 stringRes ID 而非硬编码字符串，由 [TabItem] 在组合内
+ * 通过 [stringResource] 解析为本地化文案，支持未来 i18n。
  */
 private data class TabSpec(
     val route: String,
     val icon: ImageVector,
-    val label: String,
+    @androidx.annotation.StringRes val labelRes: Int,
 )
 
 /**
  * 三个主 Tab：首页、时间线、我的。
  *
  * P2 修复：路由字符串改用 [AppRoutes] 常量，避免硬编码。
+ * #224：文案改用 stringRes ID 引用 strings.xml，支持 i18n。
  */
 private val MainTabs = listOf(
-    TabSpec(route = AppRoutes.FEED, icon = Icons.Filled.Home, label = "首页"),
-    TabSpec(route = AppRoutes.TIMELINE, icon = Icons.Filled.GridView, label = "时间线"),
-    TabSpec(route = AppRoutes.PROFILE, icon = Icons.Filled.Person, label = "我的"),
+    TabSpec(route = AppRoutes.FEED, icon = Icons.Filled.Home, labelRes = R.string.tab_home),
+    TabSpec(route = AppRoutes.TIMELINE, icon = Icons.Filled.GridView, labelRes = R.string.tab_timeline),
+    TabSpec(route = AppRoutes.PROFILE, icon = Icons.Filled.Person, labelRes = R.string.tab_profile),
 )
 
 /**
@@ -151,6 +157,8 @@ private fun TabItem(
     val typography = LocalSocialTypography.current
     val hapticFeedback = LocalHapticFeedback.current
     val reduceMotion = LocalReduceMotion.current
+    // #224：在组合内解析 stringRes 为本地化文案
+    val label = stringResource(spec.labelRes)
     // #22/#202：选中/未选中颜色平滑过渡，避免瞬间跳变
     // - 色值不应 overshoot（颜色过冲会闪烁中间色），用 NoBouncy + StiffnessMediumLow ≈200ms
     //   原先用 MediumBouncy 会让 systemBlue↔tertiaryLabel 中间穿过亮蓝/紫色，肉眼可见抖动。
@@ -199,13 +207,13 @@ private fun TabItem(
     ) {
         Icon(
             imageVector = spec.icon,
-            contentDescription = spec.label,
+            contentDescription = label,
             tint = contentColor,
             modifier = Modifier.size(24.dp),
         )
         Spacer(Modifier.height(2.dp))
         Text(
-            text = spec.label,
+            text = label,
             style = typography.caption2,
             color = contentColor,
             maxLines = 1,
@@ -271,9 +279,10 @@ private fun PublishButton(
             ),
         contentAlignment = Alignment.Center,
     ) {
+        // #224：contentDescription 引用 strings.xml，支持 i18n
         Icon(
             imageVector = Icons.Filled.Add,
-            contentDescription = "发布",
+            contentDescription = stringResource(R.string.action_publish),
             tint = Color.White,
             modifier = Modifier.size(28.dp),
         )

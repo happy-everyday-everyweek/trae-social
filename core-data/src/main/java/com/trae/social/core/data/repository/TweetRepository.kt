@@ -38,6 +38,12 @@ class TweetRepository @Inject constructor(
 
     suspend fun getByAuthor(authorId: String): List<TweetEntity> = tweetDao.getByAuthor(authorId)
 
+    /**
+     * #177：按账号查询最近 [limit] 条推文。LIMIT 下推到 SQL 层，避免全量加载后截断。
+     */
+    suspend fun getByAuthorLimit(authorId: String, limit: Int): List<TweetEntity> =
+        tweetDao.getByAuthorLimit(authorId, limit)
+
     fun observeByAuthor(authorId: String): Flow<List<TweetEntity>> =
         tweetDao.observeByAuthor(authorId)
 

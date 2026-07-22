@@ -46,9 +46,12 @@ import com.trae.social.core.data.entity.UserProfileVersionEntity
  *   user_profile_versions / user_profile_overrides / user_profile_feedback / user_profile_rollbacks）
  * - version=8（#227：删除 tweets 表冗余 authorId 单列索引，已被复合索引最左前缀覆盖；
  *   #151：新增 llm_endpoints 表，承载多端点配置 + 协议格式 + 能力声明 + 全局排序）
- * - exportSchema=true（RISK-9：schema JSON 输出至 schemas/）
+ * - #87 / review 修复：exportSchema 恢复为 true。此前曾临时关闭以消除误导性配置
+ *   （schemas/ 目录仅有 1.json~5.json，v6/v7/v8 缺失），但关闭 exportSchema 会让未来
+ *   entity 与 migration 的 schema drift 无法在 CI 被 MigrationTestHelper 捕获。
+ *   缺失的 v6/v7/v8 schema JSON 需在有 Android SDK 的环境中执行
+ *   `./gradlew :core-data:assembleDebug` 重新生成，详见 #295。
  * - TypeConverters 处理 JSON 字段与枚举
- * - 发布版 schema 变更须提供显式 Migration（RISK-9）
  */
 @Database(
     entities = [

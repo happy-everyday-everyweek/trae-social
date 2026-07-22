@@ -1,10 +1,7 @@
 package com.trae.social.app.di
 
 import android.content.Context
-import com.trae.social.core.data.repository.LlmCacheInvalidator
 import com.trae.social.data.gallery.AssetProvider
-import com.trae.social.llm.EndpointConfigProvider
-import com.trae.social.llm.EndpointRegistry
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -38,12 +35,12 @@ class AssetProviderImpl @Inject constructor(
 }
 
 /**
- * app 模块 Hilt 绑定集合（#151 重构后）。
+ * 图库资源领域 Hilt 绑定 Module（#217 拆分）。
  *
- * - [AssetProvider] → [AssetProviderImpl]（assets 实际由 app 打包）
- * - [EndpointConfigProvider] → [AppEndpointConfigProvider]（桥接 ConfigRepository）
- * - [LlmCacheInvalidator] → 桥接 [EndpointRegistry.invalidateCache]
- *   （取代旧 LlmProviderRegistry.invalidateCache 绑定）
+ * 仅负责 [AssetProvider] → [AssetProviderImpl] 绑定（assets 实际由 app 打包）。
+ * LLM 相关绑定（[com.trae.social.llm.EndpointConfigProvider] /
+ * [com.trae.social.core.data.repository.LlmCacheInvalidator]）已迁至
+ * [AppLlmModule]，避免本 Module 名称暗示的"图库资源"职责与实际混装的 LLM 绑定混淆。
  *
  * 旧 [com.trae.social.app.di.AppLlmConfigProvider]（提供
  * [com.trae.social.llm.LlmConfigProvider] 绑定）已随 #151 重构移除。
@@ -55,20 +52,4 @@ object AssetProviderModule {
     @Provides
     @Singleton
     fun provideAssetProvider(impl: AssetProviderImpl): AssetProvider = impl
-
-    @Provides
-    @Singleton
-    fun provideEndpointConfigProvider(impl: AppEndpointConfigProvider): EndpointConfigProvider = impl
-
-    /**
-     * #151 重构后绑定到 [EndpointRegistry.invalidateCache]。
-     *
-     * feature-profile 的 ApiKeyViewModel 在端点 CRUD / API Key 变更后调用本 invalidator
-     * 清空缓存的 SDK client 实例，使下次请求按新配置创建。
-     */
-    @Provides
-    @Singleton
-    fun provideLlmCacheInvalidator(
-        registry: EndpointRegistry,
-    ): LlmCacheInvalidator = LlmCacheInvalidator { registry.invalidateCache() }
 }

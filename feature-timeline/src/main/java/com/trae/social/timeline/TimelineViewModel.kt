@@ -11,12 +11,14 @@ import com.trae.social.core.data.repository.TweetRepository
 import com.trae.social.designsystem.image.SvgImageLoader
 import coil.ImageLoader
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import timber.log.Timber
@@ -40,21 +42,30 @@ import javax.inject.Inject
  * 避免重复构建 ImageLoader（重复磁盘缓存 / 线程池）。
  */
 @HiltViewModel
+@OptIn(ExperimentalCoroutinesApi::class)
 class TimelineViewModel @Inject constructor(
     private val tweetRepository: TweetRepository,
     private val accountRepository: AccountRepository,
     @SvgImageLoader val imageLoader: ImageLoader,
 ) : ViewModel() {
 
-    val timelineFlow: StateFlow<TimelineUiState> = tweetRepository
-        .observeMediaTweets()
-        .map { tweets -> groupTweets(tweets) }
-        .map { groups ->
-            if (groups.isEmpty()) TimelineUiState.Empty
-            else TimelineUiState.Success(groups)
-        }
-        .catch { cause ->
-            emit(TimelineUiState.Error(cause.message ?: "加载失败"))
+    // #162：重试触发器。错误态后用户点击"重试"时自增，flatMapLatest 据此重启上游 flow。
+    private val retryTrigger = MutableStateFlow(0)
+
+    val timelineFlow: StateFlow<TimelineUiState> = retryTrigger
+        .flatMapLatest {
+            tweetRepository
+                .observeMediaTweets()
+                .map { tweets -> groupTweets(tweets) }
+                .map { groups ->
+                    if (groups.isEmpty()) TimelineUiState.Empty
+                    else TimelineUiState.Success(groups)
+                }
+                // #162：重试时先回 Loading 态，给用户即时反馈，避免停留在错误态
+                .onStart { emit(TimelineUiState.Loading) }
+                .catch { cause ->
+                    emit(TimelineUiState.Error(cause.message ?: "加载失败"))
+                }
         }
         .stateIn(
             scope = viewModelScope,
@@ -62,26 +73,33 @@ class TimelineViewModel @Inject constructor(
             initialValue = TimelineUiState.Loading,
         )
 
+    /**
+     * #162：错误态重试。自增 [retryTrigger] 触发 [timelineFlow] 的 flatMapLatest
+     * 重新订阅上游，重新拉取数据。供 TimelineError 的"重试"按钮调用。
+     */
+    fun retry() {
+        retryTrigger.value++
+    }
+
     // #13：当前用户资料（avatarSeed / displayName），与个人主页共用 user-self 账号，
     // 替代时间线头部硬编码的“我”占位，保证两处身份呈现一致。
-    private val _selfProfile = MutableStateFlow<AccountEntity?>(null)
-    val selfProfile: StateFlow<AccountEntity?> = _selfProfile.asStateFlow()
-
-    init {
-        viewModelScope.launch {
+    //
+    // #184：改为 observe Flow stateIn，PersonaUpdateWorker 更新人设（displayName/avatarSeed/
+    // dynamicLifeStory 等）后头部自动刷新，无需杀进程重启。原 init 一次性 getById 在人设
+    // 更新后只能显示旧值。
+    val selfProfile: StateFlow<AccountEntity?> = accountRepository.observeById(SELF_ID)
+        .catch { e ->
             // 主 review 第 2 轮修复：原 runCatching 会吞 CancellationException，
-            // 协程取消（如用户离开页面）被误判为账号不存在，_selfProfile.value = null
-            // 污染 ViewModel 状态。改为 try/catch 显式重抛 CancellationException。
-            _selfProfile.value = try {
-                accountRepository.getById(SELF_ID)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (t: Throwable) {
-                Timber.w(t, "加载自身账号失败")
-                null
-            }
+            // 协程取消（如用户离开页面）被误判为账号不存在。改为 catch 显式重抛。
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            Timber.w(e, "observe 自身账号失败")
+            emit(null)
         }
-    }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+            initialValue = null,
+        )
 
     /**
      * 将推文按日期分组。组内保持 createdAt DESC 顺序；组间按日期 DESC 排序。

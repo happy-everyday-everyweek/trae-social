@@ -43,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -388,7 +389,15 @@ private fun ActivityLevelRow(
                     .background(colors.systemBlue)
                     .padding(horizontal = 8.dp, vertical = 2.dp),
             ) {
-                Text("当前", color = androidx.compose.ui.graphics.Color.White, fontSize = 11.sp)
+                // #160：改用 typography.caption2 token（11sp）。
+                // review 修复：颜色恢复 Color.White——systemBackground 在暗色主题下为纯黑，
+                // 黑字 on systemBlue 仅 ~1.7:1 对比度，不满足 WCAG AA。白字 on systemBlue
+                // 在两种主题下均 ~8:1。设计系统暂无 onSystemBlue token，故直接用 Color.White。
+                Text(
+                    "当前",
+                    style = typography.caption2,
+                    color = Color.White,
+                )
             }
         }
     }

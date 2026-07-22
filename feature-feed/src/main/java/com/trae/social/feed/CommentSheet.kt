@@ -41,6 +41,7 @@ import coil.request.ImageRequest
 import com.trae.social.designsystem.components.SocialDivider
 import com.trae.social.designsystem.components.SocialSheet
 import com.trae.social.designsystem.theme.LocalSocialColors
+import com.trae.social.designsystem.theme.LocalSocialShapes
 import com.trae.social.designsystem.theme.LocalSocialSpacing
 import com.trae.social.designsystem.theme.LocalSocialTypography
 import java.util.UUID
@@ -68,17 +69,26 @@ fun CommentSheet(
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
     val spacing = LocalSocialSpacing.current
+    val shapes = LocalSocialShapes.current
     val context = LocalContext.current
     val comments = remember { mutableStateListOf<CommentItem>() }
-    var inputText by remember { mutableStateOf("") }
+    // #190：inputText 随推文切换重置，避免上次未发送的输入残留到下一推文（CommentSheet
+    // 在 commentTarget?.let 中复用同一组合，原 remember 无 key 跨 tweet 不重置）。
+    var inputText by remember(tweet.tweet.id) { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(true) }
 
     // 打开时从 DB 加载已持久化评论（含历史 AI 评论）
     LaunchedEffect(tweet.tweet.id) {
         isLoading = true
         val loaded = loadComments()
+        // #186：原实现 comments.clear()+addAll(loaded) 会吞掉加载期间用户乐观新增的评论
+        // （onSendComment 异步落库，loaded 可能尚未包含该项）。改为先保留乐观项再追加 loaded，
+        // 避免用户看到自己刚发的评论闪一下就消失。
+        val loadedIds = loaded.map { it.id }.toSet()
+        val optimistic = comments.filter { it.id !in loadedIds }
         comments.clear()
         comments.addAll(loaded)
+        comments.addAll(optimistic)
         isLoading = false
     }
 
@@ -152,7 +162,8 @@ fun CommentSheet(
                     placeholder = { Text("写评论...") },
                     modifier = Modifier.weight(1f),
                     maxLines = 3,
-                    shape = RoundedCornerShape(20.dp),
+                    // #160：改用 LocalSocialShapes.current.extraLarge token（20dp），后续 token 调整可跟随
+                    shape = shapes.extraLarge,
                 )
                 Spacer(Modifier.width(spacing.sm))
                 IconButton(

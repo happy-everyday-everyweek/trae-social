@@ -10,6 +10,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -38,6 +41,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -57,6 +61,7 @@ import com.trae.social.core.scheduler.SchedulerInitializer
 import com.trae.social.designsystem.components.GlassBlurTier
 import com.trae.social.designsystem.components.provideIsScrolling
 import com.trae.social.designsystem.components.rememberGlassBlurTier
+import com.trae.social.designsystem.theme.LocalReduceMotion
 import com.trae.social.designsystem.theme.SocialTheme
 import com.trae.social.designsystem.theme.ThemePreferences
 import com.trae.social.feed.FeedScreen
@@ -70,10 +75,12 @@ import com.trae.social.profile.SettingsScreen
 import com.trae.social.publish.PublishScreen
 import com.trae.social.timeline.TimelineScreen
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonPrimitive
+import timber.log.Timber
 import javax.inject.Inject
 
 /**
@@ -112,26 +119,51 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         // #12：加载用户主题偏好（浅色/深色/跟随系统），供 SocialTheme 覆写 isSystemInDarkTheme
-        ThemePreferences.initialize(this)
+        // #39：包裹防御性 try/catch，主题偏好初始化失败不应阻塞应用启动
+        try {
+            ThemePreferences.initialize(this)
+        } catch (t: Throwable) {
+            Timber.e(t, "ThemePreferences.initialize 失败，回退默认主题")
+        }
         // 在前台上下文（Activity 启动）初始化调度器并启动前台服务。
         // 不能放在 Application.onCreate：此时无可见 Activity，Android 12+ 会因
         // 从后台启动前台服务抛 ForegroundServiceStartNotAllowedException 导致启动即崩。
         // SchedulerInitializer 内部有幂等守卫，Activity 重建时不会重复初始化。
-        SchedulerInitializer.initialize(this)
+        // #39：包裹防御性 try/catch，SchedulerInitializer 内部已有异常处理但
+        // EntryPointAccessors.fromApplication 等步骤可能抛 Hilt 未初始化异常，避免启动即崩
+        try {
+            SchedulerInitializer.initialize(this)
+        } catch (t: Throwable) {
+            Timber.e(t, "SchedulerInitializer.initialize 失败，调度任务将由 WorkManager 兜底")
+        }
         // #146：通过生命周期观察者驱动 SessionManager，
         // - onResume → 复用 30s 内旧会话或开新会话，发 SESSION_START
         // - onPause → 记录暂停时间戳，不立即结束会话
         // - onStop 触发后 Activity 真正不可见，等下次 onResume 判定是否合并
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onResume(owner: LifecycleOwner) {
-                sessionManager.onResume(screen = "MainActivity")
+                // #39：包裹生命周期回调中的埋点/分析调用，避免异常传播导致 Activity 崩溃
+                try {
+                    sessionManager.onResume(screen = "MainActivity")
+                } catch (t: Throwable) {
+                    Timber.e(t, "sessionManager.onResume 失败")
+                }
                 // #146 C 修复：前台进入强制检查基础分析双阈值（事件计数/时间），
                 // 达阈值则生成快照，打通"捕获→基础分析→LLM 画像"链路
-                basicProfileTrigger.forceCheckOnForeground()
+                try {
+                    basicProfileTrigger.forceCheckOnForeground()
+                } catch (t: Throwable) {
+                    Timber.e(t, "basicProfileTrigger.forceCheckOnForeground 失败")
+                }
             }
 
             override fun onPause(owner: LifecycleOwner) {
-                sessionManager.onPause()
+                // #39：包裹 onPause 中的会话记录，避免异常传播
+                try {
+                    sessionManager.onPause()
+                } catch (t: Throwable) {
+                    Timber.e(t, "sessionManager.onPause 失败")
+                }
             }
         })
         // #210：onCreate 路径下首次 Intent 也写入 newIntentFlow，保证 Compose 层观察到的初始值一致
@@ -212,8 +244,18 @@ private fun SocialApp(
     }
 
     // 一次性读取引导完成状态；未读到前显示空白，避免起始路由闪烁
+    // #179：produceState 内用 runCatching 包裹 DataStore 读取，异常时回退为 false
+    // 保证 value 一定被赋值，避免异常导致 produceState 协程被取消后 value 永久停留 null
+    // 进而 UI 白屏。runCatching 会吞 CancellationException，故显式 rethrow。
     val onboardingDone by produceState<Boolean?>(initialValue = null) {
-        value = configRepository.isOnboardingCompleted()
+        value = try {
+            configRepository.isOnboardingCompleted()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Timber.e(t, "读取引导完成状态失败，回退为未完成")
+            false
+        }
     }
 
     when (val done = onboardingDone) {
@@ -231,11 +273,20 @@ private fun SocialApp(
                     OnboardingNavHost(
                         onCompleted = { skipped ->
                             // IMPL-13：区分跳过与完成，写入对应标记并切换至主框架
+                            // #179：先 navigate 再异步写入 DataStore，写入失败仅记日志不阻塞
+                            // UI 流转；原顺序若 setOnboardingCompleted 抛异常则 navigate 不执行
+                            // 用户卡死在引导页且状态不一致
                             scope.launch {
-                                configRepository.setOnboardingCompleted(true)
-                                configRepository.setOnboardingSkipped(skipped)
                                 navController.navigate(AppRoutes.MAIN) {
                                     popUpTo(AppRoutes.ONBOARDING) { inclusive = true }
+                                }
+                                try {
+                                    configRepository.setOnboardingCompleted(true)
+                                    configRepository.setOnboardingSkipped(skipped)
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (t: Throwable) {
+                                    Timber.e(t, "写入引导完成状态失败，UI 已切换但状态未持久化")
                                 }
                             }
                         },
@@ -279,6 +330,30 @@ private fun MainScaffold(
 
     // IMPL-33：由 feed/timeline 的 LazyColumn 派生滚动状态，供 GlassBlurContainer 减半模糊半径
     var isScrolling by remember { mutableStateOf(false) }
+
+    // #198：路由切换时重置 isScrolling，避免上一个 Tab 的滚动状态残留导致底栏
+    // 模糊半径短暂减半（Feed 滚动中切到 Timeline，isScrolling 在 Timeline 首帧仍为 true）
+    LaunchedEffect(currentRoute) {
+        isScrolling = false
+    }
+
+    // #154：减弱动效模式下，路由切换降级为瞬时过渡，避免前庭敏感用户不适。
+    // 仍保留 color/opacity 过渡感（None 等同于瞬时切换，符合 reduce-motion 规范）。
+    // 类型必须为带 receiver 的函数类型以匹配 composable() 的 enterTransition 参数签名。
+    val reduceMotion = LocalReduceMotion.current
+    val tabEnterTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition = {
+        if (reduceMotion) EnterTransition.None else fadeIn()
+    }
+    val tabExitTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition = {
+        if (reduceMotion) ExitTransition.None else fadeOut()
+    }
+    // 全屏路由的纵向滑动过渡（OPEN_PROFILE_CHAT / PUBLISH）
+    val slideEnterTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition = {
+        if (reduceMotion) EnterTransition.None else slideInVertically(initialOffsetY = { it })
+    }
+    val slideExitTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition = {
+        if (reduceMotion) ExitTransition.None else slideOutVertically(targetOffsetY = { it })
+    }
 
     // #2：可记录的 GraphicsLayer，用于捕获 NavHost 内容并在底栏中作为模糊背景重绘，
     // 实现"真正模糊背后内容"的毛玻璃效果（替代原先仅模糊纯色 tint 的伪效果）。
@@ -371,8 +446,10 @@ private fun MainScaffold(
                     // #2：将内容绘制指令记录到 backgroundLayer（供底栏模糊重绘），
                     // 同时正常绘制内容本身，保证内容区可见性不变。
                     // 不可模糊时跳过 record，避免低端机/API<31 每帧无效录制的开销。
+                    // #181：底栏隐藏时（settings/devoptions/apikey/followlist/publish 等全屏路由）
+                    // backgroundLayer 无消费者，跳过 record 避免无效 GPU 录制开销。
                     .drawWithContent {
-                        if (canBlur) {
+                        if (canBlur && showBottomBar) {
                             backgroundLayer.record {
                                 this@drawWithContent.drawContent()
                             }
@@ -384,10 +461,10 @@ private fun MainScaffold(
             ) {
                 composable(
                     route = AppRoutes.FEED,
-                    enterTransition = { fadeIn() },
-                    exitTransition = { fadeOut() },
-                    popEnterTransition = { fadeIn() },
-                    popExitTransition = { fadeOut() },
+                    enterTransition = tabEnterTransition,
+                    exitTransition = tabExitTransition,
+                    popEnterTransition = tabEnterTransition,
+                    popExitTransition = tabExitTransition,
                 ) {
                     // M1 修复：屏幕进入/离开埋点
                     ScreenTracking(route = AppRoutes.FEED, builder = actionBuilder)
@@ -399,10 +476,10 @@ private fun MainScaffold(
                 }
                 composable(
                     route = AppRoutes.TIMELINE,
-                    enterTransition = { fadeIn() },
-                    exitTransition = { fadeOut() },
-                    popEnterTransition = { fadeIn() },
-                    popExitTransition = { fadeOut() },
+                    enterTransition = tabEnterTransition,
+                    exitTransition = tabExitTransition,
+                    popEnterTransition = tabEnterTransition,
+                    popExitTransition = tabExitTransition,
                 ) {
                     // M1 修复：屏幕进入/离开埋点
                     ScreenTracking(route = AppRoutes.TIMELINE, builder = actionBuilder)
@@ -414,10 +491,10 @@ private fun MainScaffold(
                 }
                 composable(
                     route = AppRoutes.PROFILE,
-                    enterTransition = { fadeIn() },
-                    exitTransition = { fadeOut() },
-                    popEnterTransition = { fadeIn() },
-                    popExitTransition = { fadeOut() },
+                    enterTransition = tabEnterTransition,
+                    exitTransition = tabExitTransition,
+                    popEnterTransition = tabEnterTransition,
+                    popExitTransition = tabExitTransition,
                 ) {
                     // M1 修复：屏幕进入/离开埋点
                     ScreenTracking(route = AppRoutes.PROFILE, builder = actionBuilder)
@@ -431,10 +508,10 @@ private fun MainScaffold(
                 }
                 composable(
                     route = AppRoutes.SETTINGS,
-                    enterTransition = { fadeIn() },
-                    exitTransition = { fadeOut() },
-                    popEnterTransition = { fadeIn() },
-                    popExitTransition = { fadeOut() },
+                    enterTransition = tabEnterTransition,
+                    exitTransition = tabExitTransition,
+                    popEnterTransition = tabEnterTransition,
+                    popExitTransition = tabExitTransition,
                 ) {
                     // M1 修复：屏幕进入/离开埋点
                     ScreenTracking(route = AppRoutes.SETTINGS, builder = actionBuilder)
@@ -451,10 +528,10 @@ private fun MainScaffold(
                 }
                 composable(
                     route = AppRoutes.API_KEY,
-                    enterTransition = { fadeIn() },
-                    exitTransition = { fadeOut() },
-                    popEnterTransition = { fadeIn() },
-                    popExitTransition = { fadeOut() },
+                    enterTransition = tabEnterTransition,
+                    exitTransition = tabExitTransition,
+                    popEnterTransition = tabEnterTransition,
+                    popExitTransition = tabExitTransition,
                 ) {
                     // M1 修复：屏幕进入/离开埋点
                     ScreenTracking(route = AppRoutes.API_KEY, builder = actionBuilder)
@@ -465,10 +542,10 @@ private fun MainScaffold(
                 }
                 composable(
                     route = AppRoutes.DEV_OPTIONS,
-                    enterTransition = { fadeIn() },
-                    exitTransition = { fadeOut() },
-                    popEnterTransition = { fadeIn() },
-                    popExitTransition = { fadeOut() },
+                    enterTransition = tabEnterTransition,
+                    exitTransition = tabExitTransition,
+                    popEnterTransition = tabEnterTransition,
+                    popExitTransition = tabExitTransition,
                 ) {
                     // M1 修复：屏幕进入/离开埋点
                     ScreenTracking(route = AppRoutes.DEV_OPTIONS, builder = actionBuilder)
@@ -480,10 +557,10 @@ private fun MainScaffold(
                 }
                 composable(
                     route = AppRoutes.OPEN_PROFILE_CHAT,
-                    enterTransition = { slideInVertically(initialOffsetY = { it }) },
-                    exitTransition = { fadeOut() },
-                    popEnterTransition = { fadeIn() },
-                    popExitTransition = { slideOutVertically(targetOffsetY = { it }) },
+                    enterTransition = slideEnterTransition,
+                    exitTransition = tabExitTransition,
+                    popEnterTransition = tabEnterTransition,
+                    popExitTransition = slideExitTransition,
                 ) {
                     // M1 修复：屏幕进入/离开埋点
                     ScreenTracking(route = AppRoutes.OPEN_PROFILE_CHAT, builder = actionBuilder)
@@ -496,10 +573,10 @@ private fun MainScaffold(
                 composable(
                     route = AppRoutes.FOLLOW_LIST,
                     arguments = listOf(navArgument(AppRoutes.FOLLOW_LIST_TYPE_ARG) { type = NavType.StringType }),
-                    enterTransition = { fadeIn() },
-                    exitTransition = { fadeOut() },
-                    popEnterTransition = { fadeIn() },
-                    popExitTransition = { fadeOut() },
+                    enterTransition = tabEnterTransition,
+                    exitTransition = tabExitTransition,
+                    popEnterTransition = tabEnterTransition,
+                    popExitTransition = tabExitTransition,
                 ) { backStackEntry ->
                     // M1 修复：屏幕进入/离开埋点
                     ScreenTracking(route = AppRoutes.FOLLOW_LIST, builder = actionBuilder)
@@ -508,16 +585,44 @@ private fun MainScaffold(
                     FollowListScreen(
                         type = type,
                         onBack = { navController.popBackStack() },
-                        // #11：账号详情页待接入，预留回调结构
-                        onAccountClick = { },
+                        // #11：点击账号项导航至账号详情路由
+                        onAccountClick = { account ->
+                            navController.navigate(AppRoutes.accountDetail(account.id))
+                        },
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
                 composable(
+                    route = AppRoutes.ACCOUNT_DETAIL,
+                    arguments = listOf(navArgument(AppRoutes.ACCOUNT_DETAIL_ID_ARG) { type = NavType.StringType }),
+                    enterTransition = tabEnterTransition,
+                    exitTransition = tabExitTransition,
+                    popEnterTransition = tabEnterTransition,
+                    popExitTransition = tabExitTransition,
+                ) {
+                    // M1 修复：屏幕进入/离开埋点
+                    ScreenTracking(route = AppRoutes.ACCOUNT_DETAIL, builder = actionBuilder)
+                    // #11：账号详情页。accountId 由 navArgument 注入 ProfileViewModel 的
+                    // SavedStateHandle，ProfileViewModel.targetAccountId 据此加载目标账号资料。
+                    // onBack 显示返回箭头；isSelfProfile=false 时 ProfileScreen 隐藏设置入口、
+                    // 推荐关注入口与 LIKES Tab。
+                    ProfileScreen(
+                        onNavigateToSettings = { navController.navigate(AppRoutes.SETTINGS) },
+                        onNavigateToFollowList = { type ->
+                            navController.navigate(AppRoutes.followList(type))
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+                composable(
                     route = AppRoutes.PUBLISH,
-                    enterTransition = { slideInVertically(initialOffsetY = { it }) },
-                    exitTransition = { fadeOut() },
-                    popExitTransition = { slideOutVertically(targetOffsetY = { it }) },
+                    // #159：进入/退出/popEnter/popExit 四方向均沿垂直路径，符合空间一致性
+                    // （原 exitTransition=fadeOut 与进入 slideInVertically 路径不一致）
+                    enterTransition = slideEnterTransition,
+                    exitTransition = slideExitTransition,
+                    popEnterTransition = slideEnterTransition,
+                    popExitTransition = slideExitTransition,
                 ) {
                     // M1 修复：屏幕进入/离开埋点
                     ScreenTracking(route = AppRoutes.PUBLISH, builder = actionBuilder)

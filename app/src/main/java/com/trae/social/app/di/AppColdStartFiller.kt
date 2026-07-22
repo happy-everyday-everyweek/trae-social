@@ -88,7 +88,12 @@ class AppColdStartFiller @Inject constructor(
             }
 
             val workManager = WorkManager.getInstance(context)
-            val windowStart = now
+            // #197：windowStart 对齐到当前小时 floor（毫秒级置零），使同一小时窗口内
+            // triggerInitialFill 被多次调用（如 OnboardingViewModel 异常重试）时
+            // deduplicationKey 一致，配合 tweets 表 unique 索引实现跨调用幂等。
+            // 原先 windowStart=now（毫秒级），每次调用 key 都不同，仅能防同一 Worker
+            // 重试的重复，无法防跨调用的重复推文。
+            val windowStart = (now / HOUR_MS) * HOUR_MS
             for (account in targets) {
                 val deduplicationKey = "coldstart_${account.id}_$windowStart"
                 val request = OneTimeWorkRequestBuilder<TweetGenerationWorker>()
@@ -121,5 +126,7 @@ class AppColdStartFiller @Inject constructor(
     private companion object {
         const val MAX_COLD_START_ACCOUNTS = 20
         const val TAG_COLD_START = "cold_start_fill"
+        // #197：1 小时的毫秒数，用于 windowStart 小时桶对齐
+        const val HOUR_MS = 60L * 60L * 1000L
     }
 }

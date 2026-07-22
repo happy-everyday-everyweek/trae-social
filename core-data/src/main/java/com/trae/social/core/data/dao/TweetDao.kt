@@ -43,6 +43,16 @@ interface TweetDao {
     @Query("SELECT * FROM tweets WHERE authorId = :authorId ORDER BY createdAt DESC")
     suspend fun getByAuthor(authorId: String): List<TweetEntity>
 
+    /**
+     * #177：按账号查询最近 [limit] 条推文（按 createdAt DESC）。
+     *
+     * 旧 [getByAuthor] 在 SQL 层全量加载账号全部推文后再被调用方 `.take(N)` 截断，
+     * 对长期运行的高活跃账号会造成显著内存与 I/O 浪费。本方法将 LIMIT 下推到 SQL，
+     * Worker（去重/Prompt 构建）仅需 3-5 条时直接调用此方法避免全量加载。
+     */
+    @Query("SELECT * FROM tweets WHERE authorId = :authorId ORDER BY createdAt DESC LIMIT :limit")
+    suspend fun getByAuthorLimit(authorId: String, limit: Int): List<TweetEntity>
+
     @Query("SELECT * FROM tweets WHERE authorId = :authorId ORDER BY createdAt DESC")
     fun observeByAuthor(authorId: String): Flow<List<TweetEntity>>
 

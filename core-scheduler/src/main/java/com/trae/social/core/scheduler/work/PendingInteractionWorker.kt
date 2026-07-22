@@ -91,13 +91,23 @@ class PendingInteractionWorker @AssistedInject constructor(
                 if (executable.isNotEmpty()) {
                     try {
                         val executedAt = System.currentTimeMillis()
-                        interactionRepository.executeInteractionsAndUpdateTweet(
+                        // #115：使用 executeInteractionsAndUpdateTweet 返回的实际执行数
+                        // （rowsAffected > 0 的互动数），避免并发重复扫描时按批大小虚高 processed。
+                        // DAO 内 markExecuted 在 executedAt IS NULL 时才更新并返回 1，
+                        // 已被并发 Worker 抢占执行的互动返回 0，不计入 executedCount；
+                        // 此类并发空操作既不计入 processed 也不计入 failed，由下方
+                        // processed==0 && failed==0 分支归类为 no_pending。
+                        val actualExecuted = interactionRepository.executeInteractionsAndUpdateTweet(
                             interactions = executable,
                             executedAt = executedAt,
                             tweetId = tweetId,
                         )
-                        processed += executable.size
+                        processed += actualExecuted
                     } catch (t: Throwable) {
+                        // 主 review 第 4 轮修复：CancellationException 必须重抛，否则 WorkManager
+                        // 取消 Worker 时取消异常被吞，协程无法正确传播取消信号，Worker 会继续执行
+                        // 后续批次并可能返回 Result.retry/failure 而非被取消。
+                        if (t is kotlinx.coroutines.CancellationException) throw t
                         Timber.w(t, "原子执行互动批次失败 tweetId=%s", tweetId)
                         failed += executable.size
                     }
@@ -134,6 +144,10 @@ class PendingInteractionWorker @AssistedInject constructor(
             )
             return Result.success(workDataOf(WorkerKeys.KEY_RESULT to "rate_limited"))
         } catch (t: Throwable) {
+            // 主 review 第 4 轮修复：CancellationException 必须重抛，否则 WorkManager 取消 Worker 时
+            // 协程无法正确传播取消信号，doWork 会卡在 catch(t: Throwable) 内继续执行返回 Result.retry。
+            // 与 TweetGenerationWorker / PersonaUpdateWorker 的统一策略保持一致。
+            if (t is kotlinx.coroutines.CancellationException) throw t
             Timber.e(t, "PendingInteractionWorker 执行失败")
             logSchedulerEvent(
                 accountId = "system",
@@ -160,7 +174,14 @@ class PendingInteractionWorker @AssistedInject constructor(
         interactions: List<com.trae.social.core.data.entity.InteractionEntity>,
     ): Map<String, String> {
         if (interactions.isEmpty()) return emptyMap()
-        rateLimiter.acquire()
+        // #93 / #168：与 TweetGenerationWorker / InteractionWorker / PersonaUpdateWorker 一致，
+        // 使用带超时的 acquire，避免限流阻塞超过 WorkManager 默认 10 分钟超时上限被强杀。
+        // 超时返回 emptyMap：COMMENT 互动因内容缺失被过滤为 skipped/failed，
+        // 同推文的 LIKE/RETWEET/FOLLOW 仍可继续执行，避免单批限流阻塞全部待执行互动。
+        if (!rateLimiter.acquireWithTimeout(WorkerConstants.ACQUIRE_TIMEOUT_MS)) {
+            Timber.i("PendingInteractionWorker 生成评论限流等待超时，跳过评论内容")
+            return emptyMap()
+        }
 
         // 加载每个评论者的人设
         val personas = mutableListOf<TweetPromptBuilder.PersonaInput>()
@@ -189,6 +210,9 @@ class PendingInteractionWorker @AssistedInject constructor(
             // IMPL-19：429 限流向上抛出，由 doWork 统一捕获并跳过
             throw e
         } catch (t: Throwable) {
+            // 主 review 第 4 轮修复：CancellationException 必须重抛，评论生成被取消时取消信号
+            // 需正确传播至 doWork 外层（外层同样重抛），让 WorkManager 中断 Worker。
+            if (t is kotlinx.coroutines.CancellationException) throw t
             Timber.w(t, "批量生成评论失败")
             return emptyMap()
         }

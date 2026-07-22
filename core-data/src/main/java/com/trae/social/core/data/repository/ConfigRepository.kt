@@ -394,11 +394,17 @@ class ConfigRepository @Inject constructor(
         _endpointChanges.tryEmit(Unit)
     }
 
-    /** API Key 脱敏预览（UI 用）。 */
-    fun endpointApiKeyPreview(endpointId: String): String? {
-        val key = secureSharedPreferences.getString(endpointApiKeyEntry(endpointId), null) ?: return null
-        if (key.length <= 8) return "***"
-        return key.take(4) + "***" + key.takeLast(4)
+    /**
+     * API Key 脱敏预览（UI 用）。
+     *
+     * #167：原为非 suspend 函数，直接同步访问 EncryptedSharedPreferences（文件 I/O + 解密），
+     * 首次解密可能耗时数百毫秒，UI 调用方在主线程触发有 ANR 风险。改为 suspend 并用
+     * `withContext(Dispatchers.IO)` 包装，与同文件 [getApiKey] / [getEndpointApiKey] 等保持一致。
+     */
+    suspend fun endpointApiKeyPreview(endpointId: String): String? = withContext(Dispatchers.IO) {
+        val key = secureSharedPreferences.getString(endpointApiKeyEntry(endpointId), null) ?: return@withContext null
+        if (key.length <= 8) return@withContext "***"
+        key.take(4) + "***" + key.takeLast(4)
     }
 
     /**

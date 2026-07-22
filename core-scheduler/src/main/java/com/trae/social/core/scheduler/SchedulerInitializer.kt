@@ -260,26 +260,48 @@ object SchedulerInitializer {
     }
 
     /**
-     * #114：确定指定账号的上次运行时刻。
+     * #114 / #94：确定指定账号的上次运行时刻。
      *
      * 查询该账号最近一条 tweet_generation 日志的时间戳，
      * #72：已移除全局 determineLastRunTime，统一使用本方法按账号查询，避免跨账号补发漏窗。
-     * 无记录时回退为 24 小时前。
+     *
+     * 三条返回路径统一处理，避免补发范围不可预测：
+     * - 路径 A（无成功日志）：返回 `now - 24h`
+     * - 路径 B（DB 异常）：返回 `now - 24h`（与路径 A 一致；原实现返回 null 会被
+     *   [ScheduleRuleResolver.missedWindows] 当作"昨日 00:00"，与路径 A 相差数小时，
+     *   异常恢复时补发范围跳变）
+     * - 路径 C（有成功日志）：返回日志时间戳
+     *
+     * #94：仅按 `result == "success"` 过滤，避免把 `retry_empty_response` / `error_*`
+     * 等失败重试日志当作"上次运行"——失败重试并未真正产出推文，若当作 lastRun 会让
+     * 补发窗口计算基于错误时刻，导致漏补发或多补发。
      */
     private suspend fun determineAccountLastRunTime(
         logDao: SchedulerLogDao,
         accountId: String,
         now: Instant,
-    ): Instant? {
+    ): Instant {
+        // #114：异常路径与无日志路径统一回退为 24h 前，避免 null 触发 missedWindows
+        // 的"昨日 00:00"分支造成补发范围不一致
+        val fallback = now.minusSeconds(24 * 60 * 60)
+        // 主 review 第 4 轮修复：对账号长期未运行的情况加最大回退限制，避免 missedWindows
+        // 遍历中间所有日期导致一次性补发大量推文。即使日志显示 lastRun 在数周前，也钳制到
+        // MAX_LOOKBACK_DAYS 天内，保证异常恢复时补发范围可控。
+        val minAllowed = now.minusSeconds(MAX_LOOKBACK_DAYS * 24L * 60L * 60L)
         return runCatching {
             val recent = logDao.getByAccount(accountId, limit = LAST_RUN_LOOKUP_LIMIT)
-            val lastTweetLog = recent.firstOrNull { it.action == "tweet_generation" }
-            if (lastTweetLog != null) {
+            // #94：仅取成功日志作为 lastRun，失败重试日志不计入
+            val lastTweetLog = recent.firstOrNull {
+                it.action == "tweet_generation" && it.result == "success"
+            }
+            val resolved = if (lastTweetLog != null) {
                 Instant.ofEpochMilli(lastTweetLog.timestamp)
             } else {
-                now.minusSeconds(24 * 60 * 60)
+                fallback
             }
-        }.getOrNull()
+            // 钳制到 MAX_LOOKBACK_DAYS 范围内，避免长期未运行账号补发范围爆炸
+            if (resolved.isBefore(minAllowed)) minAllowed else resolved
+        }.getOrDefault(fallback)
     }
 
     /**
@@ -375,7 +397,8 @@ object SchedulerInitializer {
         workManager.enqueueUniquePeriodicWork(
             WorkerTags.PERSONA_UPDATE,
             ExistingPeriodicWorkPolicy.KEEP,
-            WorkerPolicies.personaUpdatePeriodicRequest(level),
+            // review 修复：KEEP 路径为首次注册，应用 setInitialDelay 锚定凌晨 3 点
+            WorkerPolicies.personaUpdatePeriodicRequest(level, isInitialRegistration = true),
         )
         workManager.enqueueUniquePeriodicWork(
             WorkerTags.USER_PROFILE,
@@ -468,6 +491,15 @@ object SchedulerInitializer {
     }
 
     private const val LAST_RUN_LOOKUP_LIMIT: Int = 50
+
+    /**
+     * 主 review 第 4 轮修复：账号 lastRun 的最大回退天数。
+     *
+     * 即使日志显示账号上次成功运行在数周前，也钳制到 [MAX_LOOKBACK_DAYS] 天内，
+     * 避免异常恢复时 missedWindows 遍历所有中间日期导致一次性补发大量推文。
+     * 与 fallback（24h）形成两档：正常情况补 24h，异常情况最多补 MAX_LOOKBACK_DAYS 天。
+     */
+    private const val MAX_LOOKBACK_DAYS: Int = 3
 
     /** P1 修复：每个活跃窗内允许发布的推文数上限（spec 默认 2 条/窗） */
     private const val POSTS_PER_WINDOW: Int = 2

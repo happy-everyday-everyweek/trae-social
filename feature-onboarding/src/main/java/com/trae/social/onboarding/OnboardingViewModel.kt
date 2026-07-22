@@ -1,20 +1,24 @@
 package com.trae.social.onboarding
 
+import android.content.SharedPreferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.trae.social.core.data.config.LlmProtocol
 import com.trae.social.core.data.config.LlmProvider
 import com.trae.social.core.data.config.ModelCapability
+import com.trae.social.core.data.di.SecurePreferences
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.data.repository.LlmCacheInvalidator
 import com.trae.social.llm.RulesetEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.IOException
 import java.net.SocketTimeoutException
@@ -43,6 +47,9 @@ class OnboardingViewModel @Inject constructor(
     private val rulesetEngine: RulesetEngine,
     private val cacheInvalidator: LlmCacheInvalidator,
     private val coldStartFiller: ColdStartFiller,
+    // #34：直接注入 EncryptedSharedPreferences 用于历史 API Key 存储，
+    // 与 ConfigRepository 内部使用的同一加密实例（命名空间隔离，键名以 history_ 前缀）。
+    @SecurePreferences private val secureSharedPreferences: SharedPreferences,
 ) : ViewModel() {
 
     /**
@@ -59,6 +66,8 @@ class OnboardingViewModel @Inject constructor(
      *   避免重复测试时累积多个端点
      * @param saveError 保存配置失败的用户可读原因（主 review 第 1 轮 M1 修复）。
      *   非 null 时 UI 应展示错误并允许重试；null 表示无错误或尚未触发保存。
+     * @param historyApiKeys #34：历史 API Key 列表（加密存储，最多保留 5 条，按最近使用排序）。
+     *   UI 据此渲染快速选择入口，用户点击即回填到 apiKey 字段。
      */
     data class OnboardingUiState(
         val selectedProvider: LlmProvider = LlmProvider.OPENAI,
@@ -70,6 +79,7 @@ class OnboardingViewModel @Inject constructor(
         val completed: Boolean = false,
         val pendingEndpointId: String? = null,
         val saveError: String? = null,
+        val historyApiKeys: List<String> = emptyList(),
     )
 
     /**
@@ -108,25 +118,45 @@ class OnboardingViewModel @Inject constructor(
                 return@launch
             }
             val first = endpoints.firstOrNull() ?: return@launch
+            // review 第 5 轮修复：suspend I/O 不应写在 _uiState.update 的 CAS lambda 内——
+            // update 是 CAS 循环，协程在 getEndpointApiKey（EncryptedSharedPreferences 解密）期间
+            // 挂起且 _uiState.value 被并发改写（同 init 块另一 launch）时，CAS 失败会重新执行
+            // 整个 lambda，重复解密。先在 update 外取值，再 update。
+            val snapshot = _uiState.value
+            val backfillApiKey = if (snapshot.apiKey.isBlank()) {
+                // M2 修复：getEndpointApiKey 是 suspend，原 runCatching 吞 CancellationException。
+                try {
+                    configRepository.getEndpointApiKey(first.id)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (t: Throwable) {
+                    Timber.w(t, "OnboardingViewModel init: getEndpointApiKey 失败")
+                    null
+                }.orEmpty()
+            } else {
+                snapshot.apiKey
+            }
             _uiState.update { current ->
                 current.copy(
                     pendingEndpointId = first.id,
                     // 仅在用户尚未输入时回填，避免覆盖正在输入的内容
                     baseUrl = if (current.baseUrl.isBlank()) first.baseUrl else current.baseUrl,
                     model = if (current.model.isBlank()) first.model else current.model,
-                    apiKey = if (current.apiKey.isBlank()) {
-                        // M2 修复：getEndpointApiKey 是 suspend，原 runCatching 吞 CancellationException。
-                        try {
-                            configRepository.getEndpointApiKey(first.id)
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (t: Throwable) {
-                            Timber.w(t, "OnboardingViewModel init: getEndpointApiKey 失败")
-                            null
-                        }.orEmpty()
-                    } else current.apiKey,
+                    apiKey = if (current.apiKey.isBlank()) backfillApiKey else current.apiKey,
                 )
             }
+        }
+        // #34：加载历史 API Key 列表，供 KeyInputScreen 渲染快速选择入口
+        viewModelScope.launch {
+            val history = try {
+                loadHistoryApiKeys()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Timber.w(t, "OnboardingViewModel init: 加载历史 API Key 失败")
+                emptyList()
+            }
+            _uiState.update { it.copy(historyApiKeys = history) }
         }
     }
 
@@ -139,6 +169,11 @@ class OnboardingViewModel @Inject constructor(
      *
      * 主 review 第 2 轮修复：同时清空 saveError。用户在保存失败后切换 provider，
      * 旧 saveError 不再适用（新 provider 还没尝试保存），保留会误导 UI 显示"重试"按钮。
+     *
+     * review 第 5 轮修复：不再清空 apiKey。原实现置 apiKey="" 抵消了 #34 的粘贴识别——
+     * 用户在 OpenAI 页粘贴 sk-ant-... 的 Anthropic Key 后点"切换到 Anthropic"，刚粘贴
+     * 的 Key 被清空必须重粘。切换后保留 Key，用户可继续测试；若 Key 不匹配新 provider，
+     * 连通性测试会给出 401 等明确错误，无需预先清空。
      */
     fun selectProvider(provider: LlmProvider) {
         _uiState.update { current ->
@@ -146,7 +181,6 @@ class OnboardingViewModel @Inject constructor(
                 selectedProvider = provider,
                 baseUrl = DEFAULT_BASE_URLS[provider] ?: "",
                 model = DEFAULT_MODELS[provider] ?: "",
-                apiKey = "",
                 testStatus = TestStatus.Idle,
                 pendingEndpointId = null,
                 saveError = null,
@@ -158,6 +192,18 @@ class OnboardingViewModel @Inject constructor(
     fun updateApiKey(key: String) {
         // 主 review 第 2 轮修复：用户修改输入时清空 saveError——旧保存错误已不适用。
         _uiState.update { it.copy(apiKey = key.trim(), testStatus = TestStatus.Idle, saveError = null) }
+    }
+
+    /**
+     * #34：从历史 Key 列表中选择一条回填到输入框。
+     *
+     * 用户在 KeyInputScreen 点击历史 Key 时调用。回填后 testStatus 重置为 Idle，
+     * 用户需重新点击"测试连接"验证该 Key 是否仍有效。
+     */
+    fun selectHistoryApiKey(key: String) {
+        _uiState.update {
+            it.copy(apiKey = key.trim(), testStatus = TestStatus.Idle, saveError = null)
+        }
     }
 
     /** 更新 Base URL 输入。 */
@@ -212,7 +258,18 @@ class OnboardingViewModel @Inject constructor(
                 }
 
                 if (pingOk) {
-                    _uiState.update { it.copy(testStatus = TestStatus.Success) }
+                    // #34：测试成功后将当前 Key 写入历史（去重 + 最多保留 5 条），
+                    // 下次重配时用户可从历史快速选择。失败不写入，避免历史充斥无效 Key。
+                    saveApiKeyToHistory(current.apiKey)
+                    // review 第 5 轮修复：loadHistoryApiKeys() 是 suspend（读 EncryptedSharedPreferences
+                    // 解密），不应写在 update 的 CAS lambda 内。先取值再 update。
+                    val refreshedHistory = loadHistoryApiKeys()
+                    _uiState.update {
+                        it.copy(
+                            testStatus = TestStatus.Success,
+                            historyApiKeys = refreshedHistory,
+                        )
+                    }
                 } else {
                     _uiState.update {
                         it.copy(testStatus = TestStatus.Error("连接失败：响应为空，请检查 API Key 与端点配置"))
@@ -310,6 +367,13 @@ class OnboardingViewModel @Inject constructor(
             ModelCapability.JSON_MODE_NATIVE,
             ModelCapability.STREAMING,
         )
+        // review 修复：KeyInputScreen 的 supportingText 承诺「留空则使用提供商官方端点」，
+        // 但此前 state.baseUrl 为空时直接透传空串给 ConfigRepository，导致 ping 请求
+        // 打到空 URL 报 UnknownHostException。此处对非 CUSTOM 提供商补上官方默认端点。
+        // CUSTOM 不在此列——canSubmit 已要求 CUSTOM 必须填写合法 URL。
+        val effectiveBaseUrl = state.baseUrl.ifBlank {
+            DEFAULT_BASE_URLS[state.selectedProvider] ?: ""
+        }
 
         val pendingId = state.pendingEndpointId
         if (pendingId != null) {
@@ -317,7 +381,7 @@ class OnboardingViewModel @Inject constructor(
                 id = pendingId,
                 displayName = state.selectedProvider.displayName,
                 protocol = protocol,
-                baseUrl = state.baseUrl,
+                baseUrl = effectiveBaseUrl,
                 model = state.model,
                 capabilities = capabilities,
             )
@@ -330,13 +394,49 @@ class OnboardingViewModel @Inject constructor(
         val newId = configRepository.addEndpoint(
             displayName = state.selectedProvider.displayName,
             protocol = protocol,
-            baseUrl = state.baseUrl,
+            baseUrl = effectiveBaseUrl,
             model = state.model,
             capabilities = capabilities,
             apiKey = state.apiKey.takeIf { it.isNotEmpty() },
         )
         _uiState.update { it.copy(pendingEndpointId = newId) }
         return newId
+    }
+
+    // ==================================================================
+    // #34：历史 API Key 加密存储（EncryptedSharedPreferences）
+    // ==================================================================
+    // 存储 key 为 `history_api_keys`，value 为多条 Key 以 "\n" 拼接的单行字符串。
+    // API Key 不含换行符，分隔安全。最近使用的排在最前，最多保留 [MAX_HISTORY_KEYS] 条。
+    // 与 ConfigRepository 内部 endpointApiKeyEntry 命名空间（`api_key_ep_*`）隔离。
+
+    /**
+     * 读取历史 API Key 列表，按最近使用顺序排列（最前为最近）。
+     */
+    private suspend fun loadHistoryApiKeys(): List<String> = withContext(Dispatchers.IO) {
+        val raw = secureSharedPreferences.getString(HISTORY_API_KEYS_ENTRY, null) ?: return@withContext emptyList()
+        raw.split('\n').filter { it.isNotBlank() }
+    }
+
+    /**
+     * 将 [apiKey] 写入历史：去重后置于最前，截断到 [MAX_HISTORY_KEYS] 条。
+     * 仅在 Key 非空时写入。
+     */
+    private suspend fun saveApiKeyToHistory(apiKey: String) {
+        if (apiKey.isBlank()) return
+        withContext(Dispatchers.IO) {
+            val current = secureSharedPreferences
+                .getString(HISTORY_API_KEYS_ENTRY, null)
+                ?.split('\n')
+                ?.filter { it.isNotBlank() }
+                .orEmpty()
+            // 去重：移除已存在的相同 Key，再置于最前
+            val updated = listOf(apiKey) + current.filter { it != apiKey }
+            val truncated = updated.take(MAX_HISTORY_KEYS)
+            secureSharedPreferences.edit()
+                .putString(HISTORY_API_KEYS_ENTRY, truncated.joinToString("\n"))
+                .apply()
+        }
     }
 
     /** 按 LlmProvider 预设选择协议格式（OpenAI 兼容 / Anthropic 兼容）。 */
@@ -426,5 +526,11 @@ class OnboardingViewModel @Inject constructor(
             LlmProvider.GEMINI to "gemini-1.5-flash",
             LlmProvider.CUSTOM to "gpt-4o-mini",
         )
+
+        // #34：历史 API Key 存储常量
+        /** EncryptedSharedPreferences 中历史 Key 列表的存储键 */
+        private const val HISTORY_API_KEYS_ENTRY = "history_api_keys"
+        /** 历史列表最大保留条数（超出按最近使用截断） */
+        const val MAX_HISTORY_KEYS = 5
     }
 }

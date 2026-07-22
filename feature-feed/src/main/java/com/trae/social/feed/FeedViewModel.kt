@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
-import androidx.paging.filter
 import androidx.paging.map
 import com.trae.social.core.data.AccountIds
 import com.trae.social.core.data.entity.CommentEntity
@@ -29,10 +28,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import timber.log.Timber
 import java.util.UUID
 import javax.inject.Inject
@@ -48,7 +47,6 @@ import javax.inject.Inject
  * #135：移除了未被 FeedScreen 消费的 FeedUiState 死状态。
  * FeedScreen 的 Loading/Error/Empty/List 判断全部基于 pagingItems.loadState。
  */
-@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class FeedViewModel @Inject constructor(
     private val tweetRepository: TweetRepository,
@@ -99,29 +97,38 @@ class FeedViewModel @Inject constructor(
     private val _isOnboardingSkipped = MutableStateFlow(false)
     val isOnboardingSkipped: StateFlow<Boolean> = _isOnboardingSkipped.asStateFlow()
 
+    /** #183：串行化 DataStore 收藏写入的 Mutex，避免快速双击时两次 setBookmarkedTweetIds
+     *  到达顺序由 Dispatchers.IO 决定（非确定），导致最终落盘值与 UI 最新状态反转。 */
+    private val bookmarkWriteMutex = Mutex()
+
+    /** #183：与 bookmarkWriteMutex 同理，串行化不感兴趣写入。 */
+    private val notInterestedWriteMutex = Mutex()
+
     /**
      * 信息流分页数据流。
      *
      * TweetEntity → TweetWithAuthor：在 map 中逐条查账号（带内存缓存），
      * 缺失账号时回退为占位名，避免阻塞分页。
-     * #142：过滤掉用户标记为"不感兴趣"的推文。
-     * UI-fix：使用 flatMapLatest 组合 _notInterestedTweetIds，点击"不感兴趣"后自动重新过滤，
-     * 无需用户手动下拉刷新；cachedIn 保持配置变更后的分页状态。
+     *
+     * #182：移除对 _notInterestedTweetIds 的 flatMapLatest 监听——原实现每次点"不感兴趣"
+     * 都会取消上一个 Pager.flow 并新建 PagingSource，导致 LazyPagingItems 重订阅、列表跳回顶部、
+     * 滚动位置丢失。现改为稳定的 map 流，不感兴趣过滤改由 FeedScreen UI 层基于
+     * [notInterestedTweetIds] 衍生过滤（见 FeedList），保留分页与滚动状态。
      */
-    val feedFlow: Flow<PagingData<TweetWithAuthor>> = _notInterestedTweetIds
-        .flatMapLatest { hidden ->
-            tweetRepository.getFeedFlow().map { pagingData ->
-                pagingData
-                    .filter { it.id !in hidden }
-                    .map { tweet -> resolveAuthor(tweet) }
-            }
+    val feedFlow: Flow<PagingData<TweetWithAuthor>> = tweetRepository.getFeedFlow()
+        .map { pagingData ->
+            pagingData.map { tweet -> resolveAuthor(tweet) }
         }
         .cachedIn(viewModelScope)
 
     init {
         // IMPL-13：读取跳过引导标记，驱动 FeedScreen 顶部 banner
+        // #165：与相邻 launch 一致地用 runCatching 包裹，DataStore 磁盘损坏 / IO 异常时
+        // 不崩进程（默认 false）。注：Kotlin runCatching 会吞 CancellationException，但本处
+        // 无协程取消语义需要保留，兜底返回 false 可接受。
         viewModelScope.launch {
-            _isOnboardingSkipped.value = configRepository.isOnboardingSkipped()
+            _isOnboardingSkipped.value = runCatching { configRepository.isOnboardingSkipped() }
+                .getOrDefault(false)
         }
         // #146 A/E 场景 5：读取画像反哺权重与兴趣向量，驱动信息流 boost 标签与兴趣展示。
         // feedBoost 实际重排受 Paging 分页语义约束（重排破坏分页），此处先打通读侧消费，
@@ -274,9 +281,13 @@ class FeedViewModel @Inject constructor(
         )
         viewModelScope.launch {
             var interactionInserted = false
+            // #171：记录 commentCount 是否已 +1，避免首步（updateCommentCount）失败时
+            // catch 块无条件 -1 把计数打成 -1（原 interactionInserted 仅保护 interaction 清理）
+            var commentCountIncremented = false
             try {
                 val now = System.currentTimeMillis()
                 tweetRepository.updateCommentCount(tweetId, 1)
+                commentCountIncremented = true
                 interactionRepository.scheduleInteraction(
                     InteractionEntity(
                         id = UUID.randomUUID().toString(),
@@ -305,8 +316,11 @@ class FeedViewModel @Inject constructor(
                 Timber.e(t, "评论失败，回滚 commentCount 并清理孤儿 interaction")
                 // #139：步骤 1（updateCommentCount）已提交到 DB，若步骤 2/3 失败需回滚计数，
                 // 避免计数漂移累积（对比 likeTweet 失败时回滚 _likedTweetIds）
-                runCatching { tweetRepository.updateCommentCount(tweetId, -1) }
-                    .onFailure { Timber.w(it, "回滚 commentCount 失败") }
+                // #171：仅在 updateCommentCount(+1) 成功后才回滚 -1，首步失败时不递减
+                if (commentCountIncremented) {
+                    runCatching { tweetRepository.updateCommentCount(tweetId, -1) }
+                        .onFailure { Timber.w(it, "回滚 commentCount 失败") }
+                }
                 // m7 修复：若 COMMENT interaction 已写入但 addComment 失败，删除孤儿 interaction
                 if (interactionInserted) {
                     runCatching { interactionRepository.deleteCommentInteraction(tweetId, USER_SELF_ID) }
@@ -408,9 +422,14 @@ class FeedViewModel @Inject constructor(
             extra = scenario5Extra(_feedBoostEnabled.value),
         )
         // #102：持久化到 DataStore，确保旋转屏幕或杀进程重启后收藏状态不丢失
+        // #183：用 Mutex 串行化写入并在锁内读取最新 _bookmarkedTweetIds.value，
+        // 确保快速双击时两次写入按调用顺序执行，最终落盘值与 UI 最新状态一致
+        // （原实现捕获的 newSet 已过期，且 IO 调度顺序非确定可能导致最终状态反转）。
         viewModelScope.launch {
-            runCatching { configRepository.setBookmarkedTweetIds(newSet) }
-                .onFailure { Timber.w(it, "持久化收藏状态失败") }
+            bookmarkWriteMutex.withLock {
+                runCatching { configRepository.setBookmarkedTweetIds(_bookmarkedTweetIds.value) }
+                    .onFailure { Timber.w(it, "持久化收藏状态失败") }
+            }
         }
     }
 
@@ -422,9 +441,12 @@ class FeedViewModel @Inject constructor(
     fun markNotInterested(tweetId: String) {
         val newSet = _notInterestedTweetIds.value + tweetId
         _notInterestedTweetIds.value = newSet
+        // #183：与 bookmarkTweet 一致地用 Mutex 串行化写入，避免快速连续点击导致最终状态反转
         viewModelScope.launch {
-            runCatching { configRepository.setNotInterestedTweetIds(newSet) }
-                .onFailure { Timber.w(it, "持久化不感兴趣状态失败") }
+            notInterestedWriteMutex.withLock {
+                runCatching { configRepository.setNotInterestedTweetIds(_notInterestedTweetIds.value) }
+                    .onFailure { Timber.w(it, "持久化不感兴趣状态失败") }
+            }
         }
     }
 
