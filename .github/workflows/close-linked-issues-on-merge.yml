@@ -1,0 +1,175 @@
+name: Close Linked Issues on PR Merge
+
+# 触发条件：PR 合并到 main 后运行
+# 用途：自动关闭本 PR 关联的所有 issue，并为每个被关闭的 issue 添加说明评论
+# 关联 issue 的识别来源（三重兜底，去重后处理）：
+#   1. GraphQL closingIssuesReferences —— 覆盖 GitHub UI 链接 + PR body 中的 closes/fixes/resolves 关键字
+#   2. 正则解析 PR body 中的 closes #N / fixes #N / resolves #N 等关键字
+#   3. 正则解析 PR 内所有 commit message 中的同上关键字
+# 仅处理仍处于 open 状态的 issue；已关闭的 issue 与 PR 引用会被跳过，避免重复评论。
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  issues: write   # 关闭 issue、添加评论需要
+  contents: read  # 读取仓库信息
+  pull-requests: read  # 读取 PR commit 列表
+
+jobs:
+  close-linked-issues:
+    # 仅在 PR 真正合并（非直接关闭）时执行
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Close linked issues and add comments
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const prNumber = context.payload.pull_request.number;
+            const prTitle = context.payload.pull_request.title;
+            const prUrl = context.payload.pull_request.html_url;
+            const prBody = context.payload.pull_request.body || '';
+            const prAuthor = context.payload.pull_request.user.login;
+            const mergeCommitSha = context.payload.pull_request.merge_commit_sha || context.sha;
+
+            core.info(`处理 PR #${prNumber}: ${prTitle}`);
+            core.info(`合并 commit: ${mergeCommitSha}`);
+
+            // 关键字正则：匹配 close/closes/closed/fix/fixes/fixed/resolve/resolves/resolved + #N
+            const keywordRe = /\b(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s+#(\d+)\b/gi;
+
+            // 收集所有关联的 issue 号（Set 自动去重）
+            const linkedIssueNumbers = new Set();
+
+            // ---- 方法 1：GraphQL closingIssuesReferences ----
+            core.info('--- 通过 GraphQL 查询 closingIssuesReferences ---');
+            try {
+              const query = `
+                query($owner: String!, $repo: String!, $prNumber: Int!) {
+                  repository(owner: $owner, name: $repo) {
+                    pullRequest(number: $prNumber) {
+                      closingIssuesReferences(first: 100) {
+                        nodes { number state title }
+                      }
+                    }
+                  }
+                }`;
+              const result = await github.graphql(query, { owner, repo, prNumber });
+              const nodes = result?.repository?.pullRequest?.closingIssuesReferences?.nodes || [];
+              for (const node of nodes) {
+                linkedIssueNumbers.add(node.number);
+                core.info(`GraphQL 命中 #${node.number} (state=${node.state}): ${node.title}`);
+              }
+            } catch (e) {
+              core.warning(`GraphQL 查询失败: ${e.message}`);
+            }
+
+            // ---- 方法 2：解析 PR body 中的关闭关键字 ----
+            core.info('--- 解析 PR body 中的关闭关键字 ---');
+            let m;
+            keywordRe.lastIndex = 0;
+            while ((m = keywordRe.exec(prBody)) !== null) {
+              const num = parseInt(m[1], 10);
+              linkedIssueNumbers.add(num);
+              core.info(`PR body 命中 #${num}`);
+            }
+
+            // ---- 方法 3：解析 PR 内所有 commit message ----
+            core.info('--- 解析 commit message 中的关闭关键字 ---');
+            try {
+              const commits = await github.rest.pulls.listCommits({
+                owner, repo, pull_number: prNumber, per_page: 250,
+              });
+              for (const c of commits.data) {
+                const msg = c.commit.message || '';
+                keywordRe.lastIndex = 0;
+                let mm;
+                while ((mm = keywordRe.exec(msg)) !== null) {
+                  const num = parseInt(mm[1], 10);
+                  linkedIssueNumbers.add(num);
+                  core.info(`Commit ${c.sha.slice(0, 7)} 命中 #${num}`);
+                }
+              }
+            } catch (e) {
+              core.warning(`获取 PR commit 列表失败: ${e.message}`);
+            }
+
+            if (linkedIssueNumbers.size === 0) {
+              core.info('未发现关联的 issue，结束。');
+              return;
+            }
+
+            core.info(`\n=== 共发现 ${linkedIssueNumbers.size} 个关联 issue，开始处理 ===`);
+
+            // 评论模板
+            const commentBody = [
+              `## ✅ 已通过 PR 合并自动关闭`,
+              ``,
+              `本 issue 已随 PR #${prNumber} 合并至 \`main\` 分支而关闭。`,
+              ``,
+              `- **PR 标题**：${prTitle}`,
+              `- **PR 作者**：@${prAuthor}`,
+              `- **PR 链接**：${prUrl}`,
+              `- **合并 commit**：${mergeCommitSha}`,
+              ``,
+              `> 本评论由 \`${context.workflow}\` 工作流在 PR 合并时自动生成。`,
+            ].join('\n');
+
+            let closedCount = 0;
+            let skippedCount = 0;
+            let failedCount = 0;
+
+            for (const issueNumber of [...linkedIssueNumbers].sort((a, b) => a - b)) {
+              try {
+                const { data: issue } = await github.rest.issues.get({
+                  owner, repo, issue_number: issueNumber,
+                });
+
+                // 跳过 PR 引用（#N 可能指向另一个 PR）
+                if (issue.pull_request) {
+                  core.info(`#${issueNumber} 是 PR，跳过。`);
+                  skippedCount++;
+                  continue;
+                }
+
+                // 跳过已关闭的 issue，避免重复评论
+                if (issue.state === 'closed') {
+                  core.info(`#${issueNumber} 已关闭，跳过。`);
+                  skippedCount++;
+                  continue;
+                }
+
+                // 先添加说明评论
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: issueNumber, body: commentBody,
+                });
+                core.info(`已为 #${issueNumber} 添加关闭说明评论`);
+
+                // 再关闭 issue
+                await github.rest.issues.update({
+                  owner, repo, issue_number: issueNumber,
+                  state: 'closed',
+                  state_reason: 'completed',
+                });
+                core.info(`已关闭 #${issueNumber}`);
+                closedCount++;
+              } catch (e) {
+                core.error(`处理 #${issueNumber} 失败: ${e.message}`);
+                failedCount++;
+              }
+            }
+
+            core.info(`\n=== 处理完成 ===`);
+            core.info(`关闭: ${closedCount}，跳过: ${skippedCount}，失败: ${failedCount}`);
+
+            if (failedCount > 0) {
+              core.setFailed(`有 ${failedCount} 个 issue 处理失败`);
+            }
