@@ -365,7 +365,10 @@ private fun isHttpUrl(url: String): Boolean {
     if (url.isBlank()) return false
     return try {
         val parsed = URL(url)
-        parsed.protocol == "http" || parsed.protocol == "https"
+        // review 第 5 轮修复：仅校验协议不足以拦截 "http://" 这类空 host 输入，
+        // 会通过 canSubmit 后 ping 到无 host 的 URL 报 UnknownHostException。
+        // 追加 host 非空校验。
+        (parsed.protocol == "http" || parsed.protocol == "https") && parsed.host.isNotBlank()
     } catch (e: Exception) {
         false
     }

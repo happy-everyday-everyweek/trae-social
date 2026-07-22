@@ -45,6 +45,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -290,6 +291,7 @@ private fun PublishFlyInOverlay(
 ) {
     val progress = remember { Animatable(0f) }
     val reduceMotion = LocalReduceMotion.current
+    val density = LocalDensity.current
     // #157：减弱动效下使用更短时长，让用户尽快看到发布结果
     val durationMs = if (reduceMotion) REDUCED_PUBLISH_ANIM_DURATION_MS
         else PUBLISH_ANIM_DURATION_MS
@@ -350,8 +352,14 @@ private fun PublishFlyInOverlay(
         }
         // #157：减弱动效下完全移除位移（图片居中淡出），符合 ReduceMotion.kt 原则；
         // 默认用 FastOutSlowInEasing（原 EaseOutBack 改为 crisp 缓动，避免弹性"弹过头再回落"）
+        // review 第 5 轮修复：translationY 原用裸 px 值（400/-200），不同屏幕密度下位移距离不一致。
+        // 改用 dp 转 px，保证视觉位移在各类密度设备上一致。
         val translationYVal = if (reduceMotion) 0f
-            else lerpUnclamped(400f, -200f, FastOutSlowInEasing.transform(p))
+            else lerpUnclamped(
+                with(density) { 400.dp.toPx() },
+                with(density) { (-200).dp.toPx() },
+                FastOutSlowInEasing.transform(p),
+            )
 
         // 成功提示：阶段2淡入，阶段3淡出
         val successAlpha = when {

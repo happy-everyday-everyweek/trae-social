@@ -29,6 +29,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -96,8 +97,12 @@ fun FullScreenImageViewer(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                // 背景透明度随下滑进度衰减：1 - progress
-                .background(Color.Black.copy(alpha = (1f - dismissDragProgress).coerceIn(0f, 1f))),
+                // review 第 5 轮修复：背景透明度随下滑进度衰减。原 .background() 在组合期读取
+                // dismissDragProgress，导致父 Box（含 HorizontalPager）随每像素拖拽逐帧重组。
+                // 改用 drawBehind 在 draw 阶段读取状态，仅触发重绘不触发重组。
+                .drawBehind {
+                    drawRect(Color.Black.copy(alpha = (1f - dismissDragProgress).coerceIn(0f, 1f)))
+                },
         ) {
             HorizontalPager(
                 state = pagerState,
@@ -291,8 +296,8 @@ private fun ZoomableImage(
                 .build()
         }
         // 主 review 第 4 轮修复：下滑关闭手势期间，图片随手指下移并淡出。
-        // progress = dismissDragY / DISMISS_DRAG_THRESHOLD_PX，钳制到 0..1
-        val dismissProgress = (dismissDragY / DISMISS_DRAG_THRESHOLD_PX).coerceIn(0f, 1f)
+        // review 第 5 轮修复：改用 graphicsLayer 尾随 lambda，把 scale/offset/dismissDragY
+        // 的状态读取推迟到 draw 阶段，避免缩放/平移/下滑过程中 ZoomableImage 每帧重组。
         AsyncImage(
             model = request,
             contentDescription = null,
@@ -300,14 +305,15 @@ private fun ZoomableImage(
             contentScale = ContentScale.Fit,
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer(
-                    scaleX = scale,
-                    scaleY = scale,
-                    translationX = offset.x,
-                    translationY = offset.y + dismissDragY,
+                .graphicsLayer {
+                    val dismissProgress = (dismissDragY / DISMISS_DRAG_THRESHOLD_PX).coerceIn(0f, 1f)
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = offset.x
+                    translationY = offset.y + dismissDragY
                     // 拖拽时图片透明度从 1 衰减到 0.3（不完全透明，保留可见反馈）
-                    alpha = (1f - dismissProgress * 0.7f).coerceIn(0.3f, 1f),
-                ),
+                    alpha = (1f - dismissProgress * 0.7f).coerceIn(0.3f, 1f)
+                },
         )
     }
 }

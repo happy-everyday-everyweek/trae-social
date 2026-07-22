@@ -340,10 +340,21 @@ private fun CropOverlay(
     val latestBitmap by rememberUpdatedState(bitmap)
     LaunchedEffect(filter, bitmap) {
         val old = displayBitmap
-        val new = filter.apply(bitmap)
+        // review 第 5 轮修复：filter.apply 在主线程做 createBitmap + Canvas.drawBitmap（源图
+        // 最大 2048²），切换滤镜会卡顿 / ANR。移到 Dispatchers.Default。
+        val new = withContext(Dispatchers.Default) { filter.apply(bitmap) }
+        try {
+            ensureActive()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // filter/bitmap 在后台 apply 期间变化，回收刚产生的 bitmap 避免泄漏
+            if (new !== bitmap) new.recycle()
+            throw e
+        }
         displayBitmap = new
         if (old != null && old !== bitmap && old !== new) {
-            old.recycle()
+            // review 第 5 轮修复：推迟到下一帧再 recycle，避免与 RenderThread 仍在绘制 old 的
+            // 帧并发触发 "Canvas: trying to use a recycled bitmap" 崩溃。
+            android.os.Handler(android.os.Looper.getMainLooper()).post { old.recycle() }
         }
     }
     // #175：组合离开时回收 displayBitmap（非源引用部分），避免内存泄漏

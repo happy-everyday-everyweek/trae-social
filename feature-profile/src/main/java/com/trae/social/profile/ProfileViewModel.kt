@@ -111,10 +111,13 @@ class ProfileViewModel @Inject constructor(
 
     private fun loadProfile() {
         viewModelScope.launch {
-            // 主 review 第 2 轮修复：原 runCatching 会吞 CancellationException。
+            // review 第 5 轮修复：改用 observeById Flow 持续订阅目标账号资料，
+            // PersonaUpdateWorker 更新人设后 ProfileScreen 头部自动刷新，
+            // 与 TimelineViewModel.selfProfile 行为一致。原为一次性 getById，人设更新后头部不刷新。
+            //
             // 主 review 第 6 轮修复：catch (Throwable) → catch (Exception) 让 Error（OOM 等）
             // 自然传播，避免 OOM 后还继续覆盖 UI 状态加剧崩溃，与同模块 ApiKeyViewModel /
-            // FollowListViewModel 策略一致。本文件 8 处 catch 同步统一。
+            // FollowListViewModel 策略一致。
             //
             // #184：关注/粉丝计数改为 observe Flow（observeFollowingCount / observeFollowersCount），
             // 此处仅加载目标账号资料；计数刷新由 observeProfileCounts 处理，FollowListViewModel.toggleFollow
@@ -122,40 +125,60 @@ class ProfileViewModel @Inject constructor(
             //
             // #11：加载 [targetAccountId] 对应账号资料（PROFILE Tab 路由下 == SELF_ID，
             // ACCOUNT_DETAIL 路由下为目标账号 ID），替换原硬编码 SELF_ID。
-            val account = try {
-                accountRepository.getById(targetAccountId)
+            var countsObserved = false
+            try {
+                accountRepository.observeById(targetAccountId).collect { account ->
+                    if (account == null) {
+                        _uiState.value = ProfileUiState.Empty
+                        return@collect
+                    }
+                    if (!countsObserved) {
+                        // 首次拿到账号：加载计数初值并启动 observe 持续刷新计数
+                        countsObserved = true
+                        val following = try {
+                            followRelationDao.countFollowing(targetAccountId)
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Timber.w(e, "加载关注数失败"); 0
+                        }
+                        val followers = try {
+                            followRelationDao.countFollowers(targetAccountId)
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Timber.w(e, "加载粉丝数失败"); 0
+                        }
+                        _uiState.value = ProfileUiState.Success(
+                            account = account,
+                            followingCount = following,
+                            followersCount = followers,
+                        )
+                        // #184：启动 observe，后续 FollowListViewModel.toggleFollow 写库后自动刷新计数
+                        observeProfileCounts()
+                    } else {
+                        // 后续 account 变更：复用 _uiState 中的最新计数（由 observeProfileCounts 维护），
+                        // 仅替换 account，避免覆盖正在刷新的计数。
+                        val current = _uiState.value
+                        if (current is ProfileUiState.Success) {
+                            _uiState.value = current.copy(account = account)
+                        } else {
+                            _uiState.value = ProfileUiState.Success(
+                                account = account,
+                                followingCount = 0,
+                                followersCount = 0,
+                            )
+                        }
+                    }
+                }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Timber.w(e, "加载目标账号失败 accountId=%s", targetAccountId); null
+                Timber.w(e, "observe 账号资料失败 accountId=%s", targetAccountId)
+                if (_uiState.value !is ProfileUiState.Success) {
+                    _uiState.value = ProfileUiState.Empty
+                }
             }
-            if (account == null) {
-                _uiState.value = ProfileUiState.Empty
-                return@launch
-            }
-            // #184：计数初值用同步快照，后续由 observeProfileCounts Flow 持续刷新
-            // #11：计数针对 targetAccountId（目标账号的关注/粉丝数）
-            val following = try {
-                followRelationDao.countFollowing(targetAccountId)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Timber.w(e, "加载关注数失败"); 0
-            }
-            val followers = try {
-                followRelationDao.countFollowers(targetAccountId)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Timber.w(e, "加载粉丝数失败"); 0
-            }
-            _uiState.value = ProfileUiState.Success(
-                account = account,
-                followingCount = following,
-                followersCount = followers,
-            )
-            // #184：启动 observe，后续 FollowListViewModel.toggleFollow 写库后自动刷新计数
-            observeProfileCounts()
         }
     }
 

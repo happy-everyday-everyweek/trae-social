@@ -118,23 +118,31 @@ class OnboardingViewModel @Inject constructor(
                 return@launch
             }
             val first = endpoints.firstOrNull() ?: return@launch
+            // review 第 5 轮修复：suspend I/O 不应写在 _uiState.update 的 CAS lambda 内——
+            // update 是 CAS 循环，协程在 getEndpointApiKey（EncryptedSharedPreferences 解密）期间
+            // 挂起且 _uiState.value 被并发改写（同 init 块另一 launch）时，CAS 失败会重新执行
+            // 整个 lambda，重复解密。先在 update 外取值，再 update。
+            val snapshot = _uiState.value
+            val backfillApiKey = if (snapshot.apiKey.isBlank()) {
+                // M2 修复：getEndpointApiKey 是 suspend，原 runCatching 吞 CancellationException。
+                try {
+                    configRepository.getEndpointApiKey(first.id)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (t: Throwable) {
+                    Timber.w(t, "OnboardingViewModel init: getEndpointApiKey 失败")
+                    null
+                }.orEmpty()
+            } else {
+                snapshot.apiKey
+            }
             _uiState.update { current ->
                 current.copy(
                     pendingEndpointId = first.id,
                     // 仅在用户尚未输入时回填，避免覆盖正在输入的内容
                     baseUrl = if (current.baseUrl.isBlank()) first.baseUrl else current.baseUrl,
                     model = if (current.model.isBlank()) first.model else current.model,
-                    apiKey = if (current.apiKey.isBlank()) {
-                        // M2 修复：getEndpointApiKey 是 suspend，原 runCatching 吞 CancellationException。
-                        try {
-                            configRepository.getEndpointApiKey(first.id)
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (t: Throwable) {
-                            Timber.w(t, "OnboardingViewModel init: getEndpointApiKey 失败")
-                            null
-                        }.orEmpty()
-                    } else current.apiKey,
+                    apiKey = if (current.apiKey.isBlank()) backfillApiKey else current.apiKey,
                 )
             }
         }
@@ -161,6 +169,11 @@ class OnboardingViewModel @Inject constructor(
      *
      * 主 review 第 2 轮修复：同时清空 saveError。用户在保存失败后切换 provider，
      * 旧 saveError 不再适用（新 provider 还没尝试保存），保留会误导 UI 显示"重试"按钮。
+     *
+     * review 第 5 轮修复：不再清空 apiKey。原实现置 apiKey="" 抵消了 #34 的粘贴识别——
+     * 用户在 OpenAI 页粘贴 sk-ant-... 的 Anthropic Key 后点"切换到 Anthropic"，刚粘贴
+     * 的 Key 被清空必须重粘。切换后保留 Key，用户可继续测试；若 Key 不匹配新 provider，
+     * 连通性测试会给出 401 等明确错误，无需预先清空。
      */
     fun selectProvider(provider: LlmProvider) {
         _uiState.update { current ->
@@ -168,7 +181,6 @@ class OnboardingViewModel @Inject constructor(
                 selectedProvider = provider,
                 baseUrl = DEFAULT_BASE_URLS[provider] ?: "",
                 model = DEFAULT_MODELS[provider] ?: "",
-                apiKey = "",
                 testStatus = TestStatus.Idle,
                 pendingEndpointId = null,
                 saveError = null,
@@ -249,10 +261,13 @@ class OnboardingViewModel @Inject constructor(
                     // #34：测试成功后将当前 Key 写入历史（去重 + 最多保留 5 条），
                     // 下次重配时用户可从历史快速选择。失败不写入，避免历史充斥无效 Key。
                     saveApiKeyToHistory(current.apiKey)
+                    // review 第 5 轮修复：loadHistoryApiKeys() 是 suspend（读 EncryptedSharedPreferences
+                    // 解密），不应写在 update 的 CAS lambda 内。先取值再 update。
+                    val refreshedHistory = loadHistoryApiKeys()
                     _uiState.update {
                         it.copy(
                             testStatus = TestStatus.Success,
-                            historyApiKeys = loadHistoryApiKeys(),
+                            historyApiKeys = refreshedHistory,
                         )
                     }
                 } else {

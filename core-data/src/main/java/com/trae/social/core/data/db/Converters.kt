@@ -5,6 +5,7 @@ import com.trae.social.core.data.entity.InteractionType
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
+import timber.log.Timber
 
 /**
  * Room TypeConverters：处理 JSON 字段与枚举的持久化。
@@ -66,7 +67,18 @@ class Converters {
         // Intrinsics.checkNotNull NPE，导致整个查询崩溃（同一行其他字段也无法读取）。
         // 脏数据（空串 / 未知枚举名）统一降级为 LIKE（首个枚举值），让该行可读而非整查询失败，
         // 与 jsonToStringList / jsonToBooleanList 的空列表降级策略对称。
-        if (value.isNullOrBlank()) return InteractionType.LIKE
-        return runCatching { InteractionType.valueOf(value) }.getOrDefault(InteractionType.LIKE)
+        //
+        // review 第 5 轮修复：默认成 LIKE 会让损坏的 COMMENT/RETWEET/FOLLOW 记录被当作 LIKE
+        // 读回，污染点赞计数且原始互动类型永久丢失（静默腐蚀）。此处降级时打一条 warn 日志，
+        // 让脏数据可观测，便于在排查 likeCount 异常时定位。不引入新枚举值以避免改动
+        // executeInteractionsAndUpdateTweet 的 when 分支与既有数据迁移。
+        if (value.isNullOrBlank()) {
+            Timber.w("InteractionType 读取到空值，降级为 LIKE")
+            return InteractionType.LIKE
+        }
+        return runCatching { InteractionType.valueOf(value) }.getOrElse {
+            Timber.w("InteractionType 读取到未知枚举名 %s，降级为 LIKE", value)
+            InteractionType.LIKE
+        }
     }
 }

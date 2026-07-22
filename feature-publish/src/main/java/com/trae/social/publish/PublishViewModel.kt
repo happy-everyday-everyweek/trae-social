@@ -122,8 +122,15 @@ class PublishViewModel @Inject constructor(
 
     fun addCapture(path: String) {
         _uiState.update { state ->
-            if (state.captures.size >= MAX_CAPTURES) state
-            else state.copy(captures = state.captures + path)
+            if (state.captures.size >= MAX_CAPTURES) {
+                // review 第 5 轮修复：达上限静默丢弃，但调用方（CameraModeContent.onShutter）
+                // 已把 JPEG 落盘到 cacheDir/capture/。丢弃时同步删除文件，避免孤儿文件泄漏。
+                runCatching { File(path).delete() }
+                    .onFailure { Timber.w(it, "丢弃超额截图文件失败 %s", path) }
+                state
+            } else {
+                state.copy(captures = state.captures + path)
+            }
         }
     }
 
