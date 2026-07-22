@@ -170,10 +170,18 @@ class PublishViewModel @Inject constructor(
 
     /**
      * 发布：落库 + 触发 AI 互动 + 发送 Published 事件。
+     *
+     * 主 review 第 4 轮修复：原入口仅以 `isPublishing` 防止重入，但发布成功后 `finally`
+     * 会把 `isPublishing` 置 false，而 `publishPhase` 仍为 ANIMATING。若 UI 未及时导航
+     * 离开（动画期间旋转屏、导航失败等），可再次触发 `publish()` 导致重复发推。
+     * 入口同时判断 `publishPhase != IDLE`，确保动画阶段无法重复发布；
+     * 动画完成后由 [markPublishAnimationDone] 置 DONE，UI 应已 pop 出 Publish back stack entry，
+     * ViewModel 被 clear，下一轮进入时为新实例、publishPhase = IDLE。
      */
     fun publish() {
         val current = _uiState.value
         if (current.isPublishing) return
+        if (_publishPhase.value != PublishPhase.IDLE) return
 
         viewModelScope.launch {
             _uiState.update { it.copy(isPublishing = true) }

@@ -61,10 +61,12 @@ class Converters {
 
     @TypeConverter
     fun stringToInteractionType(value: String?): InteractionType? {
-        if (value.isNullOrBlank()) return null
-        // #172：InteractionEntity.type 为非空字段，无效枚举值返回 null 会被 Room 注入非空字段
-        // 触发 Intrinsics.checkNotNull NPE 导致整个查询崩溃。脏数据降级为 LIKE（首个枚举值）
-        // 让该行可读而非整查询失败，与 jsonToStringList 的空列表降级策略对称。
+        // 主 review 第 4 轮修复：InteractionEntity.type 为非空字段（val type: InteractionType），
+        // 任何返回 null 的路径（包括 value 为 null/blank）都会被 Room 注入非空字段时触发
+        // Intrinsics.checkNotNull NPE，导致整个查询崩溃（同一行其他字段也无法读取）。
+        // 脏数据（空串 / 未知枚举名）统一降级为 LIKE（首个枚举值），让该行可读而非整查询失败，
+        // 与 jsonToStringList / jsonToBooleanList 的空列表降级策略对称。
+        if (value.isNullOrBlank()) return InteractionType.LIKE
         return runCatching { InteractionType.valueOf(value) }.getOrDefault(InteractionType.LIKE)
     }
 }

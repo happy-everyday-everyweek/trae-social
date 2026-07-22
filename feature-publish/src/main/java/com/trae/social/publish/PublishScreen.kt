@@ -211,7 +211,11 @@ fun PublishScreen(
             }
 
             // 底部预览栏 + 发布按钮
-            if (uiState.captures.isNotEmpty()) {
+            // 主 review 第 4 轮修复：publishPhase != IDLE（动画阶段）时隐藏底部栏，
+            // 避免用户在飞入动画期间再次点击发布按钮或删除已选图片。
+            // 配合 PublishViewModel.publish() 入口的 publishPhase != IDLE 重入保护，
+            // 双重确保动画阶段无法触发重复发推。
+            if (uiState.captures.isNotEmpty() && publishPhase == PublishPhase.IDLE) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()

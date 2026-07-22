@@ -135,8 +135,10 @@ class TweetGenerationWorker @AssistedInject constructor(
             // ------------------------------------------------------------------
             // 2. 查最近 3 条该账号推文
             // ------------------------------------------------------------------
-            val recentTweets = tweetRepository.getByAuthor(accountId)
-                .take(RECENT_TWEETS_FOR_DEDUP)
+            // 主 review 第 4 轮修复：原 getByAuthor(accountId).take(N) 会先把账号全部推文加载到
+            // 内存再截断，虚拟账号推文多时存在不必要的内存与 IO 开销。改用 getByAuthorLimit
+            // 在 SQL 层 LIMIT N，与本文件已新增的 #177 查询对齐。
+            val recentTweets = tweetRepository.getByAuthorLimit(accountId, RECENT_TWEETS_FOR_DEDUP)
                 .map { it.text }
 
             // #146 A/E 场景 1（topicBias）：判断本次是否 driven（画像驱动推文主题）。
