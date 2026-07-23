@@ -12,17 +12,19 @@
         ▼          ▼          ▼      ▼          ▼          ▼
    feature-feed  timeline  profile  publish  onboarding  core-designsystem
         │          │       │  │     │  │          │       (独立叶子)
-        │          │       │  │     │  │          │
-        └──────────┴───────┼──┘─────┼──┴──────────┘
-                           │        │
-              ┌────────────┼────────┼────────────┐
-              ▼            ▼        ▼            ▼
-       core-scheduler   core-profiling       core-llm ── api ──> core-data
-              │            │        │            │
-              └────────────┴────────┴────────────┘
-                           │
+        │          │       │  └─────┼──┼──────────┘
+        │          │       │        │  │
+        │          │       │  ┌─────┘  │
+        │          │       │  │        │
+        ▼          ▼       ▼  ▼        ▼
+  core-scheduler  │  core-profiling  core-llm ── implementation ──> core-data
+        │         │       │            │
+        └─────────┴───────┴────────────┘
                       core-data (叶子)
 ```
+
+> 注：上图简化了 feature → core 的依赖关系，并非所有 feature 都依赖所有 core 模块。
+> 精确依赖见下方「依赖规则」与各模块 `build.gradle.kts`。
 
 依赖规则：
 - `app` 模块依赖所有 feature 与 core 模块，负责 DI 装配与导航

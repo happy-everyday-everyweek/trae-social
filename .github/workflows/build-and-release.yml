@@ -35,6 +35,19 @@ jobs:
         # --no-parallel 规避 org.gradle.parallel=true 下 R8/编译器偶发并发问题
         run: ./gradlew compileDebugKotlin --no-daemon --no-parallel --stacktrace
 
+      - name: Run unit tests (debug)
+        # #325：CI 此前仅编译验证，从不执行单元测试，无法防止回归。
+        # 运行 testDebugUnitTest 覆盖所有模块的 src/test/ 单元测试。
+        # --continue 使部分模块测试失败时不中断其他模块，最终汇总失败。
+        run: ./gradlew testDebugUnitTest --no-daemon --no-parallel --stacktrace --continue
+
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: '**/build/test-results/testDebugUnitTest/*.xml'
+
   # tag 推送：构建 release APK 并发布
   release:
     if: startsWith(github.ref, 'refs/tags/v')
