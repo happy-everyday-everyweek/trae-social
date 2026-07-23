@@ -377,8 +377,10 @@ class ProfileViewModel @Inject constructor(
                 // 无则跳过计数更新，避免 _likedTweetIds 误包含某 tweetId 但 DB 无记录时
                 // 无条件 -1 导致 likeCount 错误。
                 val shouldUpdateCount = if (wasLiked) {
-                    val existing = interactionRepository.getLikedTweetIdsByAccount(AccountIds.USER_SELF_ID)
-                        .contains(tweetId)
+                    // #316：单条 EXISTS 查询替代 getLikedTweetIdsByAccount 全量加载——
+                    // 后者拉取当前账号全部已点赞推文 ID 列表只为 .contains 检查单个 ID，
+                    // N 条 LIKE 即拉取 N 行；EXISTS 短路返回，开销 O(log N)。
+                    val existing = interactionRepository.hasLikeInteraction(tweetId, AccountIds.USER_SELF_ID)
                     if (existing) {
                         interactionRepository.deleteLikeInteraction(tweetId, AccountIds.USER_SELF_ID)
                         true

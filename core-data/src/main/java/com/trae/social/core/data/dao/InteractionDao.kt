@@ -54,6 +54,16 @@ abstract class InteractionDao {
     @Query("DELETE FROM interactions WHERE tweetId = :tweetId AND accountId = :accountId AND type = 'LIKE'")
     abstract suspend fun deleteLikeInteraction(tweetId: String, accountId: String)
 
+    /**
+     * #316：判断某账号对某推文是否存在已执行的 LIKE 记录。
+     *
+     * 单条 EXISTS 查询替代 `getLikedTweetIdsByAccount(...).contains(tweetId)` 的全量加载
+     * 模式——后者加载该账号全部已点赞推文 ID 列表只为检查单个 ID 是否存在，N 条 LIKE
+     * 即拉取 N 行。EXISTS 在找到首条匹配行后即短路返回，开销恒定为 O(log N)。
+     */
+    @Query("SELECT EXISTS(SELECT 1 FROM interactions WHERE tweetId = :tweetId AND accountId = :accountId AND type = 'LIKE' AND executedAt IS NOT NULL)")
+    abstract suspend fun hasLikeInteraction(tweetId: String, accountId: String): Boolean
+
     // m7 修复：删除某账号对某推文的 COMMENT 互动记录（评论失败回滚时清理孤儿 interaction）
     @Query("DELETE FROM interactions WHERE tweetId = :tweetId AND accountId = :accountId AND type = 'COMMENT'")
     abstract suspend fun deleteCommentInteraction(tweetId: String, accountId: String)
