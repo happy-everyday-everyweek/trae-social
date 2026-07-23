@@ -77,11 +77,25 @@ class FeedViewModel @Inject constructor(
     private val _profileInterests = MutableStateFlow<List<String>>(emptyList())
     val profileInterests: StateFlow<List<String>> = _profileInterests.asStateFlow()
 
-    /** 账号信息内存缓存，避免分页滚动时重复查库（key = authorId）。
-     *  P2 修复：使用 ConcurrentHashMap 保证线程安全，避免 Paging 后台线程并发访问导致 ConcurrentModificationException。
-     *  #141：缓存条目带时间戳，超过 [AUTHOR_CACHE_TTL_MS] 后自动失效重新查库，
-     *  确保 PersonaUpdateWorker 更新人设后 Feed 能刷新到最新作者信息。 */
-    private val authorCache = java.util.concurrent.ConcurrentHashMap<String, CachedAuthor>()
+    /**
+     * 账号信息内存缓存（#317：LRU + TTL 双重淘汰）。
+     *
+     * - **TTL**（[AUTHOR_CACHE_TTL_MS]）：[resolveAuthor] 内显式判断，超时条目视为未命中重新查库，
+     *   确保 PersonaUpdateWorker 更新人设后 Feed 能刷新到最新作者信息（#141）。
+     * - **LRU**：[LinkedHashMap] 的 `accessOrder=true` 记录访问顺序，[removeEldestEntry] 在
+     *   size > [AUTHOR_CACHE_MAX_SIZE] 时淘汰最久未访问条目，避免长期滚动信息流导致缓存无限增长
+     *   （原 ConcurrentHashMap 无淘汰策略，每条新作者 ID 永久驻留，长会话下内存随作者总数线性增长）。
+     *
+     * 用 [java.util.Collections.synchronizedMap] 包装保证线程安全——Paging 的 map 算子可能在
+     * 后台线程并发访问缓存。所有访问经同步包装器自动加锁。
+     */
+    private val authorCache: MutableMap<String, CachedAuthor> =
+        java.util.Collections.synchronizedMap(
+            object : LinkedHashMap<String, CachedAuthor>(16, 0.75f, true) {
+                override fun removeEldestEntry(eldest: Map.Entry<String, CachedAuthor>): Boolean =
+                    size > AUTHOR_CACHE_MAX_SIZE
+            }
+        )
 
     /** 已点赞推文 ID 集合（乐观更新） */
     private val _likedTweetIds = MutableStateFlow<Set<String>>(emptySet())
@@ -501,5 +515,15 @@ class FeedViewModel @Inject constructor(
     private companion object {
         /** #141：作者缓存 TTL（5 分钟），超时后重新查库刷新人设信息 */
         const val AUTHOR_CACHE_TTL_MS = 5 * 60 * 1000L
+
+        /**
+         * #317：作者缓存 LRU 上限。超过此容量时淘汰最久未访问条目。
+         *
+         * 选取 200 条的依据：单条 CachedAuthor 仅含显示名/用户名/avatarSeed 三个字符串字段，
+         * 200 条占用 < 50KB；信息流一次可视范围（LazyColumn 视口 + 预取）通常 < 50 条推文，
+         * 200 条足以覆盖多次滚动；长会话下用户接触的作者总数可能远超此数（推送 feed 持续注入新作者），
+         * 故需 LRU 上限避免缓存随作者总数线性增长。
+         */
+        const val AUTHOR_CACHE_MAX_SIZE = 200
     }
 }
