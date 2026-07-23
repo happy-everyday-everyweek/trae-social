@@ -15,6 +15,7 @@ import com.trae.social.llm.RulesetEngine
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -251,7 +252,7 @@ class EventTextPreParser @Inject constructor(
             val index = obj["index"]?.jsonPrimitive?.intOrNull ?: return@forEach
             if (index !in batch.indices) return@forEach
             val signals = TextSignals(
-                topic = obj["textTopic"]?.let {
+                topic = obj["textTopic"]?.takeIf { it !is JsonNull }?.let {
                     runCatching { it.jsonPrimitive.content }.getOrNull()
                 },
                 topics = obj["textTopics"]?.let {
@@ -259,10 +260,10 @@ class EventTextPreParser @Inject constructor(
                         it.jsonArray.map { el -> el.jsonPrimitive.content }
                     }.getOrDefault(emptyList())
                 } ?: emptyList(),
-                sentiment = obj["textSentiment"]?.let {
+                sentiment = obj["textSentiment"]?.takeIf { it !is JsonNull }?.let {
                     runCatching { it.jsonPrimitive.content }.getOrNull()
                 },
-                intent = obj["textIntent"]?.let {
+                intent = obj["textIntent"]?.takeIf { it !is JsonNull }?.let {
                     runCatching { it.jsonPrimitive.content }.getOrNull()
                 },
             )
