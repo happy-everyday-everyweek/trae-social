@@ -23,9 +23,11 @@
     <!-- ============ 通知（API 33+ 运行时申请） ============ -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- ============ 开机自启 / 唤醒 ============ -->
+    <!-- ============ 开机自启 ============ -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- #328：WAKE_LOCK 已移除。WorkManager 2.9.1 的 work-runtime 在自身 AndroidManifest
+         中声明了 WAKE_LOCK，manifest merger 会自动合并，无需在此重复声明。
+         项目代码中也无 PowerManager.WakeLock 直接使用。 -->
 
     <!-- IMPL-46：REQUEST_IGNORE_BATTERY_OPTIMIZATIONS 已移除（Play 政策敏感且未在运行时申请） -->
 

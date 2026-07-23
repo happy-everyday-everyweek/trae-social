@@ -1,6 +1,9 @@
 [versions]
 # 构建工具
-agp = "8.6.0"
+# #303：AGP 8.6.0 的 R8 8.6.17 存在确定性 ConcurrentModificationException，
+# 导致此前 CI 传 -PciDisableMinify 关闭混淆。升级至 8.7.3 修复该 bug，
+# 使 release 强制开启 R8 混淆。AGP 8.7 要求 Gradle 8.9+（当前 wrapper 8.9 满足）。
+agp = "8.7.3"
 kotlin = "2.0.21"
 ksp = "2.0.21-1.0.25"
 

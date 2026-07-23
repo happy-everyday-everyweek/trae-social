@@ -131,11 +131,11 @@ popUpTo(graph.findStartDestination().id){ saveState=true } + launchSingleTop + r
 - `deduplicationKey="coldstart_${account.id}_$windowStart"` 保证幂等。
 - 空活跃账号则跳过。
 
-### 2. AppLlmConfigProvider
+### 2. AppLlmModule
 
-- `@Singleton`，实现 core-llm 的 `LlmConfigProvider`。
-- 全部方法 `suspend` 转发到 `ConfigRepository`：`getApiKey` / `getBaseUrl` / `getModel`。
-- `getDefaultProvider` 默认回退 `OPENAI`。
+- `object AppLlmModule`，`@Module @InstallIn(SingletonComponent)`（#217 拆分自 `AssetProviderModule`）。
+- 仅做接口到实现的绑定：`@Provides @Singleton` 提供 `EndpointConfigProvider` → `AppEndpointConfigProvider`（桥接 `ConfigRepository`，#151 后取代旧 `LlmConfigProvider` / `AppLlmConfigProvider`）。
+- #288：旧 `LlmCacheInvalidator` 绑定已移除——`EndpointRegistry` 订阅 `ConfigRepository.endpointChanges` 后自动失效缓存，feature 模块无需再手动调 `invalidateCache()`。
 
 ### 3. AppOnboardingModule
 
@@ -144,16 +144,15 @@ popUpTo(graph.findStartDestination().id){ saveState=true } + launchSingleTop + r
 ### 4. AssetProviderModule
 
 - 含 `AssetProviderImpl`（`listAssets` / `openAsset` 委托 `context.assets`）。
-- 三个绑定：`AssetProvider`、`LlmConfigProvider`、`LlmCacheInvalidator`（lambda -> `registry.invalidateCache()`）。
+- 仅提供 `AssetProvider` 绑定（#217 拆分后 LLM 绑定迁至 `AppLlmModule`）。
 
 ### 绑定总结表
 
 | 接口 | 实现 | 提供模块 | 限定符 |
 | --- | --- | --- | --- |
 | `ColdStartFiller` | `AppColdStartFiller` | `AppOnboardingModule` | - |
-| `LlmConfigProvider` | `AppLlmConfigProvider` | （类自带 `@Singleton` 构造注入） | - |
 | `AssetProvider` | `AssetProviderImpl` | `AssetProviderModule` | - |
-| `LlmCacheInvalidator` | lambda -> `registry.invalidateCache()` | `AssetProviderModule` | - |
+| `EndpointConfigProvider` | `AppEndpointConfigProvider` | `AppLlmModule` | - |
 
 ## AndroidManifest 要点
 

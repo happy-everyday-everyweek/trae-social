@@ -37,10 +37,14 @@ android {
 }
 
 dependencies {
-    // IMPL-44：复用 core-data 的 LlmProvider 枚举（含 id/displayName 元数据），
-    // 消除 core-llm 与 core-data 间的重复枚举定义与手动映射。
-    // 使用 api 以便 LlmProvider 作为 LlmClient.provider 的公开类型对消费模块可见。
-    api(project(":core-data"))
+    // #307：降级为 implementation。原 api 是为让 LlmProvider 作为 LlmClient.provider 的
+    // 公开类型对消费模块可见，但 #151 重构后 LlmClient 已移除 provider 字段（现仅含
+    // endpointId + capabilities），该理由不再成立。所有消费模块（feature-onboarding /
+    // feature-profile / core-scheduler / core-profiling / app）均已直接 implementation
+    // core-data，不依赖 core-llm 传递暴露 core-data 的持久层类型。
+    // core-llm 公共 API 中的 LlmProtocol / ModelCapability 等领域类型由消费模块自身
+    // 的 core-data 依赖提供，无需 core-llm 传递。
+    implementation(project(":core-data"))
 
     implementation(libs.androidx.core.ktx)
 

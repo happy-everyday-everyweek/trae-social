@@ -12,6 +12,7 @@ import com.trae.social.core.data.entity.AccountEntity
 import com.trae.social.core.data.repository.AccountRepository
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.data.repository.TweetRepository
+import com.trae.social.core.data.util.runCatchingCancellable
 import com.trae.social.core.scheduler.ratelimit.SchedulerRateLimiter
 import com.trae.social.core.scheduler.rule.DeduplicationKeys
 import com.trae.social.core.scheduler.rule.ScheduleRule
@@ -109,6 +110,8 @@ object SchedulerInitializer {
                     logDao = logDao,
                     workManager = workManager,
                 )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (t: Throwable) {
                 Timber.e(t, "调度器初始化失败")
             }
@@ -152,7 +155,7 @@ object SchedulerInitializer {
         workManager: WorkManager,
     ) {
         val now = Instant.now()
-        val level: AiActivityLevel = runCatching { configRepository.getAiActivityLevel() }
+        val level: AiActivityLevel = runCatchingCancellable { configRepository.getAiActivityLevel() }
             .getOrDefault(AiActivityLevel.MEDIUM)
 
         // #72：determineLastRunTime（全局）为死代码，已由 determineAccountLastRunTime 按账号处理
@@ -177,14 +180,14 @@ object SchedulerInitializer {
                 val rule = ScheduleRule(
                     accountId = account.id,
                     activeWindows = account.activeWindows,
-                    postsPerWindow = POSTS_PER_WINDOW,
+                    postsPerWindow = SchedulerConstants.POSTS_PER_WINDOW,
                 )
 
                 // #114：使用账号自身的最近日志确定"上次运行"时刻，
                 // 避免全局日志导致跨账号补发漏窗
                 val accountLastRun = determineAccountLastRunTime(logDao, account.id, now)
 
-                // 2. 调度恢复：错过的活跃窗补发（每窗最多 1 条）
+                // 2. 调度恢复：错过的活跃窗补发（每窗最多补至 postsPerWindow）
                 val missed = ScheduleRuleResolver.missedWindows(rule, accountLastRun, now, accountZone)
                 for (missedWindow in missed) {
                     // IMPL-4：使用窗口实际所属日期计算 windowStartMillis，避免跨日 key 冲突
@@ -195,15 +198,17 @@ object SchedulerInitializer {
                         missedWindow.window.endHour,
                         accountZone,
                     )
-                    val existingInWindow = runCatching {
+                    val existingInWindow = runCatchingCancellable {
                         tweetRepository.countByAuthorInWindow(account.id, windowStartMillis, windowEndMillis)
                     }.getOrDefault(0)
                     if (existingInWindow >= rule.postsPerWindow) continue
 
+                    // #302：按窗内已发布数计算 sequenceNo，避免与既有推文 dedup key 冲突
+                    val sequenceNo = existingInWindow
                     val deduplicationKey = DeduplicationKeys.forTweet(
                         accountId = account.id,
                         windowStart = windowStartMillis,
-                        sequenceNo = 0,
+                        sequenceNo = sequenceNo,
                     )
                     // 幂等：若已存在该去重键的推文则 Worker 内部会静默跳过
                     enqueueTweetGeneration(
@@ -211,7 +216,7 @@ object SchedulerInitializer {
                         account.id,
                         deduplicationKey,
                         windowStartMillis,
-                        sequenceNo = 0,
+                        sequenceNo = sequenceNo,
                     )
                     backfillCount++
                 }
@@ -227,11 +232,23 @@ object SchedulerInitializer {
                     },
                 )
                 if (nextTrigger != null) {
-                    val windowStartMillis = nextTrigger.toEpochMilli()
+                    // #109 / M3：用窗口起始时刻（而非随机触发时刻）作为 dedup key 的 windowStart，
+                    // 与补发路径及自链路径保持一致，确保跨重启幂等性。
+                    val currentWindowStart = ScheduleRuleResolver
+                        .windowStartForTrigger(nextTrigger, accountZone, account.activeWindows)
+                        ?: nextTrigger
+                    val windowStartMillis = currentWindowStart.toEpochMilli()
+                    val windowEndMillis = ScheduleRuleResolver.windowEndMillisForStart(
+                        windowStartMillis, accountZone, account.activeWindows,
+                    )
+                    // #302：按目标窗内已发布数计算 sequenceNo，使同窗多条推文 dedup key 互异
+                    val sequenceNo = runCatchingCancellable {
+                        tweetRepository.countByAuthorInWindow(account.id, windowStartMillis, windowEndMillis)
+                    }.getOrDefault(0).coerceAtLeast(0)
                     val deduplicationKey = DeduplicationKeys.forTweet(
                         accountId = account.id,
                         windowStart = windowStartMillis,
-                        sequenceNo = 0,
+                        sequenceNo = sequenceNo,
                     )
                     // 延迟入队：使用 setInitialDelay 由 WorkManager 调度
                     enqueueTweetGenerationDelayed(
@@ -239,11 +256,13 @@ object SchedulerInitializer {
                         account.id,
                         deduplicationKey,
                         windowStartMillis,
-                        sequenceNo = 0,
+                        sequenceNo = sequenceNo,
                         triggerAt = nextTrigger,
                     )
                     scheduledCount++
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (t: Throwable) {
                 Timber.w(t, "账号 %s 调度恢复失败", account.id)
             }
@@ -288,7 +307,7 @@ object SchedulerInitializer {
         // 遍历中间所有日期导致一次性补发大量推文。即使日志显示 lastRun 在数周前，也钳制到
         // MAX_LOOKBACK_DAYS 天内，保证异常恢复时补发范围可控。
         val minAllowed = now.minusSeconds(MAX_LOOKBACK_DAYS * 24L * 60L * 60L)
-        return runCatching {
+        return runCatchingCancellable {
             val recent = logDao.getByAccount(accountId, limit = LAST_RUN_LOOKUP_LIMIT)
             // #94：仅取成功日志作为 lastRun，失败重试日志不计入
             val lastTweetLog = recent.firstOrNull {
@@ -429,7 +448,7 @@ object SchedulerInitializer {
         schedulerScope.launch {
             configRepository.activityLevelChanges.collect { level ->
                 // #81：包裹处理逻辑，避免单次异常导致 collector 终止后不再观察档位变更
-                runCatching {
+                runCatchingCancellable {
                     Timber.i("AI 活跃度档位变更: %s，重新入队周期 Worker 并重配限流器", level.id)
                     workManager.enqueueUniquePeriodicWork(
                         WorkerTags.PERSONA_UPDATE,
@@ -500,7 +519,4 @@ object SchedulerInitializer {
      * 与 fallback（24h）形成两档：正常情况补 24h，异常情况最多补 MAX_LOOKBACK_DAYS 天。
      */
     private const val MAX_LOOKBACK_DAYS: Int = 3
-
-    /** P1 修复：每个活跃窗内允许发布的推文数上限（spec 默认 2 条/窗） */
-    private const val POSTS_PER_WINDOW: Int = 2
 }

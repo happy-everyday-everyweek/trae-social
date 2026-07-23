@@ -1,7 +1,7 @@
 package com.trae.social.app.di
 
 import android.content.Context
-import com.trae.social.data.gallery.AssetProvider
+import com.trae.social.core.data.gallery.AssetProvider
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -38,12 +38,13 @@ class AssetProviderImpl @Inject constructor(
  * 图库资源领域 Hilt 绑定 Module（#217 拆分）。
  *
  * 仅负责 [AssetProvider] → [AssetProviderImpl] 绑定（assets 实际由 app 打包）。
- * LLM 相关绑定（[com.trae.social.llm.EndpointConfigProvider] /
- * [com.trae.social.core.data.repository.LlmCacheInvalidator]）已迁至
+ * LLM 相关绑定（[com.trae.social.llm.EndpointConfigProvider]）已迁至
  * [AppLlmModule]，避免本 Module 名称暗示的"图库资源"职责与实际混装的 LLM 绑定混淆。
  *
  * 旧 [com.trae.social.app.di.AppLlmConfigProvider]（提供
  * [com.trae.social.llm.LlmConfigProvider] 绑定）已随 #151 重构移除。
+ * 旧 [com.trae.social.core.data.repository.LlmCacheInvalidator] 绑定已随 #288 移除
+ * （EndpointRegistry 订阅 endpointChanges 自动失效缓存，无需手动调用）。
  */
 @Module
 @InstallIn(SingletonComponent::class)

@@ -7,6 +7,7 @@ import com.trae.social.core.data.model.UserActionType
 import com.trae.social.core.data.repository.CommentRepository
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.data.repository.TweetRepository
+import com.trae.social.core.data.util.runCatchingCancellable
 import com.trae.social.core.profiling.mapping.ProfileMappers
 import com.trae.social.llm.ChatConfig
 import com.trae.social.llm.ChatMessage
@@ -14,6 +15,7 @@ import com.trae.social.llm.RulesetEngine
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -98,7 +100,7 @@ class EventTextPreParser @Inject constructor(
                     OVERALL_BUDGET_MS, parsedIds.size, withText.size)
                 return@forEach
             }
-            runCatching {
+            runCatchingCancellable {
                 val result = batchParse(batch)
                 // 批次成功：所有该批事件都标记为已解析（即使 LLM 漏返回某 index）
                 batch.forEach { parsedIds.add(it.event.id) }
@@ -148,21 +150,13 @@ class EventTextPreParser @Inject constructor(
         if (event.targetId.isNullOrBlank()) return false
         // 排除调度器打标事件（与 BasicProfileAnalyzer.B2 修复同策略）
         if (ProfileMappers.readExtraBoolean(event.extra, "isScenarioMarker")) return false
-        if (event.screen in SCHEDULER_SCREENS) return false
+        if (event.screen in AnalysisConstants.SCHEDULER_SCREENS) return false
         // 已解析过则跳过（缓存命中）：检查 textParsed 标记，
         // 而非检查 textTopic（LLM 可能返回 topic=null 但 sentiment/intent 非空）
         return !ProfileMappers.readExtraBoolean(event.extra, KEY_TEXT_PARSED)
     }
 
-    /**
-     * 调度器 Worker 落事件的 screen 白名单（与 [BasicProfileAnalyzer.SCHEDULER_SCREENS] 一致）。
-     */
-    private val SCHEDULER_SCREENS = setOf(
-        "tweet_generation",
-        "interaction_schedule",
-        "interaction_schedule_comment",
-        "persona_update_co_evolve",
-    )
+    // #310：SCHEDULER_SCREENS 已抽到 [AnalysisConstants.SCHEDULER_SCREENS]，此处不再重复定义。
 
     /**
      * 按 targetId 回查事件关联的原文。
@@ -258,7 +252,7 @@ class EventTextPreParser @Inject constructor(
             val index = obj["index"]?.jsonPrimitive?.intOrNull ?: return@forEach
             if (index !in batch.indices) return@forEach
             val signals = TextSignals(
-                topic = obj["textTopic"]?.let {
+                topic = obj["textTopic"]?.takeIf { it !is JsonNull }?.let {
                     runCatching { it.jsonPrimitive.content }.getOrNull()
                 },
                 topics = obj["textTopics"]?.let {
@@ -266,10 +260,10 @@ class EventTextPreParser @Inject constructor(
                         it.jsonArray.map { el -> el.jsonPrimitive.content }
                     }.getOrDefault(emptyList())
                 } ?: emptyList(),
-                sentiment = obj["textSentiment"]?.let {
+                sentiment = obj["textSentiment"]?.takeIf { it !is JsonNull }?.let {
                     runCatching { it.jsonPrimitive.content }.getOrNull()
                 },
-                intent = obj["textIntent"]?.let {
+                intent = obj["textIntent"]?.takeIf { it !is JsonNull }?.let {
                     runCatching { it.jsonPrimitive.content }.getOrNull()
                 },
             )
@@ -288,7 +282,7 @@ class EventTextPreParser @Inject constructor(
                 buildJsonObject { extra.forEach { (k, v) -> put(k, v) } },
             )
         }
-        runCatching { userActionDao.updateExtra(eventId, extraStr) }
+        runCatchingCancellable { userActionDao.updateExtra(eventId, extraStr) }
             .onFailure { Timber.w(it, "EventTextPreParser: 持久化 extra 失败 id=%s", eventId) }
     }
 

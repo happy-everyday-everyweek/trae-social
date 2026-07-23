@@ -1,6 +1,7 @@
 package com.trae.social.profile
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -366,6 +367,7 @@ private fun ProfileTweetRow(
     onCommentClick: () -> Unit,
     onRetweetClick: () -> Unit,
     onImageClick: (List<String>, Int) -> Unit,
+    onTweetClick: () -> Unit = {},
 ) {
     val colors = socialColors()
     val typography = LocalSocialTypography.current
@@ -378,8 +380,12 @@ private fun ProfileTweetRow(
             .fillMaxWidth()
             .background(colors.systemBackground),
     ) {
-        // TODO: 后续接入推文详情页跳转
-        Column(Modifier.fillMaxWidth().padding(spacing.lg)) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onTweetClick)
+                .padding(spacing.lg),
+        ) {
             Text(
                 text = ProfileUtils.formatRelativeTime(tweet.createdAt),
                 style = typography.caption2,

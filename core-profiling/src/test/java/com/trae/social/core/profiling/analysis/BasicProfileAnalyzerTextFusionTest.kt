@@ -1,6 +1,5 @@
 package com.trae.social.core.profiling.analysis
 
-import com.trae.social.core.data.model.UserActionEvent
 import com.trae.social.core.data.model.UserActionType
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
@@ -16,7 +15,10 @@ import org.junit.Test
  */
 class BasicProfileAnalyzerTextFusionTest {
 
-    private val now = System.currentTimeMillis()
+    // #290：使用固定时间戳替代 System.currentTimeMillis()，避免时间相关断言不稳定。
+    // analyze 内部以 (now - occurredAt) 计算衰减，occurredAt 同样取该值时 ageDays=0、衰减系数=1.0，
+    // 断言只依赖相对权重，与具体时间戳数值无关。
+    private val now = 1_700_000_000_000L
 
     @Test
     fun `仅 imageTheme 时兴趣向量与原逻辑一致`() {
@@ -46,7 +48,7 @@ class BasicProfileAnalyzerTextFusionTest {
     }
 
     @Test
-    fun `textTopic 权重高于 imageTheme（主动表达 > 被动浏览）`() {
+    fun `textTopic 权重高于 imageTheme（主动表达大于被动浏览）`() {
         // 同一事件类型下，imageTheme 和 textTopic 各贡献一项
         val events = listOf(
             mkEvent(UserActionType.PUBLISH_TWEET, "t1", now, mapOf(
@@ -136,20 +138,5 @@ class BasicProfileAnalyzerTextFusionTest {
     }
 
     // ---- helpers ----
-
-    private fun mkEvent(
-        type: UserActionType,
-        targetId: String,
-        occurredAt: Long,
-        extra: Map<String, kotlinx.serialization.json.JsonElement> = emptyMap(),
-    ) = UserActionEvent(
-        id = "evt-$targetId-$occurredAt-${type.name}",
-        type = type,
-        screen = "test",
-        targetId = targetId,
-        targetKind = "tweet",
-        extra = extra,
-        occurredAt = occurredAt,
-        session = "session-test",
-    )
+    // mkEvent 已抽至 ProfileTestFixtures.kt（#292d），与本文件同包可直接调用。
 }

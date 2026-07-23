@@ -1,6 +1,6 @@
 # core-llm LLM 层
 
-LLM 抽象层，namespace `com.trae.social.llm`。通过 `api(project(":core-data"))` 复用 `LlmProtocol` / `ModelCapability` / `LlmEndpointEntity` 等持久化结构。
+LLM 抽象层，namespace `com.trae.social.llm`。通过 `implementation(project(":core-data"))` 复用 `LlmProtocol` / `ModelCapability` / `LlmEndpointEntity` 等持久化结构（#307：原 `api` 是为让旧 `LlmProvider` 作为 `LlmClient.provider` 公开类型暴露，#151 重构后 LlmClient 已无 provider 字段，故降级）。
 
 > **#151 重构总览**：把"按 `LlmProvider` 单槽位寻址 + 手写 Retrofit/SSE 解析"改为
 > **"多端点配置 + 全局排序 + 降级链 + 官方 Java SDK"**。
@@ -468,14 +468,16 @@ RateLimiter(maxTokens = 30, refillIntervalMillis = 60_000, nowProvider)
 `test/` 下：
 
 - `CommentPromptBuilderTest`
-- `ContentFilterTest`
 - `PersonaUpdatePromptBuilderTest`
 - `PromptUtilsTest`
 - `TweetPostProcessorTest`
 - `TweetPromptBuilderTest`
-- `EventTextPreParserTest`（#151 后 mock `RulesetEngine`，调用点从 `llmRegistry.getClient(provider)` 迁到 `rulesetEngine.chatSync(...)`）
+- `DefaultRulesetEngineTest`（#151 后：降级链 + JSON mode prompt 降级 + 429 转 `RateLimitedException`，mock `EndpointRegistry`）
+- `SdkExceptionClassifierTest`（#308：反射 `statusCode()` 识别 SDK 异常 HTTP 状态码）
 
-覆盖 prompt 解析容错、错别字替换、emoji 追加、截断、相似度校验、敏感词命中。
+覆盖 prompt 解析容错、错别字替换、emoji 追加、截断、相似度校验、降级链与 SDK 异常分类。
+
+> 旧 `ContentFilterTest` 与 `EventTextPreParserTest` 已随 #151 重构迁移：`ContentFilter` 类被删除（详见上文"内容过滤"），`EventTextPreParserTest` 现位于 `core-profiling` 模块（`analysis` 子包，调用方仍 mock `RulesetEngine`，调用点从旧 `llmRegistry.getClient(provider)` 迁到 `rulesetEngine.chatSync(...)`）。
 
 ## 已知 follow-up（非本 PR 阻塞）
 
@@ -487,4 +489,4 @@ RateLimiter(maxTokens = 30, refillIntervalMillis = 60_000, nowProvider)
   Anthropic 端点需通过迁移或代码注入创建，UI protocol 选择器待后续。
 - `migrateLegacyProviderConfigsLocked` 通过 `displayName` 匹配默认 provider 的边缘 case
   （用户改了 displayName 后再触发迁移），建议后续用 `protocol.id` 或新增 `legacyProvider` 字段。
-- `UserProfileWorker` 的 `no_default_provider` 状态字符串未更新为 `no_endpoint_configured`。
+- `UserProfileWorker` 的 `no_default_provider` 状态字符串已更新为 `no_endpoint_configured`（#297 修复）。

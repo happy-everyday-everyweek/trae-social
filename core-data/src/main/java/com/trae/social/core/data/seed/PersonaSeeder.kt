@@ -146,14 +146,13 @@ class PersonaSeeder @Inject constructor(
     /**
      * 插入 user-self 账号（用户自己的账号）。
      *
-     * id 固定为 [USER_SELF_ID]，与 PublishViewModel.AUTHOR_SELF 一致。
-     * isVirtual=false，不参与 AI 调度。
+     * id 固定为 [AccountIds.USER_SELF_ID]。isVirtual=false，不参与 AI 调度。
      */
     private suspend fun ensureUserSelfAccount() {
-        if (accountDao.getById(USER_SELF_ID) != null) return
+        if (accountDao.getById(AccountIds.USER_SELF_ID) != null) return
         val now = System.currentTimeMillis()
         val userSelf = AccountEntity(
-            id = USER_SELF_ID,
+            id = AccountIds.USER_SELF_ID,
             displayName = "我",
             username = "user",
             avatarSeed = "user",  // #92：avatarSeed 与 username 保持一致
@@ -263,8 +262,5 @@ class PersonaSeeder @Inject constructor(
         private const val PERSONAS_FILE_PREFIX = "personas_"
         private const val ACTIVE_WINDOW_SIZE = 24
         private const val DAY_MS = 24L * 60L * 60L * 1000L
-        // #220：USER_SELF_ID 已抽到 AccountIds.USER_SELF_ID，此处保留别名仅向后兼容
-        // 已有外部引用（如 EventTextPreParser.userSelfId），新代码应直接引用 AccountIds
-        const val USER_SELF_ID = AccountIds.USER_SELF_ID
     }
 }

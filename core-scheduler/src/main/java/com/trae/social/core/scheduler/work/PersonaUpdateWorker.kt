@@ -5,11 +5,13 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.trae.social.core.data.model.ScenarioIds
 import com.trae.social.core.data.model.UserActionEvent
 import com.trae.social.core.data.model.UserActionType
 import com.trae.social.core.data.repository.AccountRepository
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.data.repository.TweetRepository
+import com.trae.social.core.data.util.runCatchingCancellable
 import com.trae.social.core.profiling.capture.SessionManager
 import com.trae.social.core.profiling.capture.UserActionTracker
 import com.trae.social.core.profiling.feedback.FeedbackController
@@ -29,7 +31,7 @@ import timber.log.Timber
  * 周期按 AI 活跃度档位缩放执行（LOW=14 天 / MEDIUM=7 天 / HIGH=3 天）：
  * 1. 选取 batchSize 个最久未更新的虚拟账号（按档位 10/20/40，#75）；
  * 2. 加载其当前动态字段与最近活动事件；
- * 3. 调 [PersonaUpdatePromptBuilder.build] + LlmClient.chatSync；
+ * 3. 调 [PersonaUpdatePromptBuilder.build] + rulesetEngine.chatSync；
  * 4. [PersonaUpdatePromptBuilder.parsePersonaUpdate] 解析；
  * 5. [PersonaUpdatePromptBuilder.shouldRollback] 校验（相似度过低则回退）；
  * 6. [AccountRepository.updateDynamicFields] 写入。
@@ -67,7 +69,7 @@ class PersonaUpdateWorker @AssistedInject constructor(
 
         try {
             // IMPL-47：按当前活跃度档位确定批次大小（LOW=10 / MEDIUM=20 / HIGH=40）
-            val level = runCatching { configRepository.getAiActivityLevel() }
+            val level = runCatchingCancellable { configRepository.getAiActivityLevel() }
                 .getOrDefault(com.trae.social.core.data.config.AiActivityLevel.MEDIUM)
             val batchSize = level.personaUpdateBatchSize
 
@@ -75,7 +77,7 @@ class PersonaUpdateWorker @AssistedInject constructor(
             // 整批共用一次 driven 判定（而非逐账号），因为人设共演化是批次级策略，
             // 同批要么全注入用户兴趣，要么全不注入，便于 computeFeedbackEffect 做 A/B 回测。
             val sessionId = sessionManager.currentSessionId() ?: "persona_update"
-            val drivenScenario7 = feedbackController.shouldApply(7, sessionId)
+            val drivenScenario7 = feedbackController.shouldApply(ScenarioIds.PERSONA_CO_EVOLVE, sessionId)
             val userInterests = if (drivenScenario7) collectUserInterests() else emptyList()
 
             // 1. 选取 batchSize 个最久未更新的虚拟账号（#75）
@@ -131,7 +133,7 @@ class PersonaUpdateWorker @AssistedInject constructor(
                         targetId = "batch_$started",
                         targetKind = "persona_batch",
                         extra = mapOf(
-                            "scenarioId" to kotlinx.serialization.json.JsonPrimitive(7),
+                            "scenarioId" to kotlinx.serialization.json.JsonPrimitive(ScenarioIds.PERSONA_CO_EVOLVE),
                             "drivenByProfile" to kotlinx.serialization.json.JsonPrimitive(drivenScenario7),
                             "group" to kotlinx.serialization.json.JsonPrimitive(if (drivenScenario7) "driven" else "control"),
                             "batchSize" to kotlinx.serialization.json.JsonPrimitive(candidates.size),
@@ -221,6 +223,8 @@ class PersonaUpdateWorker @AssistedInject constructor(
             )
         } catch (e: RateLimitedException) {
             // IMPL-19：429 限流向上抛出，由 doWork 统一捕获并跳过
+            throw e
+        } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (t: Throwable) {
             Timber.w(t, "账号 %s 人设更新 LLM 调用失败", account.id)

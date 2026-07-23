@@ -8,6 +8,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.work.Configuration
 import com.trae.social.core.data.seed.PersonaSeeder
+import com.trae.social.core.data.util.runCatchingCancellable
 import com.trae.social.core.profiling.capture.SessionManager
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -54,8 +55,9 @@ class SocialApp : Application(), Configuration.Provider {
         installCrashHandler()
 
         // IMPL-1：触发种子数据导入（虚拟账号 + 历史推文 + user-self 账号）
+        // #185：改用 runCatchingCancellable 重抛 CancellationException，保持协程取消语义
         appScope.launch {
-            runCatching { personaSeeder.seedIfNeeded().collect { /* 进度可通过 StateFlow 暴露给 UI */ } }
+            runCatchingCancellable { personaSeeder.seedIfNeeded().collect { /* 进度可通过 StateFlow 暴露给 UI */ } }
                 .onFailure { Timber.e(it, "种子数据导入失败") }
         }
 

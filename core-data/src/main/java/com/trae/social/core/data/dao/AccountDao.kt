@@ -43,6 +43,31 @@ abstract class AccountDao {
     abstract suspend fun getVirtualAccountsList(): List<AccountEntity>
 
     /**
+     * #318：取推荐关注的候选虚拟账号——单条 SQL 完成 isVirtual / 非自身 / 未关注三层过滤，
+     * 替代调用方 `while(true)` 翻页 `getAccounts(page)` + 内存 filter 的全量加载模式。
+     *
+     * `NOT IN (SELECT followeeId ... WHERE followerId = :selfId)` 子查询排除已关注账号；
+     * 子查询返回 NULL 时 NOT IN 行为为 NULL-safe（SQLite 对 NULL NOT IN (...) 的语义
+     * 是"不在集合内"，与预期一致）。
+     *
+     * 不在 SQL 层做 LIMIT / ORDER BY RANDOM()：driven 组需在内存按兴趣向量打分取 Top N，
+     * control 组才随机——两种排序策略不同，统一在内存处理以保证 driven/control 路径对称。
+     * 候选集通常 ≤ 200 条虚拟账号，单次查询 + 内存打分成本远低于原 N 次分页查询。
+     */
+    @Query(
+        """
+        SELECT * FROM accounts
+        WHERE isVirtual = 1
+          AND id != :selfId
+          AND id NOT IN (
+              SELECT followeeId FROM follow_relations WHERE followerId = :selfId
+          )
+        ORDER BY createdAt ASC
+        """
+    )
+    abstract suspend fun getCandidateVirtualAccounts(selfId: String): List<AccountEntity>
+
+    /**
      * 选取最久未更新的虚拟账号（#75）。
      *
      * m1 修复：用单条 LEFT JOIN 查询替代调用方分页加载全部账号 + 逐账号 getDynamicFields

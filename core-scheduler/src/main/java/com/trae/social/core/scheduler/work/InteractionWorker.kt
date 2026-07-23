@@ -5,13 +5,17 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.trae.social.core.data.entity.AccountEntity
 import com.trae.social.core.data.entity.InteractionEntity
 import com.trae.social.core.data.entity.InteractionType
+import com.trae.social.core.data.entity.TweetEntity
 import com.trae.social.core.data.repository.AccountRepository
 import com.trae.social.core.data.repository.InteractionRepository
 import com.trae.social.core.data.repository.TweetRepository
+import com.trae.social.core.data.model.ScenarioIds
 import com.trae.social.core.data.model.UserActionEvent
 import com.trae.social.core.data.model.UserActionType
+import com.trae.social.core.data.util.runCatchingCancellable
 import com.trae.social.core.profiling.capture.SessionManager
 import com.trae.social.core.profiling.capture.UserActionTracker
 import com.trae.social.core.profiling.feedback.FeedbackController
@@ -45,6 +49,9 @@ import kotlin.random.Random
  * 7. 更新推文计数（最终计数由 [PendingInteractionWorker] 在执行时累加）。
  *
  * 注意：本 Worker 仅负责"即时排程"，实际延迟执行由 [PendingInteractionWorker] 周期扫描完成。
+ *
+ * #283：[doWork] 仅保留参数校验与异常兜底，主流程拆分到 [runInteractionScheduling] 及
+ * `load*` / `build*` / `emit*` 私有方法，便于单点维护。
  */
 @HiltWorker
 class InteractionWorker @AssistedInject constructor(
@@ -65,193 +72,263 @@ class InteractionWorker @AssistedInject constructor(
 
     private val commentBuilder = CommentPromptBuilder()
 
+    /**
+     * 各 step 方法的统一返回类型：要么携带产物放行（[Proceed]），要么提前返回 [Result]（[Abort]）。
+     * 用泛型 + `out` 协变，使 `Abort` 可作为任意 `Outcome<T>` 的子类型。
+     */
+    private sealed interface Outcome<out T> {
+        data class Proceed<out T>(val value: T) : Outcome<T>
+        data class Abort(val result: Result) : Outcome<Nothing>
+    }
+
+    /** 推文 + 作者加载产物。 */
+    private data class TweetAuthor(val tweet: TweetEntity, val author: AccountEntity)
+
+    /** 互动排程计划：承载 doWork 后续打标 / 即时入队 / 日志所需的所有中间产物。 */
+    private data class InteractionPlan(
+        val sessionId: String,
+        val drivenScenario3: Boolean,
+        val drivenScenario4: Boolean,
+        val drivenScenario8: Boolean,
+        val assignments: List<InteractionAssignment>,
+        val commentAssignments: List<InteractionAssignment>,
+        val interactions: List<InteractionEntity>,
+        val now: Long,
+    )
+
     override suspend fun doWork(): Result {
         val tweetId = inputData.getString(WorkerKeys.KEY_TWEET_ID)
         if (tweetId.isNullOrBlank()) {
             return Result.failure(workDataOf(WorkerKeys.KEY_ERROR to "missing tweetId"))
         }
         val started = System.currentTimeMillis()
-        var status = "success"
-        var error: String? = null
-
-        try {
-            // 1. 查推文与作者
-            val tweet = tweetRepository.getById(tweetId)
-            if (tweet == null) {
-                Timber.w("推文 %s 不存在，跳过互动排程", tweetId)
-                status = "skipped_no_tweet"
-                logSchedulerEvent(tweetId, started, status, "tweet not found")
-                return Result.success(workDataOf(WorkerKeys.KEY_RESULT to status))
-            }
-            val author = accountRepository.getById(tweet.authorId)
-            if (author == null) {
-                status = "skipped_no_author"
-                logSchedulerEvent(tweet.authorId, started, status, "author not found")
-                return Result.success(workDataOf(WorkerKeys.KEY_RESULT to status))
-            }
-
-            // 2. 选评论者：从虚拟账号中按相似度筛选
-            // #146 A/E 场景 3：判断本次是否 driven（画像驱动互动账号选择）
-            val sessionId = sessionManager.currentSessionId() ?: tweet.id
-            val drivenScenario3 = feedbackController.shouldApply(3, sessionId)
-            val interestVector = if (drivenScenario3) readAccess.interestVector() else emptyMap()
-            val candidates = selectCommenters(
-                tweet.authorId, author.profession, author.bio, drivenScenario3, interestVector,
-            )
-            if (candidates.isEmpty()) {
-                status = "skipped_no_commenters"
-                logSchedulerEvent(tweet.authorId, started, status, null)
-                return Result.success(workDataOf(WorkerKeys.KEY_RESULT to status))
-            }
-
-            // 3. 分配互动类型
-            val now = System.currentTimeMillis()
-            // #116：使用 nanoTime + accountId.hashCode() 作为种子，
-            // 避免毫秒级种子在并发时产生相同互动模式
-            val random = Random(System.nanoTime() xor tweet.authorId.hashCode().toLong())
-            // #146 A/E 场景 8：判断互动时机是否 driven（画像驱动排程时段）
-            val drivenScenario8 = feedbackController.shouldApply(8, sessionId)
-            val userActiveHours = if (drivenScenario8) readAccess.activeHours() else emptyList()
-            // #146 A/E 场景 4：判断评论文本是否 driven（画像驱动评论内容）
-            val drivenScenario4 = feedbackController.shouldApply(4, sessionId)
-            val assignments = candidates.map { account ->
-                val type = assignInteractionType(random)
-                val delayMillis = scheduleDelayFor(type, random, drivenScenario8, userActiveHours)
-                InteractionAssignment(
-                    accountId = account.id,
-                    type = type,
-                    delayMillis = delayMillis,
-                    persona = TweetPromptBuilder.PersonaInput.from(account),
-                )
-            }
-
-            // 4. 评论批量化：收集需评论者，一次调用 LLM
-            val commentAssignments = assignments.filter { it.type == InteractionType.COMMENT }
-            val commentTextsByAccount: Map<String, String> = if (commentAssignments.isNotEmpty()) {
-                generateComments(tweet, author, commentAssignments, random, drivenScenario4)
-            } else {
-                emptyMap()
-            }
-
-            // 5. 写 InteractionEntity（排程）
-            val interactions = assignments.map { assignment ->
-                InteractionEntity(
-                    id = UUID.randomUUID().toString(),
-                    tweetId = tweet.id,
-                    accountId = assignment.accountId,
-                    type = assignment.type,
-                    content = commentTextsByAccount[assignment.accountId],
-                    createdAt = now,
-                    scheduledAt = now + assignment.delayMillis,
-                    executedAt = null,
-                )
-            }
-            interactionRepository.scheduleInteractions(interactions)
-
-            // #146 A：反哺层打标——为本次互动排程发 scenario 事件，供 computeFeedbackEffect 做 A/B 回测。
-            // 场景 3/8 共用一次排程，以场景 3 为主标记（互动账号选择），场景 8（时段）作为同次排程的附属维度。
-            // drivenByProfile 标记本次排程是否受画像驱动；control 组同样落事件以便计算互动率 delta。
-            // 第六轮 review B1/B2 修复：isScenarioMarker=true 标记本事件为调度器打标（非真实用户互动），
-            // 供 UserProfileAggregator.computeScenarioStats 区分"曝光标记"与"真实互动"，避免 delta 恒为 0；
-            // 供 BasicProfileAnalyzer.analyze 过滤掉调度器打标，避免污染用户画像。
-            val driven3 = drivenScenario3 || drivenScenario8
-            runCatching {
-                userActionTracker.trackNow(
-                    UserActionEvent(
-                        // 第七轮 review M6 修复：用稳定 id 替代 UUID.randomUUID()。
-                        // Worker 重试时 tweetId 不变（来自 inputData），故同一推文的互动排程
-                        // 重试产生相同 id，Room @PrimaryKey + REPLACE 保证幂等。
-                        id = "marker_s3_$tweetId",
-                        type = UserActionType.TWEET_LIKE,
-                        screen = "interaction_schedule",
-                        targetId = tweet.id,
-                        targetKind = "tweet",
-                        extra = mapOf(
-                            "scenarioId" to kotlinx.serialization.json.JsonPrimitive(3),
-                            "drivenByProfile" to kotlinx.serialization.json.JsonPrimitive(driven3),
-                            "group" to kotlinx.serialization.json.JsonPrimitive(if (driven3) "driven" else "control"),
-                            "interactionCount" to kotlinx.serialization.json.JsonPrimitive(interactions.size),
-                            "isScenarioMarker" to kotlinx.serialization.json.JsonPrimitive(true),
-                        ),
-                        occurredAt = now,
-                        session = sessionId,
-                    )
-                )
-            }.onFailure { Timber.w(it, "#146 场景 3/8 打标失败") }
-
-            // #146 A/E 场景 4 commentPersona：评论文本 driven 单独打标（与场景 3/8 解耦，
-            // 因为评论内容是否受画像驱动独立于账号选择/时段）。仅当本次排程含评论任务时落事件，
-            // 供 computeFeedbackEffect 回测评论文本质量与互动率 delta。
-            if (commentAssignments.isNotEmpty()) {
-                runCatching {
-                    userActionTracker.trackNow(
-                        UserActionEvent(
-                            // 第七轮 review M6 修复：用稳定 id 替代 UUID.randomUUID()（同场景 3）。
-                            id = "marker_s4_$tweetId",
-                            type = UserActionType.TWEET_COMMENT,
-                            screen = "interaction_schedule_comment",
-                            targetId = tweet.id,
-                            targetKind = "tweet",
-                            extra = mapOf(
-                                "scenarioId" to kotlinx.serialization.json.JsonPrimitive(4),
-                                "drivenByProfile" to kotlinx.serialization.json.JsonPrimitive(drivenScenario4),
-                                "group" to kotlinx.serialization.json.JsonPrimitive(if (drivenScenario4) "driven" else "control"),
-                                "commentCount" to kotlinx.serialization.json.JsonPrimitive(commentAssignments.size),
-                                "isScenarioMarker" to kotlinx.serialization.json.JsonPrimitive(true),
-                            ),
-                            occurredAt = now,
-                            session = sessionId,
-                        )
-                    )
-                }.onFailure { Timber.w(it, "#146 场景 4 打标失败") }
-            }
-
-            // #78：短延迟的 LIKE/FOLLOW/COMMENT/RETWEET 用 OneTimeWorkRequest + setInitialDelay
-            // 直接调度，避免受 PendingInteractionWorker 15 分钟周期限制，使互动更像真人即时反应
-            val shortDelayInteractions = interactions.filter {
-                it.type in setOf(
-                    InteractionType.LIKE,
-                    InteractionType.FOLLOW,
-                    InteractionType.COMMENT,
-                    InteractionType.RETWEET,
-                )
-            }.filter {
-                (it.scheduledAt - now) <= SHORT_DELAY_THRESHOLD_MS
-            }
-            if (shortDelayInteractions.isNotEmpty()) {
-                enqueueImmediateInteractionExecution(shortDelayInteractions, now)
-            }
-
-            // 6. 写调度日志
-            status = "scheduled_${interactions.size}"
-            logSchedulerEvent(tweet.authorId, started, status, null)
-            return Result.success(
-                workDataOf(
-                    WorkerKeys.KEY_RESULT to status,
-                    WorkerKeys.KEY_TWEET_ID to tweet.id,
-                )
-            )
+        return try {
+            runInteractionScheduling(tweetId, started)
         } catch (e: RateLimitedException) {
             // IMPL-19：429 限流直接跳过，不重试，避免浪费配额
             Timber.w("InteractionWorker 遇到限流，跳过 tweetId=%s retryAfter=%s", tweetId, e.retryAfterSeconds)
-            status = "rate_limited"
-            logSchedulerEvent(tweetId, started, status, e.message)
-            return Result.success(workDataOf(WorkerKeys.KEY_RESULT to status))
+            logSchedulerEvent(tweetId, started, "rate_limited", e.message)
+            Result.success(workDataOf(WorkerKeys.KEY_RESULT to "rate_limited"))
         } catch (e: kotlinx.coroutines.CancellationException) {
             // 第六轮 review M3 修复：CancellationException 必须重抛，否则 WorkManager 取消 Worker 时
             // 协程无法正确传播取消信号，导致 doWork 卡在 catch(t: Throwable) 内继续执行返回 Result.retry。
             throw e
         } catch (t: Throwable) {
             Timber.e(t, "InteractionWorker 执行失败 tweetId=%s", tweetId)
-            error = t.message ?: t.javaClass.simpleName
-            status = "error"
-            logSchedulerEvent(tweetId, started, status, error)
-            return if (runAttemptCount >= WorkerConstants.MAX_RUN_ATTEMPTS) {
+            val error = t.message ?: t.javaClass.simpleName
+            logSchedulerEvent(tweetId, started, "error", error)
+            if (runAttemptCount >= WorkerConstants.MAX_RUN_ATTEMPTS) {
                 Result.failure(workDataOf(WorkerKeys.KEY_ERROR to error))
             } else {
                 Result.retry()
             }
         }
+    }
+
+    /**
+     * 主流程编排（原 doWork 的 try 体）。
+     */
+    private suspend fun runInteractionScheduling(tweetId: String, started: Long): Result {
+        // 1. 查推文与作者
+        val ta = loadTweetAndAuthor(tweetId, started)
+        if (ta is Outcome.Abort) return ta.result
+        val (tweet, author) = (ta as Outcome.Proceed<TweetAuthor>).value
+
+        // 2-5. 选评论者 / 分配互动类型 / 批量生成评论 / 写 InteractionEntity
+        val plan = buildInteractionPlan(tweet, author, started)
+        if (plan is Outcome.Abort) return plan.result
+        val p = (plan as Outcome.Proceed<InteractionPlan>).value
+
+        // 6. 反哺层打标（场景 3/8 + 场景 4）
+        emitScenarioMarkers(tweet, p)
+
+        // #78：短延迟的 LIKE/FOLLOW/COMMENT/RETWEET 用 OneTimeWorkRequest + setInitialDelay
+        // 直接调度，避免受 PendingInteractionWorker 15 分钟周期限制，使互动更像真人即时反应
+        val shortDelayInteractions = p.interactions.filter {
+            it.type in setOf(
+                InteractionType.LIKE,
+                InteractionType.FOLLOW,
+                InteractionType.COMMENT,
+                InteractionType.RETWEET,
+            )
+        }.filter {
+            (it.scheduledAt - p.now) <= SHORT_DELAY_THRESHOLD_MS
+        }
+        if (shortDelayInteractions.isNotEmpty()) {
+            enqueueImmediateInteractionExecution(shortDelayInteractions, p.now)
+        }
+
+        // 7. 写调度日志
+        val status = "scheduled_${p.interactions.size}"
+        logSchedulerEvent(author.id, started, status, null)
+        return Result.success(
+            workDataOf(
+                WorkerKeys.KEY_RESULT to status,
+                WorkerKeys.KEY_TWEET_ID to tweet.id,
+            )
+        )
+    }
+
+    /** 1. 加载被评推文与作者；推文或作者缺失时跳过（写日志后返回 success）。 */
+    private suspend fun loadTweetAndAuthor(tweetId: String, started: Long): Outcome<TweetAuthor> {
+        val tweet = tweetRepository.getById(tweetId)
+        if (tweet == null) {
+            Timber.w("推文 %s 不存在，跳过互动排程", tweetId)
+            val status = "skipped_no_tweet"
+            logSchedulerEvent(tweetId, started, status, "tweet not found")
+            return Outcome.Abort(Result.success(workDataOf(WorkerKeys.KEY_RESULT to status)))
+        }
+        val author = accountRepository.getById(tweet.authorId)
+        if (author == null) {
+            val status = "skipped_no_author"
+            logSchedulerEvent(tweet.authorId, started, status, "author not found")
+            return Outcome.Abort(Result.success(workDataOf(WorkerKeys.KEY_RESULT to status)))
+        }
+        return Outcome.Proceed(TweetAuthor(tweet, author))
+    }
+
+    /**
+     * 2-5. 选评论者 → 分配互动类型 → 批量生成评论 → 写 [InteractionEntity]。
+     *
+     * 返回 [InteractionPlan] 供后续打标与即时入队复用；无评论者时跳过。
+     */
+    private suspend fun buildInteractionPlan(
+        tweet: TweetEntity,
+        author: AccountEntity,
+        started: Long,
+    ): Outcome<InteractionPlan> {
+        val sessionId = sessionManager.currentSessionId() ?: tweet.id
+        // #146 A/E 场景 3：判断本次是否 driven（画像驱动互动账号选择）
+        val drivenScenario3 = feedbackController.shouldApply(ScenarioIds.INTERACTION_AFFINITY, sessionId)
+        val interestVector = if (drivenScenario3) readAccess.interestVector() else emptyMap()
+        val candidates = selectCommenters(
+            tweet.authorId, author.profession, author.bio, drivenScenario3, interestVector,
+        )
+        if (candidates.isEmpty()) {
+            val status = "skipped_no_commenters"
+            logSchedulerEvent(tweet.authorId, started, status, null)
+            return Outcome.Abort(Result.success(workDataOf(WorkerKeys.KEY_RESULT to status)))
+        }
+
+        val now = System.currentTimeMillis()
+        // #116：使用 nanoTime + accountId.hashCode() 作为种子，
+        // 避免毫秒级种子在并发时产生相同互动模式
+        val random = Random(System.nanoTime() xor tweet.authorId.hashCode().toLong())
+        // #146 A/E 场景 8：判断互动时机是否 driven（画像驱动排程时段）
+        val drivenScenario8 = feedbackController.shouldApply(ScenarioIds.INTERACTION_TIMING, sessionId)
+        val userActiveHours = if (drivenScenario8) readAccess.activeHours() else emptyList()
+        // #146 A/E 场景 4：判断评论文本是否 driven（画像驱动评论内容）
+        val drivenScenario4 = feedbackController.shouldApply(ScenarioIds.COMMENT_PERSONA, sessionId)
+        val assignments = candidates.map { account ->
+            val type = assignInteractionType(random)
+            val delayMillis = scheduleDelayFor(type, random, drivenScenario8, userActiveHours)
+            InteractionAssignment(
+                accountId = account.id,
+                type = type,
+                delayMillis = delayMillis,
+                persona = TweetPromptBuilder.PersonaInput.from(account),
+            )
+        }
+
+        // 4. 评论批量化：收集需评论者，一次调用 LLM
+        val commentAssignments = assignments.filter { it.type == InteractionType.COMMENT }
+        val commentTextsByAccount: Map<String, String> = if (commentAssignments.isNotEmpty()) {
+            generateComments(tweet, author, commentAssignments, random, drivenScenario4)
+        } else {
+            emptyMap()
+        }
+
+        // 5. 写 InteractionEntity（排程）
+        val interactions = assignments.map { assignment ->
+            InteractionEntity(
+                id = UUID.randomUUID().toString(),
+                tweetId = tweet.id,
+                accountId = assignment.accountId,
+                type = assignment.type,
+                content = commentTextsByAccount[assignment.accountId],
+                createdAt = now,
+                scheduledAt = now + assignment.delayMillis,
+                executedAt = null,
+            )
+        }
+        interactionRepository.scheduleInteractions(interactions)
+
+        return Outcome.Proceed(
+            InteractionPlan(
+                sessionId = sessionId,
+                drivenScenario3 = drivenScenario3,
+                drivenScenario4 = drivenScenario4,
+                drivenScenario8 = drivenScenario8,
+                assignments = assignments,
+                commentAssignments = commentAssignments,
+                interactions = interactions,
+                now = now,
+            )
+        )
+    }
+
+    /**
+     * 6. 反哺层打标——场景 3/8（互动账号选择 + 时段）+ 场景 4（评论文本）。
+     *
+     * #146 A：为本次互动排程发 scenario 事件，供 computeFeedbackEffect 做 A/B 回测。
+     * 场景 3/8 共用一次排程，以场景 3 为主标记（互动账号选择），场景 8（时段）作为同次排程的附属维度。
+     * drivenByProfile 标记本次排程是否受画像驱动；control 组同样落事件以便计算互动率 delta。
+     * 第六轮 review B1/B2 修复：isScenarioMarker=true 标记本事件为调度器打标（非真实用户互动），
+     * 供 UserProfileAggregator.computeScenarioStats 区分"曝光标记"与"真实互动"，避免 delta 恒为 0；
+     * 供 BasicProfileAnalyzer.analyze 过滤掉调度器打标，避免污染用户画像。
+     *
+     * #146 A/E 场景 4 commentPersona：评论文本 driven 单独打标（与场景 3/8 解耦，
+     * 因为评论内容是否受画像驱动独立于账号选择/时段）。仅当本次排程含评论任务时落事件，
+     * 供 computeFeedbackEffect 回测评论文本质量与互动率 delta。
+     */
+    private fun emitScenarioMarkers(tweet: TweetEntity, p: InteractionPlan) {
+        val driven3 = p.drivenScenario3 || p.drivenScenario8
+        runCatching {
+            userActionTracker.trackNow(
+                UserActionEvent(
+                    // 第七轮 review M6 修复：用稳定 id 替代 UUID.randomUUID()。
+                    // Worker 重试时 tweetId 不变（来自 inputData），故同一推文的互动排程
+                    // 重试产生相同 id，Room @PrimaryKey + REPLACE 保证幂等。
+                    id = "marker_s3_${tweet.id}",
+                    type = UserActionType.TWEET_LIKE,
+                    screen = "interaction_schedule",
+                    targetId = tweet.id,
+                    targetKind = "tweet",
+                    extra = mapOf(
+                        "scenarioId" to kotlinx.serialization.json.JsonPrimitive(ScenarioIds.INTERACTION_AFFINITY),
+                        "drivenByProfile" to kotlinx.serialization.json.JsonPrimitive(driven3),
+                        "group" to kotlinx.serialization.json.JsonPrimitive(if (driven3) "driven" else "control"),
+                        "interactionCount" to kotlinx.serialization.json.JsonPrimitive(p.interactions.size),
+                        "isScenarioMarker" to kotlinx.serialization.json.JsonPrimitive(true),
+                    ),
+                    occurredAt = p.now,
+                    session = p.sessionId,
+                )
+            )
+        }.onFailure { Timber.w(it, "#146 场景 3/8 打标失败") }
+
+        if (p.commentAssignments.isEmpty()) return
+        runCatching {
+            userActionTracker.trackNow(
+                UserActionEvent(
+                    // 第七轮 review M6 修复：用稳定 id 替代 UUID.randomUUID()（同场景 3）。
+                    id = "marker_s4_${tweet.id}",
+                    type = UserActionType.TWEET_COMMENT,
+                    screen = "interaction_schedule_comment",
+                    targetId = tweet.id,
+                    targetKind = "tweet",
+                    extra = mapOf(
+                        "scenarioId" to kotlinx.serialization.json.JsonPrimitive(ScenarioIds.COMMENT_PERSONA),
+                        "drivenByProfile" to kotlinx.serialization.json.JsonPrimitive(p.drivenScenario4),
+                        "group" to kotlinx.serialization.json.JsonPrimitive(if (p.drivenScenario4) "driven" else "control"),
+                        "commentCount" to kotlinx.serialization.json.JsonPrimitive(p.commentAssignments.size),
+                        "isScenarioMarker" to kotlinx.serialization.json.JsonPrimitive(true),
+                    ),
+                    occurredAt = p.now,
+                    session = p.sessionId,
+                )
+            )
+        }.onFailure { Timber.w(it, "#146 场景 4 打标失败") }
     }
 
     /**
@@ -267,12 +344,12 @@ class InteractionWorker @AssistedInject constructor(
         authorBio: String,
         drivenByProfile: Boolean,
         interestVector: Map<String, Double>,
-    ): List<com.trae.social.core.data.entity.AccountEntity> {
+    ): List<AccountEntity> {
         // #106：移除 MAX_ACCOUNT_PAGES 硬编码上限，循环直到无更多数据
-        val all = mutableListOf<com.trae.social.core.data.entity.AccountEntity>()
+        val all = mutableListOf<AccountEntity>()
         var page = 1
         while (true) {
-            val batch = runCatching { accountRepository.getAccounts(page) }.getOrDefault(emptyList())
+            val batch = runCatchingCancellable { accountRepository.getAccounts(page) }.getOrDefault(emptyList())
             if (batch.isEmpty()) break
             all.addAll(batch.filter { it.isVirtual && it.id != authorId })
             page++
@@ -402,8 +479,8 @@ class InteractionWorker @AssistedInject constructor(
      * 用户口味；control 组不注入，保留原始评论风格供 A/B 回测。
      */
     private suspend fun generateComments(
-        tweet: com.trae.social.core.data.entity.TweetEntity,
-        author: com.trae.social.core.data.entity.AccountEntity,
+        tweet: TweetEntity,
+        author: AccountEntity,
         commenters: List<InteractionAssignment>,
         random: Random,
         drivenScenario4: Boolean,
@@ -435,6 +512,8 @@ class InteractionWorker @AssistedInject constructor(
             )
         } catch (e: RateLimitedException) {
             // IMPL-19：429 限流向上抛出，由 doWork 统一捕获并跳过，不在此处吞掉
+            throw e
+        } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (t: Throwable) {
             Timber.w(t, "批量生成评论失败，跳过评论内容")

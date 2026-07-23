@@ -160,12 +160,12 @@ private fun ProviderCard(
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(
-                text = option.name,
+                text = option.provider.displayName,
                 style = typography.headline,
                 color = colors.label,
             )
             Text(
-                text = option.description,
+                text = option.provider.description,
                 style = typography.footnote,
                 color = colors.secondaryLabel,
             )
@@ -191,41 +191,34 @@ private fun ProviderCard(
 @Immutable
 private data class ProviderOption(
     val provider: LlmProvider,
-    val name: String,
-    val description: String,
     val logoColor: Color,
     val logoLetter: String,
 )
 
 /**
  * 4 个提供商的卡片配置。
+ *
+ * #287：name / description 直接取自 [LlmProvider.displayName] / [LlmProvider.description]，
+ * 不再在此处重复维护字面量。仅 logoColor / logoLetter 是纯 UI 属性，保留在此。
  */
 private val PROVIDER_OPTIONS: List<ProviderOption> = listOf(
     ProviderOption(
         provider = LlmProvider.OPENAI,
-        name = "OpenAI",
-        description = "GPT 系列模型，通用能力强，生态成熟",
         logoColor = Color(0xFF10A37F),
         logoLetter = "O",
     ),
     ProviderOption(
         provider = LlmProvider.ANTHROPIC,
-        name = "Anthropic",
-        description = "Claude 系列模型，长文本与一致性表现出色",
         logoColor = Color(0xFFD97757),
         logoLetter = "A",
     ),
     ProviderOption(
         provider = LlmProvider.GEMINI,
-        name = "Google Gemini",
-        description = "Gemini 系列模型，多模态能力突出",
         logoColor = Color(0xFF4285F4),
         logoLetter = "G",
     ),
     ProviderOption(
         provider = LlmProvider.CUSTOM,
-        name = "自定义（OpenAI 兼容）",
-        description = "兼容 OpenAI 协议的第三方端点，需填写 Base URL",
         logoColor = Color(0xFF6B7280),
         logoLetter = "C",
     ),

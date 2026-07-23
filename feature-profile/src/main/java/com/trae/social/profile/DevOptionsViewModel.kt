@@ -13,6 +13,7 @@ import com.trae.social.core.data.dao.SchedulerLogDao
 import com.trae.social.core.data.entity.SchedulerLogEntity
 import com.trae.social.core.data.repository.AccountRepository
 import com.trae.social.core.data.repository.ConfigRepository
+import com.trae.social.core.data.util.runCatchingCancellable
 import com.trae.social.core.scheduler.work.PendingInteractionWorker
 import com.trae.social.core.scheduler.work.PersonaUpdateWorker
 import com.trae.social.core.scheduler.work.WorkerPolicies
@@ -45,7 +46,7 @@ class DevOptionsViewModel @Inject constructor(
      * 最近的调度日志（RISK-15）。
      */
     val logsFlow: StateFlow<List<SchedulerLogEntity>> = schedulerLogDao.observeRecent(LOG_LIMIT)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), emptyList())
 
     private val _activityLevel = MutableStateFlow(AiActivityLevel.MEDIUM)
     val activityLevel: StateFlow<AiActivityLevel> = _activityLevel.asStateFlow()
@@ -77,19 +78,19 @@ class DevOptionsViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            _activityLevel.value = runCatching { configRepository.getAiActivityLevel() }
+            _activityLevel.value = runCatchingCancellable { configRepository.getAiActivityLevel() }
                 .getOrElse { AiActivityLevel.MEDIUM }
         }
         viewModelScope.launch {
-            _profilingEnabled.value = runCatching { configRepository.isProfilingEnabled() }
+            _profilingEnabled.value = runCatchingCancellable { configRepository.isProfilingEnabled() }
                 .getOrElse { true }
         }
         viewModelScope.launch {
-            _feedbackGrayRatio.value = runCatching { configRepository.getFeedbackGrayRatio() }
+            _feedbackGrayRatio.value = runCatchingCancellable { configRepository.getFeedbackGrayRatio() }
                 .getOrElse { ConfigRepository.DEFAULT_FEEDBACK_GRAY_RATIO }
         }
         viewModelScope.launch {
-            _feedbackAgentEnabled.value = runCatching { configRepository.isFeedbackAgentEnabled() }
+            _feedbackAgentEnabled.value = runCatchingCancellable { configRepository.isFeedbackAgentEnabled() }
                 .getOrElse { true }
         }
         refreshStats()
@@ -97,7 +98,7 @@ class DevOptionsViewModel @Inject constructor(
 
     fun setActivityLevel(level: AiActivityLevel) {
         viewModelScope.launch {
-            runCatching { configRepository.setAiActivityLevel(level) }
+            runCatchingCancellable { configRepository.setAiActivityLevel(level) }
                 .onSuccess { _activityLevel.value = level }
                 .onFailure { Timber.w(it, "切换活跃度档位失败") }
         }
@@ -106,7 +107,7 @@ class DevOptionsViewModel @Inject constructor(
     /** F1：切换用户行为采集总开关 */
     fun setProfilingEnabled(enabled: Boolean) {
         viewModelScope.launch {
-            runCatching { configRepository.setProfilingEnabled(enabled) }
+            runCatchingCancellable { configRepository.setProfilingEnabled(enabled) }
                 .onSuccess { _profilingEnabled.value = enabled }
                 .onFailure { Timber.w(it, "切换画像采集开关失败") }
         }
@@ -115,7 +116,7 @@ class DevOptionsViewModel @Inject constructor(
     /** F1：设置反哺全局灰度比例（0.0 - 1.0） */
     fun setFeedbackGrayRatio(ratio: Double) {
         viewModelScope.launch {
-            runCatching { configRepository.setFeedbackGrayRatio(ratio) }
+            runCatchingCancellable { configRepository.setFeedbackGrayRatio(ratio) }
                 .onSuccess { _feedbackGrayRatio.value = ratio }
                 .onFailure { Timber.w(it, "设置反哺灰度比例失败") }
         }
@@ -124,7 +125,7 @@ class DevOptionsViewModel @Inject constructor(
     /** F1：切换用户反馈智能体开关 */
     fun setFeedbackAgentEnabled(enabled: Boolean) {
         viewModelScope.launch {
-            runCatching { configRepository.setFeedbackAgentEnabled(enabled) }
+            runCatchingCancellable { configRepository.setFeedbackAgentEnabled(enabled) }
                 .onSuccess { _feedbackAgentEnabled.value = enabled }
                 .onFailure { Timber.w(it, "切换反馈智能体开关失败") }
         }
@@ -135,7 +136,7 @@ class DevOptionsViewModel @Inject constructor(
      */
     fun refreshStats() {
         viewModelScope.launch {
-            runCatching {
+            runCatchingCancellable {
                 _llmStats.value = schedulerLogDao.getCallStatistics()
                 _actionCounts.value = schedulerLogDao.countByAction()
             }.onFailure { Timber.w(it, "刷新 LLM 调用统计失败") }
@@ -151,11 +152,11 @@ class DevOptionsViewModel @Inject constructor(
      */
     fun triggerTweetGeneration() {
         viewModelScope.launch {
-            runCatching {
+            runCatchingCancellable {
                 val accounts = accountRepository.getAccounts(1).filter { it.isVirtual }
                 if (accounts.isEmpty()) {
                     _triggerResult.value = "无可用虚拟账号"
-                    return@runCatching
+                    return@runCatchingCancellable
                 }
                 val account = accounts.random()
                 val windowStart = System.currentTimeMillis()
@@ -233,6 +234,10 @@ class DevOptionsViewModel @Inject constructor(
 
     companion object {
         private const val LOG_LIMIT = 200
+
+        // #285：StateFlow 订阅停止后的兜底超时（与 ProfileViewModel.STOP_TIMEOUT_MILLIS 对齐），
+        // 消除重复 5000 字面量。
+        const val STOP_TIMEOUT_MILLIS = 5_000L
 
         /** P2：手动触发调度的唯一工作名，防止重复入队 */
         private const val UNIQUE_WORK_TWEET_GENERATION = "manual_tweet_generation"

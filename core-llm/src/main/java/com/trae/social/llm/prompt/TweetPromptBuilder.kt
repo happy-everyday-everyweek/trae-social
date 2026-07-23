@@ -1,5 +1,6 @@
 package com.trae.social.llm.prompt
 
+import com.trae.social.core.data.TweetLimits
 import com.trae.social.core.data.entity.AccountEntity
 import com.trae.social.llm.ChatMessage
 import kotlinx.serialization.json.Json
@@ -118,20 +119,35 @@ class TweetPromptBuilder {
     }
 
     private fun buildSystemPrompt(p: PersonaInput): String {
+        // #304：人设字段来源为外部资产 / LLM 生成的动态字段，做字符级净化后再插值，
+        // 降低换行伪造段落、零宽字符隐藏越狱指令等 prompt injection 风险。
+        // #285：字段长度上限统一引用 PromptFieldLimits，避免与 CommentPromptBuilder 漂移
+        val safeDisplayName = PromptUtils.sanitizeForPrompt(p.displayName, PromptFieldLimits.SINGLE_LINE)
+        val safeProfession = PromptUtils.sanitizeForPrompt(p.profession, PromptFieldLimits.SINGLE_LINE)
+        val safeAgeRange = PromptUtils.sanitizeForPrompt(p.ageRange, PromptFieldLimits.SHORT_TAG)
+        val safeCultural = PromptUtils.sanitizeForPrompt(p.culturalBackground, PromptFieldLimits.SINGLE_LINE)
+        val safeWorldview = PromptUtils.sanitizeForPrompt(p.worldview, PromptFieldLimits.LONG_PARAGRAPH)
+        val safeValues = PromptUtils.sanitizeForPrompt(p.values, PromptFieldLimits.LONG_PARAGRAPH)
+        val safeLanguageStyle = PromptUtils.sanitizeForPrompt(p.languageStyle, PromptFieldLimits.SINGLE_LINE)
+        val safeCatchphrase = PromptUtils.sanitizeForPrompt(p.catchphrase, PromptFieldLimits.PARAGRAPH)
+        val safeEmoji = if (p.emojiPreference.isEmpty()) "无"
+            else p.emojiPreference.joinToString("/") { PromptUtils.sanitizeForPrompt(it, PromptFieldLimits.SHORT_TAG) }
+        val safeMood = PromptUtils.sanitizeForPrompt(p.recentMood, PromptFieldLimits.SINGLE_LINE)
         return buildString {
             appendLine("你正在扮演一个真实存在的虚拟社交账号用户，请严格按以下人设发布内容。")
+            appendLine(PromptUtils.DATA_NOT_INSTRUCTIONS_CLAUSE)
             appendLine("【人设固定字段】")
-            appendLine("- 显示名：${p.displayName}")
-            appendLine("- 职业：${p.profession}")
-            appendLine("- 年龄段：${p.ageRange}")
-            appendLine("- 文化背景：${p.culturalBackground}")
-            appendLine("- 世界观：${p.worldview}")
-            appendLine("- 价值观：${p.values}")
-            appendLine("- 语言风格：${p.languageStyle}")
-            appendLine("- 口癖：${p.catchphrase}")
-            appendLine("- emoji 偏好：${if (p.emojiPreference.isEmpty()) "无" else p.emojiPreference.joinToString("/")}")
+            appendLine("- 显示名：$safeDisplayName")
+            appendLine("- 职业：$safeProfession")
+            appendLine("- 年龄段：$safeAgeRange")
+            appendLine("- 文化背景：$safeCultural")
+            appendLine("- 世界观：$safeWorldview")
+            appendLine("- 价值观：$safeValues")
+            appendLine("- 语言风格：$safeLanguageStyle")
+            appendLine("- 口癖：$safeCatchphrase")
+            appendLine("- emoji 偏好：$safeEmoji")
             appendLine("- 错别字率：${p.typoRate}")
-            appendLine("- 最近情绪：${p.recentMood}")
+            appendLine("- 最近情绪：$safeMood")
             appendLine()
             appendLine("你是该人物，以第一人称发布一条原创推文。严格保持人设的语言风格与价值观。")
             appendLine("输出前检查内容不包含暴力、仇恨、色情或对真实人物的虚假陈述。")
@@ -143,22 +159,27 @@ class TweetPromptBuilder {
         timeSlotDescription: String,
         recentTweets: List<String>,
     ): String {
+        // #304：推文历史为外部内容，净化后再插值
+        val safeTimeSlot = PromptUtils.sanitizeForPrompt(timeSlotDescription, PromptFieldLimits.SINGLE_LINE)
+        val safeMood = PromptUtils.sanitizeForPrompt(p.recentMood, PromptFieldLimits.SINGLE_LINE)
         return buildString {
             appendLine("【当前时段】")
-            appendLine(timeSlotDescription)
+            appendLine(safeTimeSlot)
             appendLine()
             appendLine("【最近情绪】")
-            appendLine(p.recentMood)
+            appendLine(safeMood)
             appendLine()
             appendLine("【最近 3 条该账号推文（避免重复）】")
             if (recentTweets.isEmpty()) {
                 appendLine("（暂无历史推文）")
             } else {
-                recentTweets.forEachIndexed { i, t -> appendLine("${i + 1}. $t") }
+                recentTweets.forEachIndexed { i, t ->
+                    appendLine("${i + 1}. ${PromptUtils.sanitizeForPrompt(t, TweetLimits.MAX_TWEET_LENGTH)}")
+                }
             }
             appendLine()
             appendLine("请输出 JSON：{\"text\": \"推文内容\", \"withImage\": true/false, \"imageTheme\": \"landscape/food/city/pet/sport/art/tech/nature/none\", \"interactionTendency\": 0.0-1.0}。")
-            appendLine("约束：text 不超过 280 字符；withImage 为布尔值；imageTheme 必须是上述枚举之一；interactionTendency 为 0.0-1.0 之间的浮点数。")
+            appendLine("约束：text 不超过 ${TweetLimits.MAX_TWEET_LENGTH} 字符；withImage 为布尔值；imageTheme 必须是上述枚举之一；interactionTendency 为 0.0-1.0 之间的浮点数。")
             appendLine("不要输出 JSON 以外的任何说明文字。")
         }
     }
@@ -312,7 +333,7 @@ class TweetPostProcessor {
      * @param text 原文本。
      * @param max 最大字符数，默认 280。
      */
-    fun truncate(text: String, max: Int = 280): String {
+    fun truncate(text: String, max: Int = TweetLimits.MAX_TWEET_LENGTH): String {
         if (text.length <= max) return text
         var cut = if (max <= 1) 0 else max - 1
         // 若 cut 恰好落在代理对的高位代理之后、低位代理之前，

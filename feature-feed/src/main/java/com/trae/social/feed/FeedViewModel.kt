@@ -15,9 +15,11 @@ import com.trae.social.core.data.repository.CommentRepository
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.data.repository.InteractionRepository
 import com.trae.social.core.data.repository.TweetRepository
+import com.trae.social.core.data.util.runCatchingCancellable
 import com.trae.social.core.profiling.capture.SessionManager
 import com.trae.social.core.profiling.capture.UserActionEventBuilder
 import com.trae.social.core.profiling.capture.UserActionTracker
+import com.trae.social.core.data.model.ScenarioIds
 import com.trae.social.core.data.model.UserActionType
 import com.trae.social.core.profiling.feedback.FeedbackController
 import com.trae.social.core.profiling.feedback.UserProfileReadAccess
@@ -75,11 +77,25 @@ class FeedViewModel @Inject constructor(
     private val _profileInterests = MutableStateFlow<List<String>>(emptyList())
     val profileInterests: StateFlow<List<String>> = _profileInterests.asStateFlow()
 
-    /** 账号信息内存缓存，避免分页滚动时重复查库（key = authorId）。
-     *  P2 修复：使用 ConcurrentHashMap 保证线程安全，避免 Paging 后台线程并发访问导致 ConcurrentModificationException。
-     *  #141：缓存条目带时间戳，超过 [AUTHOR_CACHE_TTL_MS] 后自动失效重新查库，
-     *  确保 PersonaUpdateWorker 更新人设后 Feed 能刷新到最新作者信息。 */
-    private val authorCache = java.util.concurrent.ConcurrentHashMap<String, CachedAuthor>()
+    /**
+     * 账号信息内存缓存（#317：LRU + TTL 双重淘汰）。
+     *
+     * - **TTL**（[AUTHOR_CACHE_TTL_MS]）：[resolveAuthor] 内显式判断，超时条目视为未命中重新查库，
+     *   确保 PersonaUpdateWorker 更新人设后 Feed 能刷新到最新作者信息（#141）。
+     * - **LRU**：[LinkedHashMap] 的 `accessOrder=true` 记录访问顺序，[removeEldestEntry] 在
+     *   size > [AUTHOR_CACHE_MAX_SIZE] 时淘汰最久未访问条目，避免长期滚动信息流导致缓存无限增长
+     *   （原 ConcurrentHashMap 无淘汰策略，每条新作者 ID 永久驻留，长会话下内存随作者总数线性增长）。
+     *
+     * 用 [java.util.Collections.synchronizedMap] 包装保证线程安全——Paging 的 map 算子可能在
+     * 后台线程并发访问缓存。所有访问经同步包装器自动加锁。
+     */
+    private val authorCache: MutableMap<String, CachedAuthor> =
+        java.util.Collections.synchronizedMap(
+            object : LinkedHashMap<String, CachedAuthor>(16, 0.75f, true) {
+                override fun removeEldestEntry(eldest: Map.Entry<String, CachedAuthor>): Boolean =
+                    size > AUTHOR_CACHE_MAX_SIZE
+            }
+        )
 
     /** 已点赞推文 ID 集合（乐观更新） */
     private val _likedTweetIds = MutableStateFlow<Set<String>>(emptySet())
@@ -123,11 +139,9 @@ class FeedViewModel @Inject constructor(
 
     init {
         // IMPL-13：读取跳过引导标记，驱动 FeedScreen 顶部 banner
-        // #165：与相邻 launch 一致地用 runCatching 包裹，DataStore 磁盘损坏 / IO 异常时
-        // 不崩进程（默认 false）。注：Kotlin runCatching 会吞 CancellationException，但本处
-        // 无协程取消语义需要保留，兜底返回 false 可接受。
+        // #185：改用 runCatchingCancellable 重抛 CancellationException，保持协程取消语义
         viewModelScope.launch {
-            _isOnboardingSkipped.value = runCatching { configRepository.isOnboardingSkipped() }
+            _isOnboardingSkipped.value = runCatchingCancellable { configRepository.isOnboardingSkipped() }
                 .getOrDefault(false)
         }
         // #146 A/E 场景 5：读取画像反哺权重与兴趣向量，驱动信息流 boost 标签与兴趣展示。
@@ -140,9 +154,9 @@ class FeedViewModel @Inject constructor(
         //    computeScenarioStats 的曝光分母，避免 A/B 反哺 delta 恒为 0。
         viewModelScope.launch {
             val sessionId = sessionManager.currentSessionId() ?: "unknown"
-            val driven = feedbackController.shouldApply(5, sessionId)
+            val driven = feedbackController.shouldApply(ScenarioIds.FEED_BOOST, sessionId)
             _feedBoostEnabled.value = driven
-            runCatching {
+            runCatchingCancellable {
                 actionBuilder.emit(
                     type = UserActionType.TWEET_VIEW,
                     screen = "feed",
@@ -160,7 +174,7 @@ class FeedViewModel @Inject constructor(
         }
         // #102：启动时从 DataStore 恢复收藏状态
         viewModelScope.launch {
-            runCatching { configRepository.getBookmarkedTweetIds() }
+            runCatchingCancellable { configRepository.getBookmarkedTweetIds() }
                 .onSuccess { restored ->
                     // m6 修复：仅在用户尚未操作过时才用恢复值覆盖，避免恢复协程覆盖用户操作
                     if (_bookmarkedTweetIds.value.isEmpty()) {
@@ -171,7 +185,7 @@ class FeedViewModel @Inject constructor(
         }
         // #142：启动时从 DataStore 恢复不感兴趣状态
         viewModelScope.launch {
-            runCatching { configRepository.getNotInterestedTweetIds() }
+            runCatchingCancellable { configRepository.getNotInterestedTweetIds() }
                 .onSuccess { restored ->
                     // m6 修复：仅在用户尚未操作过时才用恢复值覆盖，避免恢复协程覆盖用户操作
                     if (_notInterestedTweetIds.value.isEmpty()) {
@@ -196,7 +210,7 @@ class FeedViewModel @Inject constructor(
      */
     private fun scenario5Extra(driven: Boolean, includeMarker: Boolean = false): Map<String, kotlinx.serialization.json.JsonElement> {
         val map = mutableMapOf<String, kotlinx.serialization.json.JsonElement>(
-            "scenarioId" to kotlinx.serialization.json.JsonPrimitive(5),
+            "scenarioId" to kotlinx.serialization.json.JsonPrimitive(ScenarioIds.FEED_BOOST),
             "drivenByProfile" to kotlinx.serialization.json.JsonPrimitive(driven),
             "group" to kotlinx.serialization.json.JsonPrimitive(if (driven) "driven" else "control"),
         )
@@ -237,7 +251,7 @@ class FeedViewModel @Inject constructor(
                         id = UUID.randomUUID().toString(),
                         tweetId = tweetId,
                         // #132：accountId 应为执行互动的当前用户，而非推文作者
-                        accountId = USER_SELF_ID,
+                        accountId = AccountIds.USER_SELF_ID,
                         type = InteractionType.LIKE,
                         content = null,
                         createdAt = System.currentTimeMillis(),
@@ -245,6 +259,8 @@ class FeedViewModel @Inject constructor(
                         executedAt = System.currentTimeMillis(),
                     )
                 )
+            } catch (t: kotlinx.coroutines.CancellationException) {
+                throw t
             } catch (t: Throwable) {
                 Timber.e(t, "点赞失败，回滚本地状态")
                 // 回滚
@@ -293,7 +309,7 @@ class FeedViewModel @Inject constructor(
                         id = UUID.randomUUID().toString(),
                         tweetId = tweetId,
                         // #133：accountId 应为发表评论的当前用户，而非推文作者
-                        accountId = USER_SELF_ID,
+                        accountId = AccountIds.USER_SELF_ID,
                         type = InteractionType.COMMENT,
                         content = text,
                         createdAt = now,
@@ -307,23 +323,25 @@ class FeedViewModel @Inject constructor(
                         id = commentId,
                         tweetId = tweetId,
                         // #133：评论作者为当前用户，与 CommentSheet 乐观展示的"我"一致
-                        authorId = USER_SELF_ID,
+                        authorId = AccountIds.USER_SELF_ID,
                         content = text,
                         createdAt = now,
                     )
                 )
+            } catch (t: kotlinx.coroutines.CancellationException) {
+                throw t
             } catch (t: Throwable) {
                 Timber.e(t, "评论失败，回滚 commentCount 并清理孤儿 interaction")
                 // #139：步骤 1（updateCommentCount）已提交到 DB，若步骤 2/3 失败需回滚计数，
                 // 避免计数漂移累积（对比 likeTweet 失败时回滚 _likedTweetIds）
                 // #171：仅在 updateCommentCount(+1) 成功后才回滚 -1，首步失败时不递减
                 if (commentCountIncremented) {
-                    runCatching { tweetRepository.updateCommentCount(tweetId, -1) }
+                    runCatchingCancellable { tweetRepository.updateCommentCount(tweetId, -1) }
                         .onFailure { Timber.w(it, "回滚 commentCount 失败") }
                 }
                 // m7 修复：若 COMMENT interaction 已写入但 addComment 失败，删除孤儿 interaction
                 if (interactionInserted) {
-                    runCatching { interactionRepository.deleteCommentInteraction(tweetId, USER_SELF_ID) }
+                    runCatchingCancellable { interactionRepository.deleteCommentInteraction(tweetId, AccountIds.USER_SELF_ID) }
                         .onFailure { Timber.w(it, "清理孤儿 COMMENT interaction 失败") }
                 }
             }
@@ -337,7 +355,7 @@ class FeedViewModel @Inject constructor(
      * 账号缺失时回退为占位名 / authorId 作为头像 seed，保证可展示。
      */
     suspend fun loadComments(tweetId: String): List<CommentItem> =
-        runCatching {
+        runCatchingCancellable {
             commentRepository.getCommentsForTweet(tweetId).map { c ->
                 CommentItem(
                     id = c.id,
@@ -369,7 +387,7 @@ class FeedViewModel @Inject constructor(
                 val now = System.currentTimeMillis()
                 val retweet = TweetEntity(
                     id = UUID.randomUUID().toString(),
-                    authorId = USER_SELF_ID,
+                    authorId = AccountIds.USER_SELF_ID,
                     text = "转发：${original.text}",
                     mediaPath = original.mediaPath,
                     mediaTheme = original.mediaTheme,
@@ -386,7 +404,7 @@ class FeedViewModel @Inject constructor(
                     InteractionEntity(
                         id = UUID.randomUUID().toString(),
                         tweetId = original.id,
-                        accountId = USER_SELF_ID,
+                        accountId = AccountIds.USER_SELF_ID,
                         type = InteractionType.RETWEET,
                         content = null,
                         createdAt = now,
@@ -394,6 +412,8 @@ class FeedViewModel @Inject constructor(
                         executedAt = now,
                     )
                 )
+            } catch (t: kotlinx.coroutines.CancellationException) {
+                throw t
             } catch (t: Throwable) {
                 Timber.e(t, "转发失败")
             }
@@ -427,7 +447,7 @@ class FeedViewModel @Inject constructor(
         // （原实现捕获的 newSet 已过期，且 IO 调度顺序非确定可能导致最终状态反转）。
         viewModelScope.launch {
             bookmarkWriteMutex.withLock {
-                runCatching { configRepository.setBookmarkedTweetIds(_bookmarkedTweetIds.value) }
+                runCatchingCancellable { configRepository.setBookmarkedTweetIds(_bookmarkedTweetIds.value) }
                     .onFailure { Timber.w(it, "持久化收藏状态失败") }
             }
         }
@@ -444,7 +464,7 @@ class FeedViewModel @Inject constructor(
         // #183：与 bookmarkTweet 一致地用 Mutex 串行化写入，避免快速连续点击导致最终状态反转
         viewModelScope.launch {
             notInterestedWriteMutex.withLock {
-                runCatching { configRepository.setNotInterestedTweetIds(_notInterestedTweetIds.value) }
+                runCatchingCancellable { configRepository.setNotInterestedTweetIds(_notInterestedTweetIds.value) }
                     .onFailure { Timber.w(it, "持久化不感兴趣状态失败") }
             }
         }
@@ -462,7 +482,7 @@ class FeedViewModel @Inject constructor(
         val author = if (cached != null && now - cached.cachedAt < AUTHOR_CACHE_TTL_MS) {
             cached.info
         } else {
-            val account = runCatching { accountRepository.getById(tweet.authorId) }.getOrNull()
+            val account = runCatchingCancellable { accountRepository.getById(tweet.authorId) }.getOrNull()
             val info = AuthorInfo(
                 displayName = account?.displayName ?: "未知用户",
                 username = account?.username ?: "unknown",
@@ -493,9 +513,17 @@ class FeedViewModel @Inject constructor(
     )
 
     private companion object {
-        // #220：自身账号 ID 已抽到 AccountIds.USER_SELF_ID，此处保留别名供本文件使用
-        const val USER_SELF_ID = AccountIds.USER_SELF_ID
         /** #141：作者缓存 TTL（5 分钟），超时后重新查库刷新人设信息 */
         const val AUTHOR_CACHE_TTL_MS = 5 * 60 * 1000L
+
+        /**
+         * #317：作者缓存 LRU 上限。超过此容量时淘汰最久未访问条目。
+         *
+         * 选取 200 条的依据：单条 CachedAuthor 仅含显示名/用户名/avatarSeed 三个字符串字段，
+         * 200 条占用 < 50KB；信息流一次可视范围（LazyColumn 视口 + 预取）通常 < 50 条推文，
+         * 200 条足以覆盖多次滚动；长会话下用户接触的作者总数可能远超此数（推送 feed 持续注入新作者），
+         * 故需 LRU 上限避免缓存随作者总数线性增长。
+         */
+        const val AUTHOR_CACHE_MAX_SIZE = 200
     }
 }

@@ -7,6 +7,7 @@ import com.trae.social.core.data.model.OverrideRecord
 import com.trae.social.core.data.model.UserProfileSnapshot
 import com.trae.social.core.data.model.UserProfileVersion
 import com.trae.social.core.data.repository.ConfigRepository
+import com.trae.social.core.data.util.runCatchingCancellable
 import com.trae.social.core.profiling.capture.ProfilingGate
 import com.trae.social.core.profiling.mapping.ProfileMappers
 import kotlinx.coroutines.CoroutineScope
@@ -55,13 +56,13 @@ class CachedProfileLoader @Inject constructor(
             return
         }
         scope.launch {
-            runCatching {
+            runCatchingCancellable {
                 snapshot = userProfileDao.latestSnapshot()?.let { ProfileMappers.run { it.toDomain() } }
                 activeVersion = userProfileDao.activeVersion()?.let { ProfileMappers.run { it.toDomain() } }
                     ?: userProfileDao.latestVersion()?.let { ProfileMappers.run { it.toDomain() } }
                 overrides = overrideDao.active().mapNotNull { ProfileMappers.run { it.toDomain() } }
                 eventCount = userActionDao.countAll()
-                grayRatio = runCatching { configRepository.getFeedbackGrayRatio() }.getOrDefault(1.0)
+                grayRatio = runCatchingCancellable { configRepository.getFeedbackGrayRatio() }.getOrDefault(1.0)
                 // 第六轮 review B3 修复：冷启动 seeding 应取最早的 COLD_START_SEEDING 快照
                 // （onboarding 兴趣选择写入的初始兴趣），而非最新快照。
                 // 原实现 `snapshot?.takeIf { eventCount < COLD_START_THRESHOLD }?.interestVector`

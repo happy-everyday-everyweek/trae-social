@@ -2,6 +2,7 @@ package com.trae.social.core.scheduler.work
 
 import com.trae.social.core.data.dao.SchedulerLogDao
 import com.trae.social.core.data.entity.SchedulerLogEntity
+import com.trae.social.core.data.util.runCatchingCancellable
 import timber.log.Timber
 
 /**
@@ -38,7 +39,7 @@ object SchedulerLogger {
         status: String,
         error: String?,
     ) {
-        runCatching {
+        runCatchingCancellable {
             val now = System.currentTimeMillis()
             logDao.insert(
                 SchedulerLogEntity(

@@ -13,9 +13,11 @@ import com.trae.social.core.data.model.OverrideRecord
 import com.trae.social.core.data.model.RollbackPreview
 import com.trae.social.core.data.model.RollbackRecord
 import com.trae.social.core.data.model.RollbackResult
+import com.trae.social.core.data.model.ScenarioIds
 import com.trae.social.core.data.model.UserProfileVersion
 import com.trae.social.core.data.model.VersionSummary
 import com.trae.social.core.data.repository.ConfigRepository
+import com.trae.social.core.data.util.runCatchingCancellable
 import com.trae.social.core.profiling.capture.ProfilingGate
 import com.trae.social.core.profiling.mapping.ProfileMappers
 import kotlinx.coroutines.sync.Mutex
@@ -138,7 +140,7 @@ class ProfileVersionStore @Inject constructor(
             // trimExcessVersions 的 runCatching 仍保留：其失败不致整事务回滚（仅吞掉超额清理）。
             database.withTransaction {
                 versionDao.setActive(versionId)
-                runCatching { trimExcessVersions() }
+                runCatchingCancellable { trimExcessVersions() }
                 rollbackDao.insert(rollbackEntity)
             }
             cache.invalidate()
@@ -162,7 +164,7 @@ class ProfileVersionStore @Inject constructor(
      */
     suspend fun activateNewVersion(versionId: Long) = activationMutex.withLock {
         versionDao.setActive(versionId)
-        runCatching { trimExcessVersions() }
+        runCatchingCancellable { trimExcessVersions() }
         cache.invalidate()
         loader.refresh()
     }
@@ -190,7 +192,7 @@ class ProfileVersionStore @Inject constructor(
         val newId = database.withTransaction {
             val id = versionDao.insertVersion(entity)
             versionDao.setActive(id)
-            runCatching { trimExcessVersions() }
+            runCatchingCancellable { trimExcessVersions() }
             id
         }
         cache.invalidate()
@@ -223,7 +225,7 @@ class ProfileVersionStore @Inject constructor(
 
     private fun affectedScenarios(current: FeedbackWeights, target: FeedbackWeights): List<Int> {
         val result = ArrayList<Int>()
-        for (scenarioId in 1..8) {
+        for (scenarioId in ScenarioIds.ALL) {
             val c = FeedbackWeights.weightForScenario(scenarioId, current)
             val t = FeedbackWeights.weightForScenario(scenarioId, target)
             if (kotlin.math.abs(c - t) > 0.001) result.add(scenarioId)

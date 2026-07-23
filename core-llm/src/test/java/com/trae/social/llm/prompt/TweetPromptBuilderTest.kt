@@ -18,19 +18,7 @@ class TweetPromptBuilderTest {
 
     private val builder = TweetPromptBuilder()
 
-    private fun samplePersona() = TweetPromptBuilder.PersonaInput(
-        displayName = "李雷",
-        profession = "程序员",
-        ageRange = "25-34",
-        culturalBackground = "华东",
-        worldview = "代码即诗，简洁是终极复杂",
-        values = "实用主义，效率优先",
-        languageStyle = "口语",
-        catchphrase = "破防了",
-        emojiPreference = listOf("A", "B"),
-        typoRate = 0.03,
-        recentMood = "略焦虑",
-    )
+    // #292c：samplePersona 已抽至 TestPersonas.kt，与本文件同包可直接调用。
 
     @Test
     fun `build 返回 system 与 user 两条消息`() {
@@ -48,7 +36,7 @@ class TweetPromptBuilderTest {
     fun `system 消息含人设全部固定字段`() {
         val p = samplePersona()
         val messages = builder.build(p, "工作日上午", emptyList())
-        val system = messages[0].content
+        val system = messages[0].textContent()
 
         assertTrue("应含显示名", system.contains(p.displayName))
         assertTrue("应含职业", system.contains(p.profession))
@@ -71,7 +59,7 @@ class TweetPromptBuilderTest {
             timeSlotDescription = "周末下午 14:00-18:00",
             recentTweets = listOf("推文一", "推文二", "推文三"),
         )
-        val user = messages[1].content
+        val user = messages[1].textContent()
         assertTrue(user.contains("周末下午 14:00-18:00"))
         assertTrue(user.contains("推文一"))
         assertTrue(user.contains("推文二"))
@@ -87,15 +75,12 @@ class TweetPromptBuilderTest {
             timeSlotDescription = "上午",
             recentTweets = emptyList(),
         )
-        assertTrue(messages[1].content.contains("暂无历史推文"))
+        assertTrue(messages[1].textContent().contains("暂无历史推文"))
     }
 
     @Test
     fun `parseTweetResult 成功解析标准 JSON`() {
-        val raw = """
-            好的，以下是结果：
-            {"text": "今天天气真不错", "withImage": true, "imageTheme": "landscape", "interactionTendency": 0.8}
-        """.trimIndent()
+        val raw = "好的，以下是结果：\n$validTweetJson"
         val result = TweetPromptBuilder.parseTweetResult(raw)
         assertNotNull(result)
         assertEquals("今天天气真不错", result!!.text)
@@ -153,8 +138,7 @@ class TweetPromptBuilderTest {
 
     @Test
     fun `parseTweetResult 纯文本无 JSON 时返回 null`() {
-        val raw = "这不是 JSON，模型可能出错。"
-        val result = TweetPromptBuilder.parseTweetResult(raw)
+        val result = TweetPromptBuilder.parseTweetResult(malformedJson)
         assertNull(result)
     }
 

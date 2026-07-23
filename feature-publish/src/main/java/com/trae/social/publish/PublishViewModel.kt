@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkManager
 import com.trae.social.core.data.AccountIds
+import com.trae.social.core.data.TweetLimits
 import com.trae.social.core.data.entity.InteractionEntity
 import com.trae.social.core.data.entity.InteractionType
 import com.trae.social.core.data.entity.TweetEntity
@@ -12,6 +13,7 @@ import com.trae.social.core.data.repository.AccountRepository
 import com.trae.social.core.data.repository.InteractionRepository
 import com.trae.social.core.data.repository.TweetRepository
 import com.trae.social.core.data.model.UserActionType
+import com.trae.social.core.data.util.runCatchingCancellable
 import com.trae.social.core.profiling.capture.SessionManager
 import com.trae.social.core.profiling.capture.UserActionTracker
 import com.trae.social.core.scheduler.work.WorkerPolicies
@@ -150,7 +152,7 @@ class PublishViewModel @Inject constructor(
     fun updateCaption(text: String) {
         // #174：使用 codePointCount + offsetByCodePoints 在码点边界截断，
         // 避免 String.take(n) 按 UTF-16 code unit 切开代理对产生非法 Unicode
-        _uiState.update { it.copy(caption = text.truncateByCodePoints(MAX_CAPTION_LENGTH)) }
+        _uiState.update { it.copy(caption = text.truncateByCodePoints(TweetLimits.MAX_CAPTION_LENGTH)) }
     }
 
     fun setRatio(ratio: CaptureRatio) {
@@ -197,7 +199,7 @@ class PublishViewModel @Inject constructor(
                 val now = System.currentTimeMillis()
                 val tweet = TweetEntity(
                     id = tweetId,
-                    authorId = AUTHOR_SELF,
+                    authorId = AccountIds.USER_SELF_ID,
                     text = current.caption,
                     // IMPL-39：多图以逗号分隔存储，不再静默丢弃
                     mediaPath = if (current.captures.isEmpty()) null
@@ -231,6 +233,10 @@ class PublishViewModel @Inject constructor(
                 // #207 review 修复：发布成功后置 publishPhase=ANIMATING（由 ViewModel 持有，
                 // 配置变更后存活），替代原 Channel Published 事件（一次性消费，旋转后丢失）。
                 _publishPhase.value = PublishPhase.ANIMATING
+            } catch (t: kotlinx.coroutines.CancellationException) {
+                // #185：协程取消（ViewModel 销毁等）必须向上传播，
+                // 不能误判为发布失败并尝试 _events.send（suspend，取消后再次抛 CancellationException）
+                throw t
             } catch (t: Throwable) {
                 Timber.e(t, "发布失败")
                 _events.send(PublishEvent.PublishFailed)
@@ -248,19 +254,22 @@ class PublishViewModel @Inject constructor(
      * 不再使用 "ai-fallback" 硬编码，避免 UI 层 resolveAuthor 找不到账号显示异常。
      */
     private suspend fun triggerAiInteraction(tweetId: String) {
-        runCatching {
+        // #185：原 runCatching 会吞 CancellationException，导致协程取消后静默返回，
+        // publish() 继续发送 Published 事件让用户看到「发布成功」但 AI 互动排程完全失败。
+        // 改用 runCatchingCancellable 重抛 CancellationException。
+        runCatchingCancellable {
             val workManager = WorkManager.getInstance(appContext)
             workManager.enqueue(WorkerPolicies.interactionRequest(tweetId))
             Timber.i("已入队 InteractionWorker tweetId=%s", tweetId)
         }.onFailure { t ->
             Timber.w(t, "InteractionWorker 入队失败，回退直接落库单条互动")
-            runCatching {
+            runCatchingCancellable {
                 // #208：改用 getVirtualAccountsList 直接获取全部虚拟账号池，
                 // 不再依赖 getAccounts(1) 的分页大小与默认排序，语义明确
                 val virtualAccounts = accountRepository.getVirtualAccountsList()
                 if (virtualAccounts.isEmpty()) {
                     Timber.w("无可用虚拟账号，跳过回退互动落库")
-                    return@runCatching
+                    return@runCatchingCancellable
                 }
                 val fallbackAccountId = virtualAccounts.random().id
                 val now = System.currentTimeMillis()
@@ -282,9 +291,6 @@ class PublishViewModel @Inject constructor(
 
     companion object {
         const val MAX_CAPTURES = 4
-        const val MAX_CAPTION_LENGTH = 280
-        // #220：自身账号 ID 已抽到 AccountIds.USER_SELF_ID，此处保留别名供本文件使用
-        const val AUTHOR_SELF = AccountIds.USER_SELF_ID
     }
 }
 

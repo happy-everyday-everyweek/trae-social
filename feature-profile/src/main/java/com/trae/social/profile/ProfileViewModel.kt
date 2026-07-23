@@ -5,14 +5,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.trae.social.core.data.AccountIds
 import com.trae.social.core.data.config.AiActivityLevel
-import com.trae.social.core.data.config.LlmProvider
-import com.trae.social.core.data.dao.FollowRelationDao
 import com.trae.social.core.data.entity.AccountEntity
 import com.trae.social.core.data.entity.InteractionEntity
 import com.trae.social.core.data.entity.InteractionType
 import com.trae.social.core.data.entity.TweetEntity
 import com.trae.social.core.data.repository.AccountRepository
 import com.trae.social.core.data.repository.ConfigRepository
+import com.trae.social.core.data.repository.FollowRelationRepository
 import com.trae.social.core.data.repository.InteractionRepository
 import com.trae.social.core.data.repository.TweetRepository
 import com.trae.social.designsystem.image.SvgImageLoader
@@ -38,20 +37,23 @@ import timber.log.Timber
  * 加载目标账号资料、推文/媒体列表与关注统计，读取当前 AI 活跃度档位。
  *
  * #11：通过 [SavedStateHandle] 读取路由参数 `accountId`，作为目标账号 ID。
- * - PROFILE Tab 路由无 `accountId` 参数，[targetAccountId] 回退为 [SELF_ID]，
+ * - PROFILE Tab 路由无 `accountId` 参数，[targetAccountId] 回退为 [AccountIds.USER_SELF_ID]，
  *   行为等同原实现（显示自身账号）。
  * - ACCOUNT_DETAIL 路由携带 `accountId` 参数，[targetAccountId] 为该账号 ID，
- *   ProfileScreen 显示目标账号资料、推文、媒体；点赞/转发等交互仍以 [SELF_ID]
+ *   ProfileScreen 显示目标账号资料、推文、媒体；点赞/转发等交互仍以 [AccountIds.USER_SELF_ID]
  *   作为行为主体（当前登录用户），LIKES Tab 仅在查看自身时显示。
  *
- * 自身账号固定 ID 为 [SELF_ID]（与 PersonaSeeder.USER_SELF_ID / PublishViewModel.AUTHOR_SELF 一致）。
+ * #286：自身账号固定 ID 统一为 [AccountIds.USER_SELF_ID]（原 ProfileViewModel.SELF_ID /
+ * PersonaSeeder.USER_SELF_ID / PublishViewModel.AUTHOR_SELF 别名已移除，全部直接引用 AccountIds）。
  */
 @HiltViewModel
 class ProfileViewModel @Inject constructor(
     private val accountRepository: AccountRepository,
     private val tweetRepository: TweetRepository,
     private val configRepository: ConfigRepository,
-    private val followRelationDao: FollowRelationDao,
+    // #314：改注入 FollowRelationRepository 替代直接注入 FollowRelationDao，
+    // 遵循依赖倒置——ViewModel 不应感知数据层 DAO 实现
+    private val followRelationRepository: FollowRelationRepository,
     // #134：注入 InteractionRepository，使 retweetTweet 能创建实际互动记录
     private val interactionRepository: InteractionRepository,
     // #11：注入 SavedStateHandle 读取 ACCOUNT_DETAIL 路由的 accountId 参数
@@ -65,12 +67,12 @@ class ProfileViewModel @Inject constructor(
      */
     val targetAccountId: String = savedStateHandle
         .get<String?>(KEY_ACCOUNT_ID_ARG)
-        ?: SELF_ID
+        ?: AccountIds.USER_SELF_ID
 
     /**
      * #11：是否查看自身账号。UI 据此决定标题、设置入口、推荐关注入口、LIKES Tab 的显隐。
      */
-    val isSelfProfile: Boolean = targetAccountId == SELF_ID
+    val isSelfProfile: Boolean = targetAccountId == AccountIds.USER_SELF_ID
 
     private val _uiState = MutableStateFlow<ProfileUiState>(ProfileUiState.Loading)
     val uiState: StateFlow<ProfileUiState> = _uiState.asStateFlow()
@@ -136,14 +138,14 @@ class ProfileViewModel @Inject constructor(
                         // 首次拿到账号：加载计数初值并启动 observe 持续刷新计数
                         countsObserved = true
                         val following = try {
-                            followRelationDao.countFollowing(targetAccountId)
+                            followRelationRepository.countFollowing(targetAccountId)
                         } catch (e: kotlinx.coroutines.CancellationException) {
                             throw e
                         } catch (e: Exception) {
                             Timber.w(e, "加载关注数失败"); 0
                         }
                         val followers = try {
-                            followRelationDao.countFollowers(targetAccountId)
+                            followRelationRepository.countFollowers(targetAccountId)
                         } catch (e: kotlinx.coroutines.CancellationException) {
                             throw e
                         } catch (e: Exception) {
@@ -193,7 +195,7 @@ class ProfileViewModel @Inject constructor(
     private fun observeProfileCounts() {
         viewModelScope.launch {
             try {
-                followRelationDao.observeFollowingCount(targetAccountId).collect { count ->
+                followRelationRepository.observeFollowingCount(targetAccountId).collect { count ->
                     val current = _uiState.value
                     if (current is ProfileUiState.Success) {
                         _uiState.value = current.copy(followingCount = count)
@@ -207,7 +209,7 @@ class ProfileViewModel @Inject constructor(
         }
         viewModelScope.launch {
             try {
-                followRelationDao.observeFollowersCount(targetAccountId).collect { count ->
+                followRelationRepository.observeFollowersCount(targetAccountId).collect { count ->
                     val current = _uiState.value
                     if (current is ProfileUiState.Success) {
                         _uiState.value = current.copy(followersCount = count)
@@ -252,7 +254,7 @@ class ProfileViewModel @Inject constructor(
     private fun observeLikedTweetIds() {
         viewModelScope.launch {
             try {
-                interactionRepository.observeLikedTweetIdsByAccount(SELF_ID).collect { likedIds ->
+                interactionRepository.observeLikedTweetIdsByAccount(AccountIds.USER_SELF_ID).collect { likedIds ->
                     val dbSet = likedIds.toSet()
                     val merged = dbSet.toMutableSet()
                     val iterator = pendingLikeToggles.entries.iterator()
@@ -289,7 +291,7 @@ class ProfileViewModel @Inject constructor(
      * ACCOUNT_DETAIL 路由下为目标账号 ID），原硬编码 SELF_ID 替换为 [targetAccountId]。
      */
     val tweetsFlow: StateFlow<List<TweetEntity>> = tweetRepository.observeByAuthor(targetAccountId)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), emptyList())
 
     /**
      * 媒体推文流（[targetAccountId] 的含图推文）。
@@ -299,7 +301,7 @@ class ProfileViewModel @Inject constructor(
      */
     val mediaTweetsFlow: StateFlow<List<TweetEntity>> = tweetsFlow
         .map { list -> list.filter { !it.mediaPath.isNullOrBlank() } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), emptyList())
 
     /**
      * #138：已点赞推文流（LIKES Tab 数据源）。
@@ -312,7 +314,7 @@ class ProfileViewModel @Inject constructor(
             if (ids.isEmpty()) flowOf(emptyList())
             else tweetRepository.observeByIds(ids.toList())
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), emptyList())
 
     fun selectTab(tab: ProfileTab) {
         _selectedTab.value = tab
@@ -377,10 +379,12 @@ class ProfileViewModel @Inject constructor(
                 // 无则跳过计数更新，避免 _likedTweetIds 误包含某 tweetId 但 DB 无记录时
                 // 无条件 -1 导致 likeCount 错误。
                 val shouldUpdateCount = if (wasLiked) {
-                    val existing = interactionRepository.getLikedTweetIdsByAccount(SELF_ID)
-                        .contains(tweetId)
+                    // #316：单条 EXISTS 查询替代 getLikedTweetIdsByAccount 全量加载——
+                    // 后者拉取当前账号全部已点赞推文 ID 列表只为 .contains 检查单个 ID，
+                    // N 条 LIKE 即拉取 N 行；EXISTS 短路返回，开销 O(log N)。
+                    val existing = interactionRepository.hasLikeInteraction(tweetId, AccountIds.USER_SELF_ID)
                     if (existing) {
-                        interactionRepository.deleteLikeInteraction(tweetId, SELF_ID)
+                        interactionRepository.deleteLikeInteraction(tweetId, AccountIds.USER_SELF_ID)
                         true
                     } else {
                         // DB 中无此 LIKE 记录，likeCount 未曾因此 +1，无需 -1
@@ -392,7 +396,7 @@ class ProfileViewModel @Inject constructor(
                         InteractionEntity(
                             id = UUID.randomUUID().toString(),
                             tweetId = tweetId,
-                            accountId = SELF_ID,
+                            accountId = AccountIds.USER_SELF_ID,
                             type = InteractionType.LIKE,
                             content = null,
                             createdAt = now,
@@ -451,7 +455,7 @@ class ProfileViewModel @Inject constructor(
                 val now = System.currentTimeMillis()
                 val retweet = TweetEntity(
                     id = UUID.randomUUID().toString(),
-                    authorId = SELF_ID,
+                    authorId = AccountIds.USER_SELF_ID,
                     text = "转发：${original.text}",
                     mediaPath = original.mediaPath,
                     mediaTheme = original.mediaTheme,
@@ -468,7 +472,7 @@ class ProfileViewModel @Inject constructor(
                     InteractionEntity(
                         id = UUID.randomUUID().toString(),
                         tweetId = original.id,
-                        accountId = SELF_ID,
+                        accountId = AccountIds.USER_SELF_ID,
                         type = InteractionType.RETWEET,
                         content = null,
                         createdAt = now,
@@ -485,14 +489,14 @@ class ProfileViewModel @Inject constructor(
     }
 
     companion object {
-        // #220：自身账号 ID 已抽到 AccountIds.USER_SELF_ID，此处保留别名仅向后兼容
-        // （FollowListViewModel 等仍引用 ProfileViewModel.SELF_ID），新代码应直接引用 AccountIds
-        const val SELF_ID = AccountIds.USER_SELF_ID
-
         // #11：ACCOUNT_DETAIL 路由参数键，与 AppRoutes.ACCOUNT_DETAIL_ID_ARG 保持一致。
         // 此处不依赖 app 模块（feature-profile 不能反向依赖 app），直接用字符串常量对齐。
         // SavedStateHandle 通过此键读取 navArgument("accountId") 注入的值。
         const val KEY_ACCOUNT_ID_ARG = "accountId"
+
+        // #285：StateFlow 订阅停止后的兜底超时（与 TimelineViewModel.STOP_TIMEOUT_MILLIS 对齐），
+        // 消除跨 ViewModel 重复 5000 字面量。
+        const val STOP_TIMEOUT_MILLIS = 5_000L
     }
 }
 

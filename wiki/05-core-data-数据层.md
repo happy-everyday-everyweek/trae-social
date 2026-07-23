@@ -1,6 +1,6 @@
 # core-data 数据层
 
-数据层模块，namespace `com.trae.social.core.data`，含两个包路径：`com.trae.social.core.data.*`（DB 主体）与 `com.trae.social.data.gallery.*`（图库系统）。compileSdk 34, minSdk 26, JVM 17。
+数据层模块，namespace `com.trae.social.core.data`，包路径统一为 `com.trae.social.core.data.*`（#291 修复：原 `com.trae.social.data.gallery.*` 已重命名为 `com.trae.social.core.data.gallery.*`）。compileSdk 34, minSdk 26, JVM 17。
 
 ## Room 数据库 AppDatabase
 
@@ -183,7 +183,6 @@
 - `InteractionRepository`：`scheduleInteraction` / `getPendingInteractions` / `executeInteractionsAndUpdateTweet`。
 - `CommentRepository`：`addComment` / `getCommentsForTweet`。
 - `ConfigRepository`：详见下节。
-- `LlmCacheInvalidator`：`fun interface`，`suspend invalidateCache()`，定义在 core-data 避免 feature 依赖 core-llm。
 
 ## ConfigRepository（配置仓库）
 
@@ -192,13 +191,12 @@
 - `activityLevelChanges`: `SharedFlow<AiActivityLevel>`（`MutableSharedFlow extraBufferCapacity=1`）。
   - `setAiActivityLevel` 写 DataStore 后 `tryEmit(level)`。
   - `SchedulerInitializer` 收集后 REPLACE 重排 Worker。
-- 敏感数据（`EncryptedSharedPreferences`，key 命名 `api_key_${provider.id}` / `base_url_${provider.id}` / `model_${provider.id}`）：
-  - `getApiKey` / `setApiKey`
-  - `getBaseUrl` / `setBaseUrl`
-  - `getModelName` / `setModelName`
-  - `apiKeyPreview`（脱敏：<=8 返回 `***`，否则 `首4***末4`，`withContext IO`）
+- 敏感数据（`EncryptedSharedPreferences`）：
+  - #151 前旧命名空间（仅迁移用，保留不删）：`api_key_${provider.id}` / `base_url_${provider.id}` / `model_${provider.id}`，由旧 provider 槽位 getter `getApiKey` / `getBaseUrl` / `getModelName` 读取。
+  - #151 后新命名空间（运行时实际使用）：`api_key_ep_<endpointId>`，由端点 CRUD / API Key 读写方法承载（详见 [16 配置与密钥管理](./16-配置与密钥管理.md)）。
+  - `endpointApiKeyPreview`（脱敏：<=8 返回 `***`，否则 `首4***末4`，`withContext IO`，#167 改为 suspend）。
 - 非敏感配置（DataStore）：
-  - `getDefaultProvider` / `setDefaultProvider`（key `default_provider`）
+  - `getDefaultProvider`（key `default_provider`，迁移用：决定哪个端点 `orderIndex=0`。#151 后由 `orderIndex=0` 主端点取代，仅迁移逻辑读取）
   - `isOnboardingCompleted` / `setOnboardingCompleted`（key `onboarding_completed`）
   - `isOnboardingSkipped` / `setOnboardingSkipped`（key `onboarding_skipped`）
   - `getAiActivityLevel`（默认 `MEDIUM`）/ `setAiActivityLevel`（key `ai_activity_level`）
@@ -284,27 +282,31 @@
 
 ## 枚举（config/LlmConfig.kt）
 
-### LlmProvider(id, displayName)
+### LlmProvider（#287 后作为引导流程「预设包」）
 
-| 枚举值 | id | displayName |
-| --- | --- | --- |
-| `OPENAI` | `"openai"` | `"OpenAI"` |
-| `ANTHROPIC` | `"anthropic"` | `"Anthropic"` |
-| `GEMINI` | `"gemini"` | `"Google Gemini"` |
-| `CUSTOM` | `"custom"` | `"自定义端点"` |
+> #151 重构后：`LlmProvider` 不再作为运行时寻址 key（运行时改以 endpointId 寻址，详见 [06 core-llm LLM 层](./06-core-llm-LLM-层.md)），仅保留作为引导流程的预设包，承载默认 Base URL / 模型 / 协议格式 / 推荐模型列表 / 能力集合 / Key 获取链接等元数据。#287 把原本散落在 OnboardingViewModel / KeyInputScreen / ConfigRepository / ProviderSelectScreen 四处独立 `when` 与 `Map` 的元数据收敛到枚举自身。
 
-- companion `fromId`。
-- 注意：无显式 `custom` 布尔字段。
-
-### AiActivityLevel(id, rpmLimit, dailyPostsPerAccount, personaUpdateBatchSize, personaUpdatePeriodDays)
-
-| 枚举值 | id | rpmLimit | dailyPostsPerAccount | personaUpdateBatchSize | personaUpdatePeriodDays |
+| 枚举值 | id | displayName | protocol | defaultBaseUrl | defaultModel |
 | --- | --- | --- | --- | --- | --- |
-| `LOW` | - | 10 | 2 | 10 | 14 |
-| `MEDIUM` | - | 30 | 4 | 20 | 7 |
-| `HIGH` | - | 60 | 8 | 40 | 3 |
+| `OPENAI` | `"openai"` | `"OpenAI"` | `OPENAI_COMPATIBLE` | `https://api.openai.com` | `gpt-4o-mini` |
+| `ANTHROPIC` | `"anthropic"` | `"Anthropic"` | `ANTHROPIC_COMPATIBLE` | `https://api.anthropic.com` | `claude-3-5-sonnet-20240620` |
+| `GEMINI` | `"gemini"` | `"Google Gemini"` | `OPENAI_COMPATIBLE` | `https://generativelanguage.googleapis.com` | `gemini-1.5-flash` |
+| `CUSTOM` | `"custom"` | `"自定义（OpenAI 兼容）"` | `OPENAI_COMPATIBLE` | `""`（用户必填） | `gpt-4o-mini` |
 
-- companion `fromId`。
+- 完整字段：`id` / `displayName` / `description` / `protocol` / `defaultBaseUrl` / `defaultModel` / `recommendedModels` / `keyAcquireUrl` / `apiKeyPrefix` / `capabilities`。
+- companion `fromId(id)` + `detectFromApiKey(key)`（按前缀 `sk-ant-` / `sk-` / `AIza` 识别所属提供商）。
+
+### AiActivityLevel(id, rpmLimit, dailyPostsPerAccount, personaUpdateBatchSize, personaUpdatePeriodDays, profilePeriodHours, displayLabel)
+
+| 枚举值 | id | rpmLimit | dailyPostsPerAccount | personaUpdateBatchSize | personaUpdatePeriodDays | profilePeriodHours | displayLabel |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `LOW` | `"low"` | 10 | 2 | 10 | 7 | 96 | `"低 (LOW)"` |
+| `MEDIUM` | `"medium"` | 30 | 4 | 20 | 3 | 48 | `"中 (MEDIUM)"` |
+| `HIGH` | `"high"` | 60 | 8 | 40 | 3 | 24 | `"高 (HIGH)"` |
+
+- companion `fromId(id)`。
+- #95：`personaUpdatePeriodDays` 由原 LOW=14 / MEDIUM=7 / HIGH=3 缩短为 LOW=7 / MEDIUM=3 / HIGH=3，避免 WorkManager PeriodicWorkRequest 在 Doze 模式下大幅推迟导致人设演进近乎停滞。
+- #287：`profilePeriodHours` 与 `displayLabel` 收敛到枚举自身。
 
 ## build.gradle.kts 要点
 

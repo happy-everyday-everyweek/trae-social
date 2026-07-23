@@ -92,7 +92,7 @@ fun KeyInputScreen(
 
     // #34：检测粘贴/输入的 API Key 前缀，提示用户切换到对应提供商
     val detectedProvider = remember(state.apiKey) {
-        detectProviderFromKey(state.apiKey)
+        LlmProvider.detectFromApiKey(state.apiKey)
     }
     val showProviderHint = detectedProvider != null &&
         detectedProvider != state.selectedProvider &&
@@ -110,7 +110,7 @@ fun KeyInputScreen(
 
     // #34：当前提供商推荐的模型列表，供下拉选择
     val recommendedModels = remember(state.selectedProvider) {
-        RECOMMENDED_MODELS[state.selectedProvider].orEmpty()
+        state.selectedProvider.recommendedModels
     }
 
     Column(
@@ -311,7 +311,7 @@ fun KeyInputScreen(
 
         // #34：提供商官方获取 API Key 的链接
         val keyUrl = remember(state.selectedProvider) {
-            PROVIDER_KEY_URLS[state.selectedProvider]
+            state.selectedProvider.keyAcquireUrl
         }
         if (keyUrl != null) {
             TextButton(
@@ -386,47 +386,6 @@ private fun maskApiKey(key: String): String {
     return key.take(4) + "***" + key.takeLast(4)
 }
 
-// IMPL-44：displayName 直接使用 core-data LlmProvider.displayName 属性，
-// 不再需要本地扩展函数维护重复映射。
-
-/**
- * #34：根据 API Key 前缀识别所属提供商。
- *
- * - `sk-ant-` 开头：Anthropic
- * - `sk-` 开头（非 ant）：OpenAI
- * - `AIza` 开头：Google Gemini
- *
- * @return 识别到的提供商，未匹配返回 null
- */
-private fun detectProviderFromKey(key: String): LlmProvider? {
-    if (key.length < 4) return null
-    return when {
-        key.startsWith("sk-ant-", ignoreCase = true) -> LlmProvider.ANTHROPIC
-        key.startsWith("sk-", ignoreCase = true) -> LlmProvider.OPENAI
-        // Review fix：Google API Key 前缀大小写敏感，不忽略大小写避免 aiza/AIZA 误判
-        key.startsWith("AIza") -> LlmProvider.GEMINI
-        else -> null
-    }
-}
-
-/**
- * #34：各提供商推荐模型列表，供模型名输入下拉选择。
- */
-private val RECOMMENDED_MODELS: Map<LlmProvider, List<String>> = mapOf(
-    LlmProvider.OPENAI to listOf("gpt-4o", "gpt-4o-mini", "gpt-4-turbo"),
-    LlmProvider.ANTHROPIC to listOf(
-        "claude-3-5-sonnet-20240620",
-        "claude-3-5-haiku-20241022",
-        "claude-3-opus-20240229",
-    ),
-    LlmProvider.GEMINI to listOf("gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"),
-)
-
-/**
- * #34：各提供商官方获取 API Key 的链接。
- */
-private val PROVIDER_KEY_URLS: Map<LlmProvider, String> = mapOf(
-    LlmProvider.OPENAI to "https://platform.openai.com/api-keys",
-    LlmProvider.ANTHROPIC to "https://console.anthropic.com/settings/keys",
-    LlmProvider.GEMINI to "https://aistudio.google.com/app/apikey",
-)
+// #287：detectProviderFromKey / RECOMMENDED_MODELS / PROVIDER_KEY_URLS 已收敛到
+// LlmProvider 枚举自身（detectFromApiKey / recommendedModels / keyAcquireUrl），
+// 此处不再维护重复映射。

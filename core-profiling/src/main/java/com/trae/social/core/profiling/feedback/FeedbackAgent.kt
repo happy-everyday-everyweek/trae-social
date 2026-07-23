@@ -10,6 +10,7 @@ import com.trae.social.core.data.model.RollbackResult
 import com.trae.social.core.data.model.UserActionEvent
 import com.trae.social.core.data.model.UserActionType
 import com.trae.social.core.data.repository.ConfigRepository
+import com.trae.social.core.data.util.runCatchingCancellable
 import com.trae.social.core.profiling.capture.ProfilingGate
 import com.trae.social.core.profiling.capture.SessionManager
 import com.trae.social.core.profiling.capture.UserActionTracker
@@ -93,7 +94,7 @@ class FeedbackAgent @Inject constructor(
 
         // 1. 持久化用户消息
         val now = System.currentTimeMillis()
-        val persisted = runCatching {
+        val persisted = runCatchingCancellable {
             feedbackDao.insert(
                 UserProfileFeedbackEntity(
                     role = ROLE_USER,
@@ -249,7 +250,7 @@ class FeedbackAgent @Inject constructor(
         }
         // review 修复：精确统计 USER 消息数作为 round 计数，移除 count/2 近似。
         // 每轮对话恰为 1 条 USER 消息，ASSISTANT 回复持久化失败不影响 USER 计数准确性。
-        val userCount = runCatching { feedbackDao.countByRoleSince(since, ROLE_USER) }.getOrDefault(0)
+        val userCount = runCatchingCancellable { feedbackDao.countByRoleSince(since, ROLE_USER) }.getOrDefault(0)
         // reserve 语义：计入 in-flight 未落盘的并发调用，关闭 check-then-act 竞争窗口；
         // 预留本调用配额（+1）在调用 LLM 前即扣除，LLM 失败不退还
         // （用户消息落盘后由 DB 计数接管，随后释放 in-flight 占位；持久化失败则保留占位,
@@ -322,7 +323,7 @@ class FeedbackAgent @Inject constructor(
                 kotlinx.serialization.builtins.ListSerializer(RollbackPreview.serializer()),
                 reply.rollbackPreviews,
             )
-        runCatching {
+        runCatchingCancellable {
             feedbackDao.insert(
                 UserProfileFeedbackEntity(
                     role = ROLE_ASSISTANT,

@@ -8,8 +8,8 @@ import com.trae.social.core.data.config.LlmProvider
 import com.trae.social.core.data.config.ModelCapability
 import com.trae.social.core.data.di.SecurePreferences
 import com.trae.social.core.data.repository.ConfigRepository
-import com.trae.social.core.data.repository.LlmCacheInvalidator
 import com.trae.social.llm.RulesetEngine
+import com.trae.social.llm.SdkExceptionClassifier
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -45,7 +45,6 @@ import javax.inject.Inject
 class OnboardingViewModel @Inject constructor(
     private val configRepository: ConfigRepository,
     private val rulesetEngine: RulesetEngine,
-    private val cacheInvalidator: LlmCacheInvalidator,
     private val coldStartFiller: ColdStartFiller,
     // #34：直接注入 EncryptedSharedPreferences 用于历史 API Key 存储，
     // 与 ConfigRepository 内部使用的同一加密实例（命名空间隔离，键名以 history_ 前缀）。
@@ -72,8 +71,8 @@ class OnboardingViewModel @Inject constructor(
     data class OnboardingUiState(
         val selectedProvider: LlmProvider = LlmProvider.OPENAI,
         val apiKey: String = "",
-        val baseUrl: String = DEFAULT_BASE_URLS[LlmProvider.OPENAI] ?: "",
-        val model: String = DEFAULT_MODELS[LlmProvider.OPENAI] ?: "",
+        val baseUrl: String = LlmProvider.OPENAI.defaultBaseUrl,
+        val model: String = LlmProvider.OPENAI.defaultModel,
         val testStatus: TestStatus = TestStatus.Idle,
         val isSaving: Boolean = false,
         val completed: Boolean = false,
@@ -179,8 +178,8 @@ class OnboardingViewModel @Inject constructor(
         _uiState.update { current ->
             current.copy(
                 selectedProvider = provider,
-                baseUrl = DEFAULT_BASE_URLS[provider] ?: "",
-                model = DEFAULT_MODELS[provider] ?: "",
+                baseUrl = provider.defaultBaseUrl,
+                model = provider.defaultModel,
                 testStatus = TestStatus.Idle,
                 pendingEndpointId = null,
                 saveError = null,
@@ -221,11 +220,14 @@ class OnboardingViewModel @Inject constructor(
      *
      * 流程：
      * 1. 调 [ensureEndpoint] 创建或更新端点（写入端点表 + EncryptedSharedPreferences API Key）
-     * 2. 失效 EndpointRegistry 缓存（强制按新配置重建 LlmClient）
-     * 3. 调用 [RulesetEngine.ping] 验证连通性。ping 返回 Boolean，
+     * 2. 调用 [RulesetEngine.ping] 验证连通性。ping 返回 Boolean，
      *    但若 ping 内部抛出 SDK 异常（401 / 403 / 429 / 5xx / 网络错误等），
      *    会向上 propagate——这里 `runCatching` 捕获后用 [classifyError] 给出具体原因，
      *    避免用户看到「连接失败」这种无信息错误（#151 review 反馈：错误分类能力回归）。
+     *
+     * #288：端点 CRUD / API Key 变更后无需手动调 invalidateCache()——ConfigRepository
+     * 在每个写操作内 `_endpointChanges.tryEmit(Unit)`，EndpointRegistry 订阅该流后
+     * 自动 `invalidateCache()`，缓存失效由类型系统（订阅）保证而非人工记忆。
      */
     fun testConnection() {
         val current = _uiState.value
@@ -238,7 +240,6 @@ class OnboardingViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val endpointId = ensureEndpoint(current)
-                cacheInvalidator.invalidateCache()
 
                 // 主 review 第 1 轮 M2 修复：原 runCatching 会吞 CancellationException，
                 // 协程取消（如用户离开页面）被误判为 ping 失败并写入 TestStatus.Error，
@@ -292,11 +293,14 @@ class OnboardingViewModel @Inject constructor(
      * 保存配置并完成引导。
      *
      * 1. 调 [ensureEndpoint] 创建或更新端点（若尚未通过测试创建）
-     * 2. 失效 LLM 客户端缓存
-     * 3. 触发 [ColdStartFiller] 进行冷启动内容填充（RISK-14）
-     * 4. 标记 completed=true，由 UI 层调用 onCompleted 跳转主界面
+     * 2. 触发 [ColdStartFiller] 进行冷启动内容填充（RISK-14）
+     * 3. 标记 completed=true，由 UI 层调用 onCompleted 跳转主界面
      *
      * 首个端点自动成为主端点（orderIndex=0），无需显式 setDefaultProvider。
+     *
+     * #288：端点 CRUD / API Key 变更后无需手动调 invalidateCache()——ConfigRepository
+     * 在每个写操作内 `_endpointChanges.tryEmit(Unit)`，EndpointRegistry 订阅该流后
+     * 自动 `invalidateCache()`，缓存失效由类型系统（订阅）保证而非人工记忆。
      *
      * @param onSaved 保存与冷启动触发完成后的回调（UI 层在此跳转至 done 页或调用 onCompleted）
      */
@@ -310,7 +314,6 @@ class OnboardingViewModel @Inject constructor(
             try {
                 val current = _uiState.value
                 ensureEndpoint(current)
-                cacheInvalidator.invalidateCache()
 
                 // 触发冷启动内容填充（RISK-14）
                 // 主 review 第 1 轮 M2 修复：原 runCatching 会吞 CancellationException，
@@ -361,18 +364,27 @@ class OnboardingViewModel @Inject constructor(
      * 创建/更新后返回端点 id 并写入 [OnboardingUiState.pendingEndpointId]。
      */
     private suspend fun ensureEndpoint(state: OnboardingUiState): String {
-        val protocol = protocolFor(state.selectedProvider)
-        val capabilities = setOf(
-            ModelCapability.TEXT,
-            ModelCapability.JSON_MODE_NATIVE,
-            ModelCapability.STREAMING,
-        )
+        val protocol = state.selectedProvider.protocol
+        // #297 修复：按 protocol 区分能力，避免给 Anthropic 端点声明 JSON_MODE_NATIVE
+        // 导致 DefaultRulesetEngine 走原生 response_format 失败。
+        // 与 ApiKeyViewModel.defaultCapabilitiesFor(protocol) 保持一致。
+        val capabilities = when (protocol) {
+            LlmProtocol.OPENAI_COMPATIBLE -> setOf(
+                ModelCapability.TEXT,
+                ModelCapability.JSON_MODE_NATIVE,
+                ModelCapability.STREAMING,
+            )
+            LlmProtocol.ANTHROPIC_COMPATIBLE -> setOf(
+                ModelCapability.TEXT,
+                ModelCapability.STREAMING,
+            )
+        }
         // review 修复：KeyInputScreen 的 supportingText 承诺「留空则使用提供商官方端点」，
         // 但此前 state.baseUrl 为空时直接透传空串给 ConfigRepository，导致 ping 请求
         // 打到空 URL 报 UnknownHostException。此处对非 CUSTOM 提供商补上官方默认端点。
         // CUSTOM 不在此列——canSubmit 已要求 CUSTOM 必须填写合法 URL。
         val effectiveBaseUrl = state.baseUrl.ifBlank {
-            DEFAULT_BASE_URLS[state.selectedProvider] ?: ""
+            state.selectedProvider.defaultBaseUrl
         }
 
         val pendingId = state.pendingEndpointId
@@ -439,12 +451,6 @@ class OnboardingViewModel @Inject constructor(
         }
     }
 
-    /** 按 LlmProvider 预设选择协议格式（OpenAI 兼容 / Anthropic 兼容）。 */
-    private fun protocolFor(provider: LlmProvider): LlmProtocol = when (provider) {
-        LlmProvider.ANTHROPIC -> LlmProtocol.ANTHROPIC_COMPATIBLE
-        LlmProvider.OPENAI, LlmProvider.GEMINI, LlmProvider.CUSTOM -> LlmProtocol.OPENAI_COMPATIBLE
-    }
-
     /**
      * 将异常分类为用户可读的错误原因。
      *
@@ -469,7 +475,9 @@ class OnboardingViewModel @Inject constructor(
             else -> {
                 // 非网络异常：通常是 SDK 抛出的 HTTP 错误（OpenAIServiceException /
                 // AnthropicServiceException 子类）。先反射 statusCode()，再用 message 正则兜底。
-                val code = extractSdkStatusCode(t) ?: extractHttpCodeFromMessage(message)
+                // #308：反射逻辑抽到 core-llm 的 SdkExceptionClassifier 共享给
+                // DefaultRulesetEngine / OpenAi / Anthropic client，消除四处重复定义。
+                val code = SdkExceptionClassifier.extractStatusCode(t) ?: extractHttpCodeFromMessage(message)
                 when (code) {
                     401 -> "未授权（401）：API Key 无效或已过期"
                     403 -> "禁止访问（403）：API Key 无权限"
@@ -483,50 +491,19 @@ class OnboardingViewModel @Inject constructor(
     }
 
     /**
-     * 通过反射读取 SDK 异常的 `statusCode()` 方法（OpenAI / Anthropic SDK 同名）。
+     * 从异常消息中提取 HTTP 状态码（如 "HTTP 401 Unauthorized"）。
      *
-     * 已通过 javap 验证：
-     * - `com.openai.errors.OpenAIServiceException.statusCode() : int`
-     * - `com.anthropic.errors.AnthropicServiceException.statusCode() : int`
-     *
-     * 旧实现用 `getMethod("code")`，但 SDK 暴露的是 `statusCode()`，导致 `NoSuchMethodException`
-     * 被 `runCatching` 吞掉返回 null，HTTP 状态码识别退化为不可靠的 message 正则兜底
-     * （SDK 异常 message 通常是 JSON 错误体，不一定含独立 3 位数字）。详见 PR #264 review。
+     * 仅作为 [SdkExceptionClassifier.extractStatusCode] 反射未命中时的兜底——SDK 异常的
+     * message 通常是 JSON 错误体（不一定含独立 3 位数字），非 SDK 异常（如 IOException）
+     * 的 message 含 3 位数字（如 "Port 443 in use"）可能被误判，但本函数仅用于
+     * 给用户展示分类后的错误原因，不参与降级链决策，宽容度可较高。
      */
-    private fun extractSdkStatusCode(t: Throwable): Int? = runCatching {
-        val method = t::class.java.getMethod("statusCode")
-        // SDK 的 statusCode() 返回 int（autobox 为 Integer），统一按 Number 取值，
-        // 避免对 method.invoke(t) 二次调用产生的开销与潜在副作用。
-        (method.invoke(t) as? Number)?.toInt()
-    }.getOrNull()
-
-    /** 从异常消息中提取 HTTP 状态码（如 "HTTP 401 Unauthorized"）。 */
     private fun extractHttpCodeFromMessage(message: String): Int? {
         val regex = Regex("""\b(4\d{2}|5\d{2})\b""")
         return regex.find(message)?.value?.toIntOrNull()
     }
 
     companion object {
-        /**
-         * 各提供商默认 Base URL（用户可在 KeyInputScreen 修改）。
-         */
-        val DEFAULT_BASE_URLS: Map<LlmProvider, String> = mapOf(
-            LlmProvider.OPENAI to "https://api.openai.com",
-            LlmProvider.ANTHROPIC to "https://api.anthropic.com",
-            LlmProvider.GEMINI to "https://generativelanguage.googleapis.com",
-            LlmProvider.CUSTOM to "",
-        )
-
-        /**
-         * 各提供商推荐模型名（用户可在 KeyInputScreen 修改）。
-         */
-        val DEFAULT_MODELS: Map<LlmProvider, String> = mapOf(
-            LlmProvider.OPENAI to "gpt-4o-mini",
-            LlmProvider.ANTHROPIC to "claude-3-5-sonnet-20240620",
-            LlmProvider.GEMINI to "gemini-1.5-flash",
-            LlmProvider.CUSTOM to "gpt-4o-mini",
-        )
-
         // #34：历史 API Key 存储常量
         /** EncryptedSharedPreferences 中历史 Key 列表的存储键 */
         private const val HISTORY_API_KEYS_ENTRY = "history_api_keys"

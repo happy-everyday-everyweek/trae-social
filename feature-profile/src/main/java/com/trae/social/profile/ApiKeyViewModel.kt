@@ -6,7 +6,6 @@ import com.trae.social.core.data.config.LlmProtocol
 import com.trae.social.core.data.config.ModelCapability
 import com.trae.social.core.data.entity.LlmEndpointEntity
 import com.trae.social.core.data.repository.ConfigRepository
-import com.trae.social.core.data.repository.LlmCacheInvalidator
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,11 +20,14 @@ import javax.inject.Inject
  * UI 列表展示用户配置的所有端点（按 [LlmEndpointEntity.orderIndex] 升序），
  * 支持编辑端点元数据（displayName / protocol / baseUrl / model / capabilities）、
  * API Key、删除端点、拖拽排序。首位端点自动为主端点（orderIndex=0）。
+ *
+ * #288：端点 CRUD / API Key 变更后无需手动调 invalidateCache()——ConfigRepository
+ * 在每个写操作内 `_endpointChanges.tryEmit(Unit)`，EndpointRegistry 订阅该流后
+ * 自动 `invalidateCache()`，缓存失效由类型系统（订阅）保证而非人工记忆。
  */
 @HiltViewModel
 class ApiKeyViewModel @Inject constructor(
     private val configRepository: ConfigRepository,
-    private val cacheInvalidator: LlmCacheInvalidator,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ApiKeyUiState(loading = true))
@@ -79,7 +81,6 @@ class ApiKeyViewModel @Inject constructor(
                     capabilities = defaultCapabilitiesFor(protocol),
                     apiKey = apiKey.takeIf { it.isNotEmpty() },
                 )
-                cacheInvalidator.invalidateCache()
                 loadAll()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -116,7 +117,6 @@ class ApiKeyViewModel @Inject constructor(
                     model = model,
                     capabilities = capabilities,
                 )
-                cacheInvalidator.invalidateCache()
                 loadAll()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -132,7 +132,6 @@ class ApiKeyViewModel @Inject constructor(
             // 主 review 第 3 轮修复：runCatching → try/catch 重抛 CancellationException。
             try {
                 configRepository.setEndpointApiKey(endpointId, apiKey)
-                cacheInvalidator.invalidateCache()
                 loadAll()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -148,7 +147,6 @@ class ApiKeyViewModel @Inject constructor(
             // 主 review 第 3 轮修复：runCatching → try/catch 重抛 CancellationException。
             try {
                 configRepository.deleteEndpoint(id)
-                cacheInvalidator.invalidateCache()
                 loadAll()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -168,7 +166,6 @@ class ApiKeyViewModel @Inject constructor(
             // 主 review 第 3 轮修复：runCatching → try/catch 重抛 CancellationException。
             try {
                 configRepository.reorderEndpoints(orderedIds)
-                cacheInvalidator.invalidateCache()
                 loadAll()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e

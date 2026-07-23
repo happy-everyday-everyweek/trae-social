@@ -57,6 +57,10 @@ class InteractionRepository @Inject constructor(
     suspend fun deleteLikeInteraction(tweetId: String, accountId: String) =
         interactionDao.deleteLikeInteraction(tweetId, accountId)
 
+    // #316：判断某账号对某推文是否存在已执行的 LIKE 记录（EXISTS 短路查询替代全量加载）
+    suspend fun hasLikeInteraction(tweetId: String, accountId: String): Boolean =
+        interactionDao.hasLikeInteraction(tweetId, accountId)
+
     // m7 修复：删除某账号对某推文的 COMMENT 互动记录（评论失败回滚时清理孤儿 interaction）
     suspend fun deleteCommentInteraction(tweetId: String, accountId: String) =
         interactionDao.deleteCommentInteraction(tweetId, accountId)

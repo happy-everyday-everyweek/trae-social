@@ -11,6 +11,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
+import com.trae.social.core.data.util.runCatchingCancellable
 import com.trae.social.core.scheduler.SchedulerInitializer
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -34,7 +35,7 @@ class SchedulerInitializerWorker @AssistedInject constructor(
 
     override suspend fun doWork(): Result {
         // #70：先将 Worker 提升为前台，使其获得前台服务启动豁免
-        runCatching { setForeground(createForegroundInfo()) }
+        runCatchingCancellable { setForeground(createForegroundInfo()) }
             .onFailure { Timber.w(it, "setForeground 失败，继续尝试初始化") }
 
         return try {
@@ -44,6 +45,8 @@ class SchedulerInitializerWorker @AssistedInject constructor(
             // #70：后台上下文仍无法启动前台服务，稍后重试
             Timber.w(e, "开机后无法启动前台服务，稍后重试")
             Result.retry()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (t: Throwable) {
             Timber.e(t, "SchedulerInitializerWorker 执行失败")
             Result.retry()

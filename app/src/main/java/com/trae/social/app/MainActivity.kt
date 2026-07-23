@@ -26,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -212,13 +213,26 @@ private fun SocialApp(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
-    // #210：观察 newIntentFlow，当前无深链 intent-filter，预留 hook；
-    // 未来接入深链时在此处解析 intent.data/extras 并 navController.navigate(...)。
-    // TODO 深链接入后需做"已消费"去重，避免旋转重复 navigate
+    // #210 / #293：观察 newIntentFlow 做深链路由。
+    // 已消费去重：StateFlow 旋转后会重放最后一个值，用 remembered Set 记录已处理的
+    // intent.data 字符串，避免旋转后重复 navigate 到同一页面。
+    val consumedDeepLinks = remember { mutableStateMapOf<String, Boolean>() }
     LaunchedEffect(newIntentFlow) {
         newIntentFlow.collect { intent ->
             if (intent != null) {
-                // TODO 深链路由：解析 intent.data 或 extras，调用 navController.navigate(...)
+                val dataString = intent.dataString
+                if (dataString != null && consumedDeepLinks[dataString] != true) {
+                    consumedDeepLinks[dataString] = true
+                    val route = intent.data?.lastPathSegment?.lowercase()
+                    when (route) {
+                        "feed", "timeline", "profile", "publish",
+                        "settings", "apikey", "devoptions", "profile_chat" -> {
+                            navController.navigate(route)
+                        }
+                        null -> Unit
+                        else -> Timber.w("未知深链路径: %s", dataString)
+                    }
+                }
             }
         }
     }
