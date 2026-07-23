@@ -57,7 +57,7 @@ import kotlin.random.Random
  * 9. 捕获 [SQLiteConstraintException] 静默处理；
  * 10. 写 [SchedulerLogEntity]。
  *
- * 重试：BackoffPolicy.EXPONENTIAL 10s/30s/90s，最多 3 次（由 WorkManager 自动调度）。
+ * 重试：BackoffPolicy.EXPONENTIAL 起步 10s，序列 10s -> 20s -> 40s（最多 3 次，由 WorkManager 自动调度）。
  * 429 时返回 Result.success() 跳过本次，避免重试浪费配额。
  *
  * #283：[doWork] 仅保留参数校验与异常兜底，主流程拆分到 [runTweetGeneration] 及

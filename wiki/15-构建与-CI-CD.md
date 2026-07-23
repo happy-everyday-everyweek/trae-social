@@ -172,4 +172,4 @@ keytool -genkey -v -keystore release.jks -keyalg RSA -keysize 2048 -validity 100
 - `app` 依赖全部 9 模块。
 - feature 模块仅依赖 core。
 - `core-scheduler` 依赖 `core-data` + `core-llm`。
-- `core-llm` 用 `api(project(":core-data"))`。
+- `core-llm` 用 `implementation(project(":core-data"))`（#307：原 `api` 是为让旧 `LlmProvider` 作为 `LlmClient.provider` 公开类型暴露，#151 重构后 LlmClient 已无 provider 字段，故降级）。

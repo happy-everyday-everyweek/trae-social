@@ -88,14 +88,14 @@ IMPL-18：不用 `Handler.postDelayed`（进程可能被杀），改用 `OneTime
 | `TweetGenerationWorker` | OneTime 延迟 | 按 `nextTriggerTime` 计算的活跃窗随机时刻，成功后自链入队下一个 | 每窗 `POSTS_PER_WINDOW = 2` | 推文生成 |
 | `InteractionWorker` | OneTime | 推文写入后立即入队 | 3-8 评论者/推文 | 互动排程（写 `InteractionEntity` 带 `scheduledAt`） |
 | `PendingInteractionWorker` | Periodic | 15 分钟（最小允许值） | 全部 pending | 扫描并执行到期互动 |
-| `PersonaUpdateWorker` | Periodic | LOW=14天 / MEDIUM=7天 / HIGH=3天 | LOW=10 / MEDIUM=20 / HIGH=40 账号 | 人设动态字段更新 |
+| `PersonaUpdateWorker` | Periodic | LOW=7天 / MEDIUM=3天 / HIGH=3天（#95 缩短，避免 WorkManager PeriodicWorkRequest 在 Doze 模式下大幅推迟导致人设演进近乎停滞） | LOW=10 / MEDIUM=20 / HIGH=40 账号 | 人设动态字段更新 |
 | `UserProfileWorker` | Periodic | LOW=96h / MEDIUM=48h / HIGH=24h | 单一真实用户 | #146 用户画像深度版本周期生成（LLM），见下文 |
 | `EventCleanupWorker` | Periodic | 24 小时 | - | #146 过期用户行为事件 TTL 清理，见下文 |
 | `SchedulerInitializerWorker` | OneTime 延迟 | 开机后 30 秒 | - | 触发 `SchedulerInitializer` |
 
 ## TweetGenerationWorker 详解
 
-`@HiltWorker` `CoroutineWorker` `@AssistedInject`，注入 `AccountRepository` / `TweetRepository` / `ConfigRepository` / `LlmProviderRegistry` / `LocalImageGallery` / `SchedulerRateLimiter` / `DailyQuotaChecker` / `SchedulerLogDao`。持 `TweetPromptBuilder` / `TweetPostProcessor` / `ContentFilter`。
+`@HiltWorker` `CoroutineWorker` `@AssistedInject`，注入 `AccountRepository` / `TweetRepository` / `ConfigRepository` / `RulesetEngine`（#151 后取代旧 `LlmProviderRegistry`）/ `LocalImageGallery` / `SchedulerRateLimiter` / `DailyQuotaChecker` / `SchedulerLogDao` / `FeedbackController` / `UserProfileReadAccess` / `UserActionTracker` / `SessionManager`（#146 反哺层场景 1：topicBias 贴近用户兴趣）。持 `TweetPromptBuilder` / `TweetPostProcessor`（#151 重构移除 `ContentFilter`，敏感词检查下沉到模型层 / 上层审核流程）。
 
 ### 输入数据
 
@@ -113,9 +113,9 @@ IMPL-18：不用 `Handler.postDelayed`（进程可能被杀），改用 `OneTime
 4. `rateLimiter.acquire()`；
 5. 查最近 3 条（`RECENT_TWEETS_FOR_DEDUP = 3`）去重上下文；
 6. 构 `PersonaInput` + `TweetPromptBuilder.build(persona, timeSlotDescription, recentTweets)`，`timeSlotDescription` 含"工作日/周末 HH:00-HH:00"用账号时区；
-7. `chatSync(ChatConfig temperature = 0.85f, maxTokens = 320, jsonMode = true)`，捕获 `RateLimitedException` -> `"skipped_429"` `success`（不重试），`HttpException` `code == 429` 同样跳过，空响应 -> `"skipped_empty_response"` `retry`；
+7. `chatSync(ChatConfig temperature = 0.85f, maxTokens = 320, jsonMode = true)`，捕获 `RateLimitedException`（由 `DefaultRulesetEngine` 把 SDK 429 异常转换而来） -> `"skipped_429"` `success`（不重试），空响应 -> `"retry_empty_response"` `retry`；
 8. `parseTweetResult` 失败降级纯文本（`take(280)` 无图 `NONE`）；
-9. `ContentFilter.containsSensitiveContent` -> `"skipped_sensitive"` `success`；
+9. #151 重构移除 `ContentFilter`（敏感词检查下沉到模型层 / 上层审核流程），原 `"skipped_sensitive"` 步骤不再存在；
 10. `TweetPostProcessor`：`Random(windowStart + accountId.hashCode())` 种子，`applyTypos(typoRate)` -> `appendEmojis(emojiPreference)` -> `truncate(280)`；
 11. 配图 `gallery.pickRandom(themeStr, accountId)`；
 12. 写 `TweetEntity(isAiGenerated = true, deduplicationKey)`，`SQLiteConstraintException` -> `"skipped_duplicate"` `success`（幂等）；
@@ -182,7 +182,7 @@ IMPL-18：不用 `Handler.postDelayed`（进程可能被杀），改用 `OneTime
 
 ## UserProfileWorker 详解（#146 第 3 层 LLM 深度画像）
 
-`@HiltWorker` `CoroutineWorker` `@AssistedInject`，注入 `UserActionDao` / `UserProfileDao` / `UserProfileFeedbackDao` / `UserProfileAggregator` / `ProfileVersionStore` / `ConfigRepository` / `LlmProviderRegistry` / `SchedulerLogDao`。持 `UserProfilePromptBuilder`（来自 `core-llm`）。
+`@HiltWorker` `CoroutineWorker` `@AssistedInject`，注入 `UserProfileDao` / `UserActionDao` / `UserProfileFeedbackDao` / `UserProfileAggregator` / `ProfileVersionStore` / `ProfileGenerationService` / `RulesetEngine`（#151 后取代旧 `LlmProviderRegistry`）/ `ConfigRepository` / `SchedulerLogDao`。持 `UserProfilePromptBuilder`（来自 `core-llm`）。
 
 周期：LOW=96h / MEDIUM=48h / HIGH=24h，`networkConstraints` 网络约束。`WorkerPolicies.userProfilePeriodicRequest(level)` 构建请求，`WorkerTags.USER_PROFILE = "user_profile"` 唯一名入队。档位变更时 `observeActivityLevelChanges` 用 `ExistingPeriodicWorkPolicy.REPLACE` 重排使新周期立即生效。
 

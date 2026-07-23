@@ -131,11 +131,11 @@ popUpTo(graph.findStartDestination().id){ saveState=true } + launchSingleTop + r
 - `deduplicationKey="coldstart_${account.id}_$windowStart"` 保证幂等。
 - 空活跃账号则跳过。
 
-### 2. AppLlmConfigProvider
+### 2. AppLlmModule
 
-- `@Singleton`，实现 core-llm 的 `LlmConfigProvider`。
-- 全部方法 `suspend` 转发到 `ConfigRepository`：`getApiKey` / `getBaseUrl` / `getModel`。
-- `getDefaultProvider` 默认回退 `OPENAI`。
+- `object AppLlmModule`，`@Module @InstallIn(SingletonComponent)`（#217 拆分自 `AssetProviderModule`）。
+- 仅做接口到实现的绑定：`@Provides @Singleton` 提供 `EndpointConfigProvider` → `AppEndpointConfigProvider`（桥接 `ConfigRepository`，#151 后取代旧 `LlmConfigProvider` / `AppLlmConfigProvider`）。
+- #288：旧 `LlmCacheInvalidator` 绑定已移除——`EndpointRegistry` 订阅 `ConfigRepository.endpointChanges` 后自动失效缓存，feature 模块无需再手动调 `invalidateCache()`。
 
 ### 3. AppOnboardingModule
 
