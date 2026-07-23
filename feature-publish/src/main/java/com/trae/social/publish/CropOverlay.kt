@@ -24,6 +24,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -89,7 +90,12 @@ internal fun CropOverlay(
         if (old != null && old !== bitmap && old !== new) {
             // review 第 5 轮修复：推迟到下一帧再 recycle，避免与 RenderThread 仍在绘制 old 的
             // 帧并发触发 "Canvas: trying to use a recycled bitmap" 崩溃。
-            android.os.Handler(android.os.Looper.getMainLooper()).post { old.recycle() }
+            // #322：原用 android.os.Handler.post 在协程内强行切回 Looper 队列，破坏结构化
+            // 并发——LaunchedEffect 取消时 Handler runnable 仍会执行并 recycle 已被新流程
+            // 复用的 bitmap。改用 withFrameNanos 挂起到下一帧，协程取消时回收逻辑也随之
+            // 取消，语义与 Choreographer 一致（next vsync）。
+            withFrameNanos { }
+            old.recycle()
         }
     }
     // #175：组合离开时回收 displayBitmap（非源引用部分），避免内存泄漏
