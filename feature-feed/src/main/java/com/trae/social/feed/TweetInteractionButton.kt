@@ -35,6 +35,11 @@ import com.trae.social.designsystem.theme.minTouchTarget
 import java.util.Locale
 
 /**
+ * "万" 显示阈值：计数 >= 此值时格式化为 "x.x万"（#285：与 ProfileUtils 对齐）。
+ */
+private const val WAN_THRESHOLD = 10000
+
+/**
  * 互动按钮：图标 + 计数（count 为 null 时不显示数字）。
  *
  * #3：点赞（[bounceWhenActive] + [active]）在 false→true 跳变时做 overshoot 弹跳，
@@ -126,8 +131,8 @@ internal fun InteractionButton(
  * 使用逗号作为小数分隔符，导致输出 "1,2万" 与中文语境不一致。
  */
 internal fun formatCount(count: Int): String {
-    return if (count >= 10000) {
-        val wan = count / 10000.0
+    return if (count >= WAN_THRESHOLD) {
+        val wan = count / WAN_THRESHOLD.toDouble()
         String.format(Locale.ROOT, "%.1f万", wan)
     } else {
         count.toString()

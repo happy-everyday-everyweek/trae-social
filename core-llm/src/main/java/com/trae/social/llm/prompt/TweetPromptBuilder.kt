@@ -121,17 +121,18 @@ class TweetPromptBuilder {
     private fun buildSystemPrompt(p: PersonaInput): String {
         // #304：人设字段来源为外部资产 / LLM 生成的动态字段，做字符级净化后再插值，
         // 降低换行伪造段落、零宽字符隐藏越狱指令等 prompt injection 风险。
-        val safeDisplayName = PromptUtils.sanitizeForPrompt(p.displayName, 60)
-        val safeProfession = PromptUtils.sanitizeForPrompt(p.profession, 60)
-        val safeAgeRange = PromptUtils.sanitizeForPrompt(p.ageRange, 20)
-        val safeCultural = PromptUtils.sanitizeForPrompt(p.culturalBackground, 60)
-        val safeWorldview = PromptUtils.sanitizeForPrompt(p.worldview, 200)
-        val safeValues = PromptUtils.sanitizeForPrompt(p.values, 200)
-        val safeLanguageStyle = PromptUtils.sanitizeForPrompt(p.languageStyle, 60)
-        val safeCatchphrase = PromptUtils.sanitizeForPrompt(p.catchphrase, 120)
+        // #285：字段长度上限统一引用 PromptFieldLimits，避免与 CommentPromptBuilder 漂移
+        val safeDisplayName = PromptUtils.sanitizeForPrompt(p.displayName, PromptFieldLimits.SINGLE_LINE)
+        val safeProfession = PromptUtils.sanitizeForPrompt(p.profession, PromptFieldLimits.SINGLE_LINE)
+        val safeAgeRange = PromptUtils.sanitizeForPrompt(p.ageRange, PromptFieldLimits.SHORT_TAG)
+        val safeCultural = PromptUtils.sanitizeForPrompt(p.culturalBackground, PromptFieldLimits.SINGLE_LINE)
+        val safeWorldview = PromptUtils.sanitizeForPrompt(p.worldview, PromptFieldLimits.LONG_PARAGRAPH)
+        val safeValues = PromptUtils.sanitizeForPrompt(p.values, PromptFieldLimits.LONG_PARAGRAPH)
+        val safeLanguageStyle = PromptUtils.sanitizeForPrompt(p.languageStyle, PromptFieldLimits.SINGLE_LINE)
+        val safeCatchphrase = PromptUtils.sanitizeForPrompt(p.catchphrase, PromptFieldLimits.PARAGRAPH)
         val safeEmoji = if (p.emojiPreference.isEmpty()) "无"
-            else p.emojiPreference.joinToString("/") { PromptUtils.sanitizeForPrompt(it, 20) }
-        val safeMood = PromptUtils.sanitizeForPrompt(p.recentMood, 60)
+            else p.emojiPreference.joinToString("/") { PromptUtils.sanitizeForPrompt(it, PromptFieldLimits.SHORT_TAG) }
+        val safeMood = PromptUtils.sanitizeForPrompt(p.recentMood, PromptFieldLimits.SINGLE_LINE)
         return buildString {
             appendLine("你正在扮演一个真实存在的虚拟社交账号用户，请严格按以下人设发布内容。")
             appendLine(PromptUtils.DATA_NOT_INSTRUCTIONS_CLAUSE)
@@ -159,8 +160,8 @@ class TweetPromptBuilder {
         recentTweets: List<String>,
     ): String {
         // #304：推文历史为外部内容，净化后再插值
-        val safeTimeSlot = PromptUtils.sanitizeForPrompt(timeSlotDescription, 60)
-        val safeMood = PromptUtils.sanitizeForPrompt(p.recentMood, 60)
+        val safeTimeSlot = PromptUtils.sanitizeForPrompt(timeSlotDescription, PromptFieldLimits.SINGLE_LINE)
+        val safeMood = PromptUtils.sanitizeForPrompt(p.recentMood, PromptFieldLimits.SINGLE_LINE)
         return buildString {
             appendLine("【当前时段】")
             appendLine(safeTimeSlot)

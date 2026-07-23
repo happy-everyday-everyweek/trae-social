@@ -75,6 +75,11 @@ internal object ProfileUtils {
      * 使用逗号作为小数分隔符，导致输出 "x,x万" 与中文语境不一致（#163）。
      */
     fun formatCount(count: Int): String =
-        if (count >= 10000) "${String.format(Locale.ROOT, "%.1f", count / 10000.0)}万"
+        if (count >= WAN_THRESHOLD) "${String.format(Locale.ROOT, "%.1f", count / WAN_THRESHOLD.toDouble())}万"
         else count.toString()
 }
+
+/**
+ * "万" 显示阈值：计数 >= 此值时格式化为 "x.x万"（#285：与 feature-feed TweetInteractionButton 对齐）。
+ */
+private const val WAN_THRESHOLD = 10000

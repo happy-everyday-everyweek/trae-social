@@ -111,7 +111,7 @@ internal fun saveBitmap(context: android.content.Context, bitmap: Bitmap): Strin
     val file = File(dir, "${System.currentTimeMillis()}.jpg")
     return runCatching {
         FileOutputStream(file).use { out ->
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
+            bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
         }
         file.absolutePath
     }.onFailure { Timber.w(it, "保存编辑结果失败") }.getOrNull()

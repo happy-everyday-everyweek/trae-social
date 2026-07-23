@@ -14,6 +14,14 @@ import java.util.UUID
 import java.util.concurrent.Executor
 import timber.log.Timber
 
+/** JPEG 压缩质量（0-100）。与 BitmapUtils 保持一致，避免两处漂移（#285）。 */
+internal const val JPEG_QUALITY = 90
+
+/**
+ * 拍照正方形裁剪目标边长（px）：采样后不低于此值，兼顾清晰度与内存。
+ */
+private const val CAPTURE_TARGET_EDGE_PX = 1080
+
 /**
  * 执行拍照，将 JPEG 落盘到 cacheDir/capture/<timestamp>.jpg。
  */
@@ -77,9 +85,9 @@ internal fun cropToSquare(path: String): String? {
         val origH = boundsOpts.outHeight
         if (origW <= 0 || origH <= 0) return null
 
-        // 目标正方形边长 = min(origW, origH)，采样后不低于 1080px
+        // 目标正方形边长 = min(origW, origH)，采样后不低于 [CAPTURE_TARGET_EDGE_PX]
         val targetSize = minOf(origW, origH)
-        val sampleTarget = if (targetSize > 1080) 1080 else targetSize
+        val sampleTarget = if (targetSize > CAPTURE_TARGET_EDGE_PX) CAPTURE_TARGET_EDGE_PX else targetSize
         var sampleSize = 1
         while (minOf(origW, origH) / (sampleSize * 2) >= sampleTarget) {
             sampleSize *= 2
@@ -95,7 +103,7 @@ internal fun cropToSquare(path: String): String? {
         val cropped = Bitmap.createBitmap(original, x, y, size, size)
         if (cropped !== original) original.recycle()
         FileOutputStream(path).use { out ->
-            cropped.compress(Bitmap.CompressFormat.JPEG, 90, out)
+            cropped.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
         }
         cropped.recycle()
         path

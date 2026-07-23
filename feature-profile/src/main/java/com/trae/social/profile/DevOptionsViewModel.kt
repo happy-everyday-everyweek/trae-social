@@ -46,7 +46,7 @@ class DevOptionsViewModel @Inject constructor(
      * 最近的调度日志（RISK-15）。
      */
     val logsFlow: StateFlow<List<SchedulerLogEntity>> = schedulerLogDao.observeRecent(LOG_LIMIT)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), emptyList())
 
     private val _activityLevel = MutableStateFlow(AiActivityLevel.MEDIUM)
     val activityLevel: StateFlow<AiActivityLevel> = _activityLevel.asStateFlow()
@@ -234,6 +234,10 @@ class DevOptionsViewModel @Inject constructor(
 
     companion object {
         private const val LOG_LIMIT = 200
+
+        // #285：StateFlow 订阅停止后的兜底超时（与 ProfileViewModel.STOP_TIMEOUT_MILLIS 对齐），
+        // 消除重复 5000 字面量。
+        const val STOP_TIMEOUT_MILLIS = 5_000L
 
         /** P2：手动触发调度的唯一工作名，防止重复入队 */
         private const val UNIQUE_WORK_TWEET_GENERATION = "manual_tweet_generation"

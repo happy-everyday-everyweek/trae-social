@@ -1,5 +1,6 @@
 package com.trae.social.llm.prompt
 
+import com.trae.social.core.data.TweetLimits
 import com.trae.social.llm.ChatMessage
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -101,9 +102,10 @@ class CommentPromptBuilder {
         userTaste: UserTasteHint? = null,
     ): String {
         // #304：被评推文 / 人设字段 / 用户口味均为外部可控内容，插值前净化
-        val safeAuthorName = PromptUtils.sanitizeForPrompt(tweet.authorName, 60)
-        val safeAuthorProfession = PromptUtils.sanitizeForPrompt(tweet.authorProfession, 60)
-        val safeTweetText = PromptUtils.sanitizeForPrompt(tweet.text, 280)
+        // #285：字段长度上限统一引用 PromptFieldLimits，避免与 TweetPromptBuilder 漂移
+        val safeAuthorName = PromptUtils.sanitizeForPrompt(tweet.authorName, PromptFieldLimits.SINGLE_LINE)
+        val safeAuthorProfession = PromptUtils.sanitizeForPrompt(tweet.authorProfession, PromptFieldLimits.SINGLE_LINE)
+        val safeTweetText = PromptUtils.sanitizeForPrompt(tweet.text, TweetLimits.MAX_TWEET_LENGTH)
         return buildString {
             appendLine("【被评推文】")
             appendLine("作者：$safeAuthorName（职业：$safeAuthorProfession）")
@@ -114,13 +116,13 @@ class CommentPromptBuilder {
             appendLine()
             appendLine("【评论者人设列表】")
             commenters.forEachIndexed { i, p ->
-                val name = PromptUtils.sanitizeForPrompt(p.displayName, 60)
-                val prof = PromptUtils.sanitizeForPrompt(p.profession, 60)
-                val age = PromptUtils.sanitizeForPrompt(p.ageRange, 20)
-                val style = PromptUtils.sanitizeForPrompt(p.languageStyle, 60)
-                val vals = PromptUtils.sanitizeForPrompt(p.values, 120)
-                val catch = PromptUtils.sanitizeForPrompt(p.catchphrase, 80)
-                val mood = PromptUtils.sanitizeForPrompt(p.recentMood, 60)
+                val name = PromptUtils.sanitizeForPrompt(p.displayName, PromptFieldLimits.SINGLE_LINE)
+                val prof = PromptUtils.sanitizeForPrompt(p.profession, PromptFieldLimits.SINGLE_LINE)
+                val age = PromptUtils.sanitizeForPrompt(p.ageRange, PromptFieldLimits.SHORT_TAG)
+                val style = PromptUtils.sanitizeForPrompt(p.languageStyle, PromptFieldLimits.SINGLE_LINE)
+                val vals = PromptUtils.sanitizeForPrompt(p.values, PromptFieldLimits.PARAGRAPH)
+                val catch = PromptUtils.sanitizeForPrompt(p.catchphrase, PromptFieldLimits.CATCHPHRASE)
+                val mood = PromptUtils.sanitizeForPrompt(p.recentMood, PromptFieldLimits.SINGLE_LINE)
                 appendLine(" #$i $name（职业：$prof，年龄：$age，风格：$style，价值观：$vals，口癖：$catch，情绪：$mood）")
             }
             appendLine()
@@ -128,7 +130,7 @@ class CommentPromptBuilder {
             if (userTaste != null) {
                 appendLine("【用户口味提示】")
                 if (userTaste.topThemes.isNotEmpty()) {
-                    val themes = userTaste.topThemes.joinToString("、") { PromptUtils.sanitizeForPrompt(it, 40) }
+                    val themes = userTaste.topThemes.joinToString("、") { PromptUtils.sanitizeForPrompt(it, PromptFieldLimits.THEME) }
                     appendLine("用户兴趣 Top 主题：$themes")
                 }
                 if (userTaste.topInterestWeights.isNotEmpty()) {
@@ -136,12 +138,12 @@ class CommentPromptBuilder {
                         .sortedByDescending { it.value }
                         .take(5)
                         .joinToString("、") {
-                            "${PromptUtils.sanitizeForPrompt(it.key, 40)}(${"%.2f".format(it.value)})"
+                            "${PromptUtils.sanitizeForPrompt(it.key, PromptFieldLimits.THEME)}(${"%.2f".format(it.value)})"
                         }
                     appendLine("高权重主题：$weightedTop")
                 }
                 if (!userTaste.narrative.isNullOrBlank()) {
-                    appendLine("用户背景：${PromptUtils.sanitizeForPrompt(userTaste.narrative, 120)}")
+                    appendLine("用户背景：${PromptUtils.sanitizeForPrompt(userTaste.narrative, PromptFieldLimits.PARAGRAPH)}")
                 }
                 appendLine("生成评论时，在保持评论者人设一致的前提下，可适度贴合用户兴趣主题与语言偏好。")
                 appendLine("注意：不要强行硬塞用户兴趣关键词；只在主题自然相关时融入，避免生硬感。")

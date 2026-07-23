@@ -291,7 +291,7 @@ class ProfileViewModel @Inject constructor(
      * ACCOUNT_DETAIL 路由下为目标账号 ID），原硬编码 SELF_ID 替换为 [targetAccountId]。
      */
     val tweetsFlow: StateFlow<List<TweetEntity>> = tweetRepository.observeByAuthor(targetAccountId)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), emptyList())
 
     /**
      * 媒体推文流（[targetAccountId] 的含图推文）。
@@ -301,7 +301,7 @@ class ProfileViewModel @Inject constructor(
      */
     val mediaTweetsFlow: StateFlow<List<TweetEntity>> = tweetsFlow
         .map { list -> list.filter { !it.mediaPath.isNullOrBlank() } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), emptyList())
 
     /**
      * #138：已点赞推文流（LIKES Tab 数据源）。
@@ -314,7 +314,7 @@ class ProfileViewModel @Inject constructor(
             if (ids.isEmpty()) flowOf(emptyList())
             else tweetRepository.observeByIds(ids.toList())
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), emptyList())
 
     fun selectTab(tab: ProfileTab) {
         _selectedTab.value = tab
@@ -493,6 +493,10 @@ class ProfileViewModel @Inject constructor(
         // 此处不依赖 app 模块（feature-profile 不能反向依赖 app），直接用字符串常量对齐。
         // SavedStateHandle 通过此键读取 navArgument("accountId") 注入的值。
         const val KEY_ACCOUNT_ID_ARG = "accountId"
+
+        // #285：StateFlow 订阅停止后的兜底超时（与 TimelineViewModel.STOP_TIMEOUT_MILLIS 对齐），
+        // 消除跨 ViewModel 重复 5000 字面量。
+        const val STOP_TIMEOUT_MILLIS = 5_000L
     }
 }
 
