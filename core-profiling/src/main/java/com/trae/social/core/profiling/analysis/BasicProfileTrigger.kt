@@ -90,9 +90,15 @@ class BasicProfileTrigger @Inject constructor(
         // 当 lastTriggerAt 是旧值时第二条件恒 false,pending=true 仍可绕过 → 并发执行多次 compute。
         // 修正为 OR 语义:pending(已正在 compute) 阻断并发,时间窗口阻断 compute 刚结束即重算。
         // 同时在 mutex 内同步更新 lastTriggerAt 标记 debounce 窗口起点,关闭 check-then-act 竞争窗口。
+        //
+        // #309 修复：原实现把 `if (pending) return` 包在 `if (!force)` 内，force=true 路径
+        // 跳过 pending 检查 → forceCheckOnForeground 在 compute 进行中再次被调用时，
+        // 两次 compute 并发执行，可能并发读写 lastFullRecomputeAt 与 Room 快照。
+        // 修正：pending 并发保护对 force / 非 force 路径统一生效；force 仅跳过时间阈值检查
+        // （force 语义是"不等阈值立即检查"，不是"无视并发强行重算"）。
         mutex.withLock {
+            if (pending) return
             if (!force) {
-                if (pending) return
                 if (System.currentTimeMillis() - lastTriggerAt < DEBOUNCE_MS) return
                 // 标记 debounce 窗口起点,使并发的 scheduleCompute 调用在此窗口内被拦截
                 lastTriggerAt = System.currentTimeMillis()

@@ -244,35 +244,10 @@ class OpenAiCompatibleClient(
     /**
      * 判断异常是否为持久性 HTTP 错误（4xx 非 429）。
      *
-     * OpenAI Java SDK 的具体异常（`BadRequestException` / `UnauthorizedException` /
-     * `PermissionDeniedException` / `NotFoundException` / `UnprocessableEntityException`
-     * / `RateLimitException` 等）均继承自 `com.openai.errors.OpenAIServiceException`，
-     * 统一暴露 `int statusCode()` 方法（已通过 javap 验证）。这里用反射读取，避免本
-     * 模块直接依赖 errors 子包。
-     *
-     * 旧实现用 `className.contains("OpenAI")` 匹配，但 SDK 异常简单名（如
-     * `BadRequestException`）不含 "OpenAI"，匹配结果依赖 className 取的是 simpleName
-     * 还是 qualifiedName 以及大小写敏感性，不够稳健（详见 PR #264 / #271 review）。
-     * 反射方式直接命中基类 `statusCode()` 方法，对所有 SDK 4xx 异常统一生效，且无类名拼写风险。
-     *
-     * 主 review 第 1 轮 M-4 修复：IOException 一律不视为持久性错误，
-     * 避免 message 含 3 位数字（如 IP 地址 10.0.0.401）被误判为 HTTP 4xx。
-     *
-     * 主 review 第 2 轮修复：移除 message 正则兜底（extractHttpCode）——非 SDK 异常的
-     * message 含 3 位数字（如 "Port 443 in use"）会被误判为 HTTP 4xx。仅信任反射结果，
-     * 反射未命中（非 SDK 异常）一律返回 false（按可恢复错误处理，允许降级重试）。
+     * #308：实现已抽到 [com.trae.social.llm.SdkExceptionClassifier] 共享给
+     * DefaultRulesetEngine / AnthropicCompatibleClient / OnboardingViewModel.classifyError，
+     * 消除四处重复定义。
      */
-    private fun isPersistentHttpError(e: Throwable): Boolean {
-        if (e is IOException) return false
-        val code = extractSdkStatusCode(e) ?: return false
-        return code in 400..499 && code != 429
-    }
-
-    /** 通过反射读取 SDK 异常的 `statusCode()` 方法。非 SDK 异常返回 null。 */
-    private fun extractSdkStatusCode(e: Throwable): Int? = runCatching {
-        val method = e::class.java.getMethod("statusCode")
-        // SDK 的 statusCode() 返回 int（autobox 为 Integer），统一按 Number 取值，
-        // 避免对 method.invoke(e) 二次调用产生的开销与潜在副作用。
-        (method.invoke(e) as? Number)?.toInt()
-    }.getOrNull()
+    private fun isPersistentHttpError(e: Throwable): Boolean =
+        com.trae.social.llm.SdkExceptionClassifier.isPersistentError(e)
 }

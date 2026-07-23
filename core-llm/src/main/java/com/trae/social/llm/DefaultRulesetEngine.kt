@@ -1,13 +1,11 @@
 package com.trae.social.llm
 
 import com.trae.social.core.data.config.ModelCapability
-import com.trae.social.core.data.entity.LlmEndpointEntity
 import com.trae.social.llm.interceptor.RateLimitedException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import timber.log.Timber
-import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -31,6 +29,10 @@ import javax.inject.Singleton
  *
  * 该实现不感知多模态预处理管道（图像 URL → base64 等）；当前所有调用方均为纯文本，
  * 多模态降级链留待后续接入。
+ *
+ * #306：依赖 [EndpointRegistry] 接口而非具体类，便于单元测试注入 stub / fake。
+ * #307：[prepareMessages] 接收 core-llm 拥有的 [EndpointSnapshot]，不再持有 Room
+ * 持久化层 `LlmEndpointEntity`。
  */
 @Singleton
 class DefaultRulesetEngine @Inject constructor(
@@ -186,7 +188,7 @@ class DefaultRulesetEngine @Inject constructor(
     private fun prepareMessages(
         messages: List<ChatMessage>,
         config: ChatConfig,
-        endpoint: LlmEndpointEntity,
+        endpoint: EndpointSnapshot,
     ): List<ChatMessage> {
         if (!config.jsonMode) return messages
         val capabilities = ModelCapability.parseSet(endpoint.capabilities)
@@ -224,38 +226,17 @@ class DefaultRulesetEngine @Inject constructor(
     /**
      * 判断异常是否为持久性 HTTP 错误（4xx 非 429）。
      *
-     * OpenAI / Anthropic SDK 的具体异常类（`BadRequestException` / `UnauthorizedException` /
-     * `PermissionDeniedException` / `NotFoundException` / `UnprocessableEntityException` 等）
-     * 均继承自 `OpenAIServiceException` / `AnthropicServiceException`，统一暴露
-     * `int statusCode()` 方法。这里用反射读取该方法，避免本模块直接依赖 SDK errors 子包。
-     *
-     * 旧实现用 `className.contains("OpenAI"/"Anthropic")` 匹配，但 SDK 异常简单名不含
-     * 厂商前缀（如 `BadRequestException`），匹配结果依赖 className 取的是 simpleName
-     * 还是 qualifiedName 以及大小写敏感性，不够稳健。详见 PR #264 / #271 review。
-     *
-     * 主 review 第 1 轮 M-4 修复：网络异常（IOException）一律不视为持久性错误。
-     * 旧实现会从 IOException message 里抠 3 位数字（如 "Failed to connect to /10.0.0.401:443"
-     * 命中 401），误判为持久性 HTTP 错误直接抛出不降级。这与 OnboardingViewModel.classifyError
-     * 的分层逻辑对齐——网络错误应允许降级到下一端点重试。
-     * RateLimitedException 是 IOException 子类，已在 [isRateLimited] 中优先判定，不会走到这里。
-     *
-     * 主 review 第 2 轮修复：移除 message 正则兜底（extractHttpCode）——非 SDK 异常的
-     * message 含 3 位数字（如 "Port 443 in use" / "error at line 503"）会被误判为 HTTP 4xx/5xx。
-     * 仅信任反射结果，反射未命中（非 SDK 异常）一律返回 false（按可恢复错误处理，允许降级重试）。
+     * #308：实现已抽到 [SdkExceptionClassifier] 共享给 OpenAi / Anthropic client 与
+     * OnboardingViewModel.classifyError，消除四处重复定义。
      */
-    private fun isPersistentError(e: Throwable): Boolean {
-        if (e is IOException) return false
-        val code = extractSdkStatusCode(e) ?: return false
-        return code in 400..499 && code != HTTP_TOO_MANY_REQUESTS
-    }
+    private fun isPersistentError(e: Throwable): Boolean = SdkExceptionClassifier.isPersistentError(e)
 
-    private fun isRateLimited(e: Throwable): Boolean {
-        if (e is RateLimitedException) return true
-        // IOException（UnknownHost / SocketTimeout 等）的 message 偶然含 "429" 不应被误判为限流。
-        if (e is IOException) return false
-        val code = extractSdkStatusCode(e) ?: return false
-        return code == HTTP_TOO_MANY_REQUESTS
-    }
+    /**
+     * 判断异常是否为限流（429 或已包装的 [RateLimitedException]）。
+     *
+     * #308：实现已抽到 [SdkExceptionClassifier] 共享给各调用方。
+     */
+    private fun isRateLimited(e: Throwable): Boolean = SdkExceptionClassifier.isRateLimited(e)
 
     private fun toRateLimited(e: Throwable): RateLimitedException {
         if (e is RateLimitedException) return e
@@ -267,26 +248,8 @@ class DefaultRulesetEngine @Inject constructor(
         )
     }
 
-    /**
-     * 通过反射读取 SDK 异常的 `statusCode()` 方法（OpenAI / Anthropic SDK 同名）。
-     *
-     * 已通过 javap 验证：`com.openai.errors.OpenAIServiceException.statusCode() : int`
-     * 与 `com.anthropic.errors.AnthropicServiceException.statusCode() : int`，
-     * 子类（`BadRequestException` / `RateLimitException` 等）继承并 override 该方法。
-     *
-     * 非 SDK 异常（如 `IOException`）无此方法，返回 null 由调用方走可恢复错误降级路径。
-     */
-    private fun extractSdkStatusCode(e: Throwable): Int? = runCatching {
-        val method = e::class.java.getMethod("statusCode")
-        // SDK 的 statusCode() 返回 int（autobox 为 Integer），统一按 Number 取值，
-        // 避免对 method.invoke(e) 二次调用产生的开销与潜在副作用。
-        (method.invoke(e) as? Number)?.toInt()
-    }.getOrNull()
-
     private companion object {
         const val JSON_MODE_HINT =
             "请严格只输出合法 JSON 对象，不要包含 markdown 代码块标记或额外说明。"
-        // #285：HTTP 429 限流状态码常量化，避免魔数。
-        const val HTTP_TOO_MANY_REQUESTS = 429
     }
 }

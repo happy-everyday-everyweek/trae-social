@@ -1,6 +1,8 @@
 package com.trae.social.llm.di
 
+import com.trae.social.llm.DefaultEndpointRegistry
 import com.trae.social.llm.DefaultRulesetEngine
+import com.trae.social.llm.EndpointRegistry
 import com.trae.social.llm.RulesetEngine
 import dagger.Binds
 import dagger.Module
@@ -23,9 +25,8 @@ import javax.inject.Singleton
  * - [EndpointConfigProvider] → app 模块的 [com.trae.social.app.di.AppEndpointConfigProvider]
  *   （由 app 模块的 [com.trae.social.app.di.AssetProviderModule] 提供）
  * - [RulesetEngine] → [DefaultRulesetEngine]
- *
- * [com.trae.social.llm.EndpointRegistry] 为 `@Singleton class @Inject constructor`，
- * Hilt 自动构造，无需在此显式 @Provides。
+ * - [EndpointRegistry] → [DefaultEndpointRegistry]（#306：DIP，原 `EndpointRegistry`
+ *   具体类已升级为接口，依赖该接口的组件可注入 stub/fake 做单元测试）
  *
  * 注意：[EndpointConfigProvider] 的具体实现绑定声明位于 app 模块的 AssetProviderModule，
  * 因为其实现类 [com.trae.social.app.di.AppEndpointConfigProvider] 依赖 app 模块的
@@ -38,4 +39,8 @@ abstract class LlmModule {
     @Binds
     @Singleton
     abstract fun bindRulesetEngine(impl: DefaultRulesetEngine): RulesetEngine
+
+    @Binds
+    @Singleton
+    abstract fun bindEndpointRegistry(impl: DefaultEndpointRegistry): EndpointRegistry
 }

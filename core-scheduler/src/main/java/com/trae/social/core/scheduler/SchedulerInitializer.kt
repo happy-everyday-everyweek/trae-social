@@ -184,7 +184,7 @@ object SchedulerInitializer {
                 // 避免全局日志导致跨账号补发漏窗
                 val accountLastRun = determineAccountLastRunTime(logDao, account.id, now)
 
-                // 2. 调度恢复：错过的活跃窗补发（每窗最多 1 条）
+                // 2. 调度恢复：错过的活跃窗补发（每窗最多补至 postsPerWindow）
                 val missed = ScheduleRuleResolver.missedWindows(rule, accountLastRun, now, accountZone)
                 for (missedWindow in missed) {
                     // IMPL-4：使用窗口实际所属日期计算 windowStartMillis，避免跨日 key 冲突
@@ -200,10 +200,12 @@ object SchedulerInitializer {
                     }.getOrDefault(0)
                     if (existingInWindow >= rule.postsPerWindow) continue
 
+                    // #302：按窗内已发布数计算 sequenceNo，避免与既有推文 dedup key 冲突
+                    val sequenceNo = existingInWindow
                     val deduplicationKey = DeduplicationKeys.forTweet(
                         accountId = account.id,
                         windowStart = windowStartMillis,
-                        sequenceNo = 0,
+                        sequenceNo = sequenceNo,
                     )
                     // 幂等：若已存在该去重键的推文则 Worker 内部会静默跳过
                     enqueueTweetGeneration(
@@ -211,7 +213,7 @@ object SchedulerInitializer {
                         account.id,
                         deduplicationKey,
                         windowStartMillis,
-                        sequenceNo = 0,
+                        sequenceNo = sequenceNo,
                     )
                     backfillCount++
                 }
@@ -227,11 +229,23 @@ object SchedulerInitializer {
                     },
                 )
                 if (nextTrigger != null) {
-                    val windowStartMillis = nextTrigger.toEpochMilli()
+                    // #109 / M3：用窗口起始时刻（而非随机触发时刻）作为 dedup key 的 windowStart，
+                    // 与补发路径及自链路径保持一致，确保跨重启幂等性。
+                    val currentWindowStart = ScheduleRuleResolver
+                        .windowStartForTrigger(nextTrigger, accountZone, account.activeWindows)
+                        ?: nextTrigger
+                    val windowStartMillis = currentWindowStart.toEpochMilli()
+                    val windowEndMillis = ScheduleRuleResolver.windowEndMillisForStart(
+                        windowStartMillis, accountZone, account.activeWindows,
+                    )
+                    // #302：按目标窗内已发布数计算 sequenceNo，使同窗多条推文 dedup key 互异
+                    val sequenceNo = runCatching {
+                        tweetRepository.countByAuthorInWindow(account.id, windowStartMillis, windowEndMillis)
+                    }.getOrDefault(0).coerceAtLeast(0)
                     val deduplicationKey = DeduplicationKeys.forTweet(
                         accountId = account.id,
                         windowStart = windowStartMillis,
-                        sequenceNo = 0,
+                        sequenceNo = sequenceNo,
                     )
                     // 延迟入队：使用 setInitialDelay 由 WorkManager 调度
                     enqueueTweetGenerationDelayed(
@@ -239,7 +253,7 @@ object SchedulerInitializer {
                         account.id,
                         deduplicationKey,
                         windowStartMillis,
-                        sequenceNo = 0,
+                        sequenceNo = sequenceNo,
                         triggerAt = nextTrigger,
                     )
                     scheduledCount++

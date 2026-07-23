@@ -9,6 +9,7 @@ import com.trae.social.core.data.config.ModelCapability
 import com.trae.social.core.data.di.SecurePreferences
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.llm.RulesetEngine
+import com.trae.social.llm.SdkExceptionClassifier
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -480,7 +481,9 @@ class OnboardingViewModel @Inject constructor(
             else -> {
                 // 非网络异常：通常是 SDK 抛出的 HTTP 错误（OpenAIServiceException /
                 // AnthropicServiceException 子类）。先反射 statusCode()，再用 message 正则兜底。
-                val code = extractSdkStatusCode(t) ?: extractHttpCodeFromMessage(message)
+                // #308：反射逻辑抽到 core-llm 的 SdkExceptionClassifier 共享给
+                // DefaultRulesetEngine / OpenAi / Anthropic client，消除四处重复定义。
+                val code = SdkExceptionClassifier.extractStatusCode(t) ?: extractHttpCodeFromMessage(message)
                 when (code) {
                     401 -> "未授权（401）：API Key 无效或已过期"
                     403 -> "禁止访问（403）：API Key 无权限"
@@ -494,24 +497,13 @@ class OnboardingViewModel @Inject constructor(
     }
 
     /**
-     * 通过反射读取 SDK 异常的 `statusCode()` 方法（OpenAI / Anthropic SDK 同名）。
+     * 从异常消息中提取 HTTP 状态码（如 "HTTP 401 Unauthorized"）。
      *
-     * 已通过 javap 验证：
-     * - `com.openai.errors.OpenAIServiceException.statusCode() : int`
-     * - `com.anthropic.errors.AnthropicServiceException.statusCode() : int`
-     *
-     * 旧实现用 `getMethod("code")`，但 SDK 暴露的是 `statusCode()`，导致 `NoSuchMethodException`
-     * 被 `runCatching` 吞掉返回 null，HTTP 状态码识别退化为不可靠的 message 正则兜底
-     * （SDK 异常 message 通常是 JSON 错误体，不一定含独立 3 位数字）。详见 PR #264 review。
+     * 仅作为 [SdkExceptionClassifier.extractStatusCode] 反射未命中时的兜底——SDK 异常的
+     * message 通常是 JSON 错误体（不一定含独立 3 位数字），非 SDK 异常（如 IOException）
+     * 的 message 含 3 位数字（如 "Port 443 in use"）可能被误判，但本函数仅用于
+     * 给用户展示分类后的错误原因，不参与降级链决策，宽容度可较高。
      */
-    private fun extractSdkStatusCode(t: Throwable): Int? = runCatching {
-        val method = t::class.java.getMethod("statusCode")
-        // SDK 的 statusCode() 返回 int（autobox 为 Integer），统一按 Number 取值，
-        // 避免对 method.invoke(t) 二次调用产生的开销与潜在副作用。
-        (method.invoke(t) as? Number)?.toInt()
-    }.getOrNull()
-
-    /** 从异常消息中提取 HTTP 状态码（如 "HTTP 401 Unauthorized"）。 */
     private fun extractHttpCodeFromMessage(message: String): Int? {
         val regex = Regex("""\b(4\d{2}|5\d{2})\b""")
         return regex.find(message)?.value?.toIntOrNull()

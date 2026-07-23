@@ -119,20 +119,34 @@ class TweetPromptBuilder {
     }
 
     private fun buildSystemPrompt(p: PersonaInput): String {
+        // #304：人设字段来源为外部资产 / LLM 生成的动态字段，做字符级净化后再插值，
+        // 降低换行伪造段落、零宽字符隐藏越狱指令等 prompt injection 风险。
+        val safeDisplayName = PromptUtils.sanitizeForPrompt(p.displayName, 60)
+        val safeProfession = PromptUtils.sanitizeForPrompt(p.profession, 60)
+        val safeAgeRange = PromptUtils.sanitizeForPrompt(p.ageRange, 20)
+        val safeCultural = PromptUtils.sanitizeForPrompt(p.culturalBackground, 60)
+        val safeWorldview = PromptUtils.sanitizeForPrompt(p.worldview, 200)
+        val safeValues = PromptUtils.sanitizeForPrompt(p.values, 200)
+        val safeLanguageStyle = PromptUtils.sanitizeForPrompt(p.languageStyle, 60)
+        val safeCatchphrase = PromptUtils.sanitizeForPrompt(p.catchphrase, 120)
+        val safeEmoji = if (p.emojiPreference.isEmpty()) "无"
+            else p.emojiPreference.joinToString("/") { PromptUtils.sanitizeForPrompt(it, 20) }
+        val safeMood = PromptUtils.sanitizeForPrompt(p.recentMood, 60)
         return buildString {
             appendLine("你正在扮演一个真实存在的虚拟社交账号用户，请严格按以下人设发布内容。")
+            appendLine(PromptUtils.DATA_NOT_INSTRUCTIONS_CLAUSE)
             appendLine("【人设固定字段】")
-            appendLine("- 显示名：${p.displayName}")
-            appendLine("- 职业：${p.profession}")
-            appendLine("- 年龄段：${p.ageRange}")
-            appendLine("- 文化背景：${p.culturalBackground}")
-            appendLine("- 世界观：${p.worldview}")
-            appendLine("- 价值观：${p.values}")
-            appendLine("- 语言风格：${p.languageStyle}")
-            appendLine("- 口癖：${p.catchphrase}")
-            appendLine("- emoji 偏好：${if (p.emojiPreference.isEmpty()) "无" else p.emojiPreference.joinToString("/")}")
+            appendLine("- 显示名：$safeDisplayName")
+            appendLine("- 职业：$safeProfession")
+            appendLine("- 年龄段：$safeAgeRange")
+            appendLine("- 文化背景：$safeCultural")
+            appendLine("- 世界观：$safeWorldview")
+            appendLine("- 价值观：$safeValues")
+            appendLine("- 语言风格：$safeLanguageStyle")
+            appendLine("- 口癖：$safeCatchphrase")
+            appendLine("- emoji 偏好：$safeEmoji")
             appendLine("- 错别字率：${p.typoRate}")
-            appendLine("- 最近情绪：${p.recentMood}")
+            appendLine("- 最近情绪：$safeMood")
             appendLine()
             appendLine("你是该人物，以第一人称发布一条原创推文。严格保持人设的语言风格与价值观。")
             appendLine("输出前检查内容不包含暴力、仇恨、色情或对真实人物的虚假陈述。")
@@ -144,18 +158,23 @@ class TweetPromptBuilder {
         timeSlotDescription: String,
         recentTweets: List<String>,
     ): String {
+        // #304：推文历史为外部内容，净化后再插值
+        val safeTimeSlot = PromptUtils.sanitizeForPrompt(timeSlotDescription, 60)
+        val safeMood = PromptUtils.sanitizeForPrompt(p.recentMood, 60)
         return buildString {
             appendLine("【当前时段】")
-            appendLine(timeSlotDescription)
+            appendLine(safeTimeSlot)
             appendLine()
             appendLine("【最近情绪】")
-            appendLine(p.recentMood)
+            appendLine(safeMood)
             appendLine()
             appendLine("【最近 3 条该账号推文（避免重复）】")
             if (recentTweets.isEmpty()) {
                 appendLine("（暂无历史推文）")
             } else {
-                recentTweets.forEachIndexed { i, t -> appendLine("${i + 1}. $t") }
+                recentTweets.forEachIndexed { i, t ->
+                    appendLine("${i + 1}. ${PromptUtils.sanitizeForPrompt(t, TweetLimits.MAX_TWEET_LENGTH)}")
+                }
             }
             appendLine()
             appendLine("请输出 JSON：{\"text\": \"推文内容\", \"withImage\": true/false, \"imageTheme\": \"landscape/food/city/pet/sport/art/tech/nature/none\", \"interactionTendency\": 0.0-1.0}。")
