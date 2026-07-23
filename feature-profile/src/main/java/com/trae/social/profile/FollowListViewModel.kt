@@ -3,10 +3,10 @@ package com.trae.social.profile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.trae.social.core.data.AccountIds
-import com.trae.social.core.data.dao.FollowRelationDao
 import com.trae.social.core.data.entity.AccountEntity
 import com.trae.social.core.data.entity.FollowRelationEntity
 import com.trae.social.core.data.repository.AccountRepository
+import com.trae.social.core.data.repository.FollowRelationRepository
 import com.trae.social.core.data.model.ScenarioIds
 import com.trae.social.core.data.model.UserActionEvent
 import com.trae.social.core.data.model.UserActionType
@@ -36,7 +36,9 @@ import timber.log.Timber
  */
 @HiltViewModel
 class FollowListViewModel @Inject constructor(
-    private val followRelationDao: FollowRelationDao,
+    // #314：改注入 FollowRelationRepository 替代直接注入 FollowRelationDao，
+    // 遵循依赖倒置——ViewModel 不应感知数据层 DAO 实现
+    private val followRelationRepository: FollowRelationRepository,
     private val accountRepository: AccountRepository,
     private val userActionTracker: UserActionTracker,
     private val sessionManager: SessionManager,
@@ -127,13 +129,13 @@ class FollowListViewModel @Inject constructor(
             // FOLLOWING / FOLLOWERS 各一次 JOIN；_followingIds 仍由 getFollowing 单独查，
             // 因 FOLLOWERS / RECOMMENDED 列表也需 _followingIds 驱动按钮状态。
             val (dbFollowingIds, accounts) = try {
-                val followingRelations = followRelationDao.getFollowing(AccountIds.USER_SELF_ID)
+                val followingRelations = followRelationRepository.getFollowing(AccountIds.USER_SELF_ID)
                 val ids = followingRelations.map { it.followeeId }.toSet()
                 val accs = when (type) {
                     FollowListType.FOLLOWING ->
-                        followRelationDao.getFollowingWithAccounts(AccountIds.USER_SELF_ID)
+                        followRelationRepository.getFollowingWithAccounts(AccountIds.USER_SELF_ID)
                     FollowListType.FOLLOWERS ->
-                        followRelationDao.getFollowersWithAccounts(AccountIds.USER_SELF_ID)
+                        followRelationRepository.getFollowersWithAccounts(AccountIds.USER_SELF_ID)
                     FollowListType.RECOMMENDED ->
                         loadRecommendedAccounts()
                 }
@@ -334,13 +336,14 @@ class FollowListViewModel @Inject constructor(
             var dbWriteSuccess = false
             try {
                 if (isFollowing) {
-                    followRelationDao.delete(AccountIds.USER_SELF_ID, accountId)
+                    followRelationRepository.unfollow(AccountIds.USER_SELF_ID, accountId)
                     dbWriteSuccess = true
                 } else {
                     // 主 review 第 2 轮修复：检查 insert 返回值。
-                    // FollowRelationDao.insert 用 OnConflictStrategy.IGNORE，DB 中已存在关系时
-                    // 返回 -1（未实际插入）。此时不应发 FOLLOW 埋点（避免 A/B 场景 6 delta 高估）。
-                    val insertedRowId = followRelationDao.insert(
+                    // FollowRelationRepository.insert 透传自 DAO 的 OnConflictStrategy.IGNORE，
+                    // DB 中已存在关系时返回 -1（未实际插入）。此时不应发 FOLLOW 埋点
+                    // （避免 A/B 场景 6 delta 高估）。
+                    val insertedRowId = followRelationRepository.insert(
                         FollowRelationEntity(
                             followerId = AccountIds.USER_SELF_ID,
                             followeeId = accountId,

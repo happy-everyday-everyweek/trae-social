@@ -5,13 +5,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.trae.social.core.data.AccountIds
 import com.trae.social.core.data.config.AiActivityLevel
-import com.trae.social.core.data.dao.FollowRelationDao
 import com.trae.social.core.data.entity.AccountEntity
 import com.trae.social.core.data.entity.InteractionEntity
 import com.trae.social.core.data.entity.InteractionType
 import com.trae.social.core.data.entity.TweetEntity
 import com.trae.social.core.data.repository.AccountRepository
 import com.trae.social.core.data.repository.ConfigRepository
+import com.trae.social.core.data.repository.FollowRelationRepository
 import com.trae.social.core.data.repository.InteractionRepository
 import com.trae.social.core.data.repository.TweetRepository
 import com.trae.social.designsystem.image.SvgImageLoader
@@ -51,7 +51,9 @@ class ProfileViewModel @Inject constructor(
     private val accountRepository: AccountRepository,
     private val tweetRepository: TweetRepository,
     private val configRepository: ConfigRepository,
-    private val followRelationDao: FollowRelationDao,
+    // #314：改注入 FollowRelationRepository 替代直接注入 FollowRelationDao，
+    // 遵循依赖倒置——ViewModel 不应感知数据层 DAO 实现
+    private val followRelationRepository: FollowRelationRepository,
     // #134：注入 InteractionRepository，使 retweetTweet 能创建实际互动记录
     private val interactionRepository: InteractionRepository,
     // #11：注入 SavedStateHandle 读取 ACCOUNT_DETAIL 路由的 accountId 参数
@@ -136,14 +138,14 @@ class ProfileViewModel @Inject constructor(
                         // 首次拿到账号：加载计数初值并启动 observe 持续刷新计数
                         countsObserved = true
                         val following = try {
-                            followRelationDao.countFollowing(targetAccountId)
+                            followRelationRepository.countFollowing(targetAccountId)
                         } catch (e: kotlinx.coroutines.CancellationException) {
                             throw e
                         } catch (e: Exception) {
                             Timber.w(e, "加载关注数失败"); 0
                         }
                         val followers = try {
-                            followRelationDao.countFollowers(targetAccountId)
+                            followRelationRepository.countFollowers(targetAccountId)
                         } catch (e: kotlinx.coroutines.CancellationException) {
                             throw e
                         } catch (e: Exception) {
@@ -193,7 +195,7 @@ class ProfileViewModel @Inject constructor(
     private fun observeProfileCounts() {
         viewModelScope.launch {
             try {
-                followRelationDao.observeFollowingCount(targetAccountId).collect { count ->
+                followRelationRepository.observeFollowingCount(targetAccountId).collect { count ->
                     val current = _uiState.value
                     if (current is ProfileUiState.Success) {
                         _uiState.value = current.copy(followingCount = count)
@@ -207,7 +209,7 @@ class ProfileViewModel @Inject constructor(
         }
         viewModelScope.launch {
             try {
-                followRelationDao.observeFollowersCount(targetAccountId).collect { count ->
+                followRelationRepository.observeFollowersCount(targetAccountId).collect { count ->
                     val current = _uiState.value
                     if (current is ProfileUiState.Success) {
                         _uiState.value = current.copy(followersCount = count)
