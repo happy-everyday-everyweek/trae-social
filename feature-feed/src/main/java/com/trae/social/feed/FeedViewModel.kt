@@ -236,7 +236,7 @@ class FeedViewModel @Inject constructor(
                         id = UUID.randomUUID().toString(),
                         tweetId = tweetId,
                         // #132：accountId 应为执行互动的当前用户，而非推文作者
-                        accountId = USER_SELF_ID,
+                        accountId = AccountIds.USER_SELF_ID,
                         type = InteractionType.LIKE,
                         content = null,
                         createdAt = System.currentTimeMillis(),
@@ -294,7 +294,7 @@ class FeedViewModel @Inject constructor(
                         id = UUID.randomUUID().toString(),
                         tweetId = tweetId,
                         // #133：accountId 应为发表评论的当前用户，而非推文作者
-                        accountId = USER_SELF_ID,
+                        accountId = AccountIds.USER_SELF_ID,
                         type = InteractionType.COMMENT,
                         content = text,
                         createdAt = now,
@@ -308,7 +308,7 @@ class FeedViewModel @Inject constructor(
                         id = commentId,
                         tweetId = tweetId,
                         // #133：评论作者为当前用户，与 CommentSheet 乐观展示的"我"一致
-                        authorId = USER_SELF_ID,
+                        authorId = AccountIds.USER_SELF_ID,
                         content = text,
                         createdAt = now,
                     )
@@ -326,7 +326,7 @@ class FeedViewModel @Inject constructor(
                 }
                 // m7 修复：若 COMMENT interaction 已写入但 addComment 失败，删除孤儿 interaction
                 if (interactionInserted) {
-                    runCatchingCancellable { interactionRepository.deleteCommentInteraction(tweetId, USER_SELF_ID) }
+                    runCatchingCancellable { interactionRepository.deleteCommentInteraction(tweetId, AccountIds.USER_SELF_ID) }
                         .onFailure { Timber.w(it, "清理孤儿 COMMENT interaction 失败") }
                 }
             }
@@ -372,7 +372,7 @@ class FeedViewModel @Inject constructor(
                 val now = System.currentTimeMillis()
                 val retweet = TweetEntity(
                     id = UUID.randomUUID().toString(),
-                    authorId = USER_SELF_ID,
+                    authorId = AccountIds.USER_SELF_ID,
                     text = "转发：${original.text}",
                     mediaPath = original.mediaPath,
                     mediaTheme = original.mediaTheme,
@@ -389,7 +389,7 @@ class FeedViewModel @Inject constructor(
                     InteractionEntity(
                         id = UUID.randomUUID().toString(),
                         tweetId = original.id,
-                        accountId = USER_SELF_ID,
+                        accountId = AccountIds.USER_SELF_ID,
                         type = InteractionType.RETWEET,
                         content = null,
                         createdAt = now,
@@ -498,8 +498,6 @@ class FeedViewModel @Inject constructor(
     )
 
     private companion object {
-        // #220：自身账号 ID 已抽到 AccountIds.USER_SELF_ID，此处保留别名供本文件使用
-        const val USER_SELF_ID = AccountIds.USER_SELF_ID
         /** #141：作者缓存 TTL（5 分钟），超时后重新查库刷新人设信息 */
         const val AUTHOR_CACHE_TTL_MS = 5 * 60 * 1000L
     }
