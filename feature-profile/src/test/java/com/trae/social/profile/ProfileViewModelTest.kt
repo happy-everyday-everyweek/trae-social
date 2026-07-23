@@ -9,6 +9,7 @@ import com.trae.social.core.data.repository.InteractionRepository
 import com.trae.social.core.data.repository.TweetRepository
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -24,6 +25,7 @@ import org.junit.Test
  * 当前覆盖：初始状态——uiState 为 Loading、isSelfProfile 为 true（无 accountId 路由参数）。
  * 后续可扩展：账号资料加载、推文/媒体列表、关注统计、AI 活跃度档位读取等。
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class ProfileViewModelTest {
 
     private val testDispatcher = UnconfinedTestDispatcher()
@@ -46,7 +48,7 @@ class ProfileViewModelTest {
             mockk(relaxed = true), // configRepository
             mockk(relaxed = true), // followRelationRepository
             mockk(relaxed = true), // interactionRepository
-            mockk(relaxed = true), // savedStateHandle
+            SavedStateHandle(),     // savedStateHandle（真实实例，get 返回 null）
             mockk(relaxed = true), // imageLoader
         )
         assertTrue(viewModel.uiState.value is ProfileUiState.Loading)
@@ -54,7 +56,7 @@ class ProfileViewModelTest {
 
     @Test
     fun `无 accountId 路由参数时 isSelfProfile 为 true`() = runTest(testDispatcher) {
-        // relaxed mock SavedStateHandle.get<String?>("accountId") 返回 null
+        // SavedStateHandle() 无参构造，get<String?>("accountId") 返回 null
         // → targetAccountId = AccountIds.USER_SELF_ID → isSelfProfile = true
         val viewModel = ProfileViewModel(
             mockk(relaxed = true),
@@ -62,7 +64,7 @@ class ProfileViewModelTest {
             mockk(relaxed = true),
             mockk(relaxed = true),
             mockk(relaxed = true),
-            mockk(relaxed = true),
+            SavedStateHandle(),
             mockk(relaxed = true),
         )
         assertTrue(viewModel.isSelfProfile)

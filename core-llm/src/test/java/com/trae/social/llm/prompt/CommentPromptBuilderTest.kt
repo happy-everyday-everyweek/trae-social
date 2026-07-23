@@ -33,7 +33,7 @@ class CommentPromptBuilderTest {
             tweet = CommentPromptBuilder.TweetInput("正文内容X", "作者Y", "程序员"),
             commenters = listOf(samplePersona("评论者A"), samplePersona("评论者B")),
         )
-        val user = messages[1].content
+        val user = messages[1].textContent()
         assertTrue(user.contains("正文内容X"))
         assertTrue(user.contains("作者Y"))
         assertTrue(user.contains("程序员"))
@@ -141,7 +141,7 @@ class CommentPromptBuilderTest {
             tweet = CommentPromptBuilder.TweetInput("正文", "作者", "程序员"),
             commenters = listOf(samplePersona("评论者A")),
         )
-        val user = messages[1].content
+        val user = messages[1].textContent()
         assertFalse(user.contains("【用户口味提示】"))
     }
 
@@ -157,7 +157,7 @@ class CommentPromptBuilderTest {
             commenters = listOf(samplePersona("评论者A")),
             userTaste = taste,
         )
-        val user = messages[1].content
+        val user = messages[1].textContent()
         assertTrue(user.contains("【用户口味提示】"))
         assertTrue(user.contains("编程"))
         assertTrue(user.contains("音乐"))
@@ -175,7 +175,7 @@ class CommentPromptBuilderTest {
             commenters = listOf(samplePersona("评论者A")),
             userTaste = taste,
         )
-        val user = messages[1].content
+        val user = messages[1].textContent()
         assertTrue(user.contains("高权重主题"))
         // 编程权重最高应排在最前
         val progIdx = user.indexOf("编程")
@@ -195,7 +195,7 @@ class CommentPromptBuilderTest {
             commenters = listOf(samplePersona("评论者A")),
             userTaste = taste,
         )
-        val user = messages[1].content
+        val user = messages[1].textContent()
         assertTrue(user.contains("用户背景"))
         assertTrue(user.contains("一个热爱技术的程序员"))
     }
@@ -212,7 +212,7 @@ class CommentPromptBuilderTest {
             commenters = listOf(samplePersona("评论者A")),
             userTaste = taste,
         )
-        val user = messages[1].content
+        val user = messages[1].textContent()
         assertTrue(user.contains("【用户口味提示】"))
         assertFalse(user.contains("用户兴趣 Top 主题"))
         assertFalse(user.contains("高权重主题"))

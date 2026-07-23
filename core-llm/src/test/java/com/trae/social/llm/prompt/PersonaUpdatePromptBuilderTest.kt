@@ -42,7 +42,7 @@ class PersonaUpdatePromptBuilderTest {
             relationshipNetwork = "关系网W",
         )
         val messages = builder.build(input, listOf("事件A", "事件B"))
-        val user = messages[1].content
+        val user = messages[1].textContent()
         assertTrue(user.contains("人生经历X"))
         assertTrue(user.contains("工作信息Y"))
         assertTrue(user.contains("情绪Z"))
@@ -57,7 +57,7 @@ class PersonaUpdatePromptBuilderTest {
             PersonaUpdatePromptBuilder.PersonaDynamicInput("x", "y", "z", "w"),
             emptyList(),
         )
-        val system = messages[0].content
+        val system = messages[0].textContent()
         assertTrue(system.contains("人设演进引擎"))
         assertTrue(system.contains("不要突变"))
     }
@@ -156,7 +156,7 @@ class PersonaUpdatePromptBuilderTest {
     fun `build 不传 userInterests 时不包含用户兴趣画像段（control 路径）`() {
         val input = PersonaUpdatePromptBuilder.PersonaDynamicInput("x", "y", "z", "w")
         val messages = builder.build(input, listOf("事件A"))
-        val user = messages[1].content
+        val user = messages[1].textContent()
         assertFalse(user.contains("【用户兴趣画像】"))
     }
 
@@ -164,7 +164,7 @@ class PersonaUpdatePromptBuilderTest {
     fun `build 传空 userInterests 时不包含用户兴趣画像段`() {
         val input = PersonaUpdatePromptBuilder.PersonaDynamicInput("x", "y", "z", "w")
         val messages = builder.build(input, listOf("事件A"), userInterests = emptyList())
-        val user = messages[1].content
+        val user = messages[1].textContent()
         assertFalse(user.contains("【用户兴趣画像】"))
     }
 
@@ -176,7 +176,7 @@ class PersonaUpdatePromptBuilderTest {
             listOf("事件A"),
             userInterests = listOf("编程", "音乐"),
         )
-        val user = messages[1].content
+        val user = messages[1].textContent()
         assertTrue(user.contains("【用户兴趣画像】"))
         assertTrue(user.contains("编程"))
         assertTrue(user.contains("音乐"))
@@ -191,7 +191,7 @@ class PersonaUpdatePromptBuilderTest {
             emptyList(),
             userInterests = listOf("科技"),
         )
-        val user = messages[1].content
+        val user = messages[1].textContent()
         assertTrue(user.contains("人设一致性"))
         assertTrue(user.contains("共演化") || user.contains("靠拢") || user.contains("共鸣"))
     }

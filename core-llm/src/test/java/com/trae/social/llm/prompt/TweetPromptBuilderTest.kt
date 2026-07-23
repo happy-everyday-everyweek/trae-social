@@ -36,7 +36,7 @@ class TweetPromptBuilderTest {
     fun `system 消息含人设全部固定字段`() {
         val p = samplePersona()
         val messages = builder.build(p, "工作日上午", emptyList())
-        val system = messages[0].content
+        val system = messages[0].textContent()
 
         assertTrue("应含显示名", system.contains(p.displayName))
         assertTrue("应含职业", system.contains(p.profession))
@@ -59,7 +59,7 @@ class TweetPromptBuilderTest {
             timeSlotDescription = "周末下午 14:00-18:00",
             recentTweets = listOf("推文一", "推文二", "推文三"),
         )
-        val user = messages[1].content
+        val user = messages[1].textContent()
         assertTrue(user.contains("周末下午 14:00-18:00"))
         assertTrue(user.contains("推文一"))
         assertTrue(user.contains("推文二"))
@@ -75,7 +75,7 @@ class TweetPromptBuilderTest {
             timeSlotDescription = "上午",
             recentTweets = emptyList(),
         )
-        assertTrue(messages[1].content.contains("暂无历史推文"))
+        assertTrue(messages[1].textContent().contains("暂无历史推文"))
     }
 
     @Test

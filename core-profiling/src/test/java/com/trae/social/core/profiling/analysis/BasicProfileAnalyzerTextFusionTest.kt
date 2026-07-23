@@ -48,7 +48,7 @@ class BasicProfileAnalyzerTextFusionTest {
     }
 
     @Test
-    fun `textTopic 权重高于 imageTheme（主动表达 > 被动浏览）`() {
+    fun `textTopic 权重高于 imageTheme（主动表达大于被动浏览）`() {
         // 同一事件类型下，imageTheme 和 textTopic 各贡献一项
         val events = listOf(
             mkEvent(UserActionType.PUBLISH_TWEET, "t1", now, mapOf(
