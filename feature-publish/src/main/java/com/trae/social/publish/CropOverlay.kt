@@ -196,7 +196,7 @@ private enum class Corner { TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT }
  * 拖拽时按对应方向调整 [cropRect] 的边，保持最小尺寸与 left<right、top<bottom。
  */
 @Composable
-internal fun BoxScope.CornerHandle(
+private fun BoxScope.CornerHandle(
     corner: Corner,
     centerX: Int,
     centerY: Int,
