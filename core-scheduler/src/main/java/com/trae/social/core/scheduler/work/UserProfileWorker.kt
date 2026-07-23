@@ -11,6 +11,7 @@ import com.trae.social.core.data.dao.UserProfileDao
 import com.trae.social.core.data.dao.UserProfileFeedbackDao
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.profiling.analysis.UserProfileAggregator
+import com.trae.social.core.profiling.feedback.ProfileGenerationService
 import com.trae.social.core.profiling.feedback.ProfileVersionStore
 import com.trae.social.core.profiling.mapping.ProfileMappers
 import com.trae.social.llm.ChatConfig
@@ -20,12 +21,15 @@ import com.trae.social.llm.prompt.UserProfilePromptBuilder
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import timber.log.Timber
-import java.security.MessageDigest
 
 /**
  * 用户行为建模 LLM 画像 Worker（#146 第三层）。
  *
  * 周期：LOW=96h / MEDIUM=48h / HIGH=24h，networkConstraints。
+ *
+ * #311 重构后本 Worker 仅保留薄编排：读配置 → 调 [ProfileGenerationService] /
+ * [ProfileVersionStore] / [RulesetEngine] → 返回 Result。指纹计算、narrative 回滚校验、
+ * 版本构造等画像领域不变量已下沉到 `core-profiling`，本文件不再持有领域逻辑。
  *
  * 触发前置条件（短路顺序）：
  * 1. 计算输入指纹，与 [com.trae.social.core.data.entity.UserProfileVersionEntity.inputFingerprint]
@@ -38,7 +42,8 @@ import java.security.MessageDigest
  *
  * 解析失败：保留旧版本（不产生新版本） + 写 SchedulerLogEntity。
  *
- * 产生新版本：由 [ProfileVersionStore.insertAndActivate] 在单事务内 insert(isActive=false) + 激活,自动取消其他版本 active。
+ * 产生新版本：由 [ProfileVersionStore.insertAndActivate] 在单事务内 insert(isActive=false) + 激活,
+ * 自动取消其他版本 active。
  * narrative 突变（jaccardSimilarity < 0.4）：保留旧版本 + 写日志。
  */
 @HiltWorker
@@ -50,6 +55,7 @@ class UserProfileWorker @AssistedInject constructor(
     private val feedbackDao: UserProfileFeedbackDao,
     private val aggregator: UserProfileAggregator,
     private val versionStore: ProfileVersionStore,
+    private val generationService: ProfileGenerationService,
     private val rulesetEngine: RulesetEngine,
     private val configRepository: ConfigRepository,
     private val logDao: com.trae.social.core.data.dao.SchedulerLogDao,
@@ -62,136 +68,56 @@ class UserProfileWorker @AssistedInject constructor(
             return Result.success(workDataOf(WorkerKeys.KEY_RESULT to "profiling_disabled"))
         }
         val started = System.currentTimeMillis()
-        try {
-            // 1. 加载最新快照
-            val snapshot = userProfileDao.latestSnapshot()?.let { ProfileMappers.run { it.toDomain() } }
-                ?: run {
-                    logEvent(started, "no_snapshot", null)
-                    return Result.success(workDataOf(WorkerKeys.KEY_RESULT to "no_snapshot"))
-                }
-
-            // 2. 计算输入指纹并检查缓存命中
-            val sinceMs = started - FEEDBACK_EFFECT_WINDOW_MS
-            val aggregated = aggregator.aggregate(snapshot, sinceMs)
-            val latestVersion = userProfileDao.latestVersion()?.let { ProfileMappers.run { it.toDomain() } }
-            // M1 修复：指纹剔除 latestVersion.id——版本 id 每次自增会让指纹永远变化，
-            // 导致缓存命中短路永远失败，48h 周期 LLM 画像每次重算浪费配额
-            val fingerprint = computeFingerprint(snapshot, aggregated)
-            val newFeedbackCount = feedbackDao.countSince(latestVersion?.createdAt ?: 0L)
-            val hasNewFeedback = newFeedbackCount > 0
-
-            // 短路 1：输入指纹相同 + 无新反馈 → 跳过
-            if (latestVersion != null && latestVersion.inputFingerprint == fingerprint && !hasNewFeedback) {
-                logEvent(started, "fingerprint_hit", null)
-                return Result.success(workDataOf(WorkerKeys.KEY_RESULT to "fingerprint_hit"))
-            }
-
-            // 短路 2：新事件 < 阈值 + 无新反馈 → 跳过
-            if (!hasNewFeedback) {
-                val newEvents = userActionDao.countSince(latestVersion?.createdAt ?: 0L)
-                if (newEvents < MIN_NEW_EVENTS) {
-                    logEvent(started, "skip_low_events", "events=$newEvents")
-                    return Result.success(workDataOf(WorkerKeys.KEY_RESULT to "skip_low_events"))
-                }
-            }
-
-            // 3. 构造 prompt + 调 LLM
-            val input = UserProfilePromptBuilder.Input(
-                snapshot = snapshot,
-                eventSummary = aggregated.eventSummary,
-                feedbackEffect = aggregated.feedbackEffect,
-                userFeedback = aggregated.userFeedback,
-                activeOverrides = aggregated.userFeedback.activeOverrides,
-                previousNarrative = aggregated.previousNarrative,
-            )
-            val messages = promptBuilder.build(input)
-            // M2 修复：未配置任何端点时显式跳过，避免 RulesetEngine.chatSync 内部抛
-            // IllegalStateException 后被通用 catch 捕获走 retry 浪费 WorkManager 配额
-            val endpoints = configRepository.listEndpoints()
-            if (endpoints.isEmpty()) {
-                logEvent(started, "no_endpoint_configured", null)
-                return Result.success(workDataOf(WorkerKeys.KEY_RESULT to "no_endpoint_configured"))
-            }
-            // #151 重构后：RulesetEngine 内部自动选主端点 + 降级链，此处只关心调用结果。
-            // modelProvider 仍记录主端点 id（endpoints 已按 orderIndex 升序，首项即主端点），
-            // 便于版本溯源；降级链触达次端点时该字段不反映实际生效端点，仅作粗粒度标记。
-            val primaryEndpointId = endpoints.first().id
-            val raw = try {
-                rulesetEngine.chatSync(
-                    messages = messages,
-                    config = ChatConfig(temperature = 0.6f, maxTokens = 768, jsonMode = true),
+        return try {
+            // 1-3. 加载快照 → 聚合 → 短路检查 → 构造 prompt → 取主端点
+            val prep = prepareAndCheckShortCircuits(started)
+            // prep 内任一短路命中即返回对应 Result（no_snapshot / fingerprint_hit /
+            // skip_low_events / no_endpoint_configured）
+            val (aggregated, fingerprint, messages, primaryEndpointId) = when (prep) {
+                is PrepareOutcome.Skip -> return prep.result
+                is PrepareOutcome.NoSnapshot -> return Result.success(
+                    workDataOf(WorkerKeys.KEY_RESULT to "no_snapshot"),
                 )
-            } catch (e: RateLimitedException) {
-                Timber.w("UserProfileWorker 遇到限流，跳过 retryAfter=%s", e.retryAfterSeconds)
-                logEvent(started, "rate_limited", e.message)
-                return Result.success(workDataOf(WorkerKeys.KEY_RESULT to "rate_limited"))
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                // 第七轮 review M5 修复：CancellationException 必须重抛。
-                throw e
-            } catch (t: Throwable) {
-                Timber.w(t, "UserProfileWorker LLM 调用失败")
-                logEvent(started, "llm_error", t.message)
-                return if (runAttemptCount >= WorkerConstants.MAX_RUN_ATTEMPTS) {
-                    Result.failure(workDataOf(WorkerKeys.KEY_ERROR to (t.message ?: "unknown")))
-                } else {
-                    Result.retry()
-                }
+                is PrepareOutcome.Proceed -> prep
             }
 
-            // 4. 解析
+            // 4. 调 LLM；rate_limited / llm_error 各有独立 SchedulerLog action 标签
+            val raw = when (val llm = callLlm(messages, started)) {
+                is LlmOutcome.Skip -> return Result.success(workDataOf(WorkerKeys.KEY_RESULT to llm.status))
+                is LlmOutcome.Failure -> return llm.result
+                is LlmOutcome.Success -> llm.raw
+            }
+
+            // 5. 解析
             val parsed = UserProfilePromptBuilder.parseUserProfile(raw) ?: run {
                 Timber.w("UserProfileWorker 解析失败，保留旧版本")
                 logEvent(started, "parse_failed", raw.take(200))
                 return Result.success(workDataOf(WorkerKeys.KEY_RESULT to "parse_failed"))
             }
 
-            // 5. narrative 突变校验
-            val previousNarrative = aggregated.previousNarrative
-            if (previousNarrative != null &&
-                UserProfilePromptBuilder.shouldRollbackNarrative(previousNarrative, parsed.narrative)
+            // 6. narrative 突变校验（领域规则保留在 PromptBuilder，编排留在 Worker）
+            if (aggregated.previousNarrative != null &&
+                UserProfilePromptBuilder.shouldRollbackNarrative(aggregated.previousNarrative, parsed.narrative)
             ) {
                 Timber.i("UserProfileWorker narrative 突变，保留旧版本")
                 logEvent(started, "narrative_rollback", null)
                 return Result.success(workDataOf(WorkerKeys.KEY_RESULT to "narrative_rollback"))
             }
 
-            // 6. 落库新版本（原子插入并激活，避免双 active 窗口）
-            // 第二轮 review Major 2 修复:不再走 insertVersion(isActive=true) + activateNewVersion 两步,
-            // 改用 versionStore.insertAndActivate 在单事务内完成 insert(isActive=false) + setActive,
-            // 避免中途进程被杀导致 DB 残留两个 isActive=1 记录。
-            // 第五轮 review N4 修复:insertVersion 已移入 withTransaction 内,真正实现单事务原子性。
+            // 7. 落库新版本（原子插入并激活，避免双 active 窗口）
             val now = System.currentTimeMillis()
-            val version = com.trae.social.core.data.model.UserProfileVersion(
-                id = 0,
-                identityHypothesis = parsed.identityHypothesis,
-                personalityTraits = parsed.personalityTraits,
-                contentPreferences = parsed.contentPreferences,
-                socialStyle = parsed.socialStyle,
-                activityProfile = parsed.activityProfile,
-                engagementLevel = parsed.engagementLevel,
-                feedbackWeights = parsed.feedbackWeights,
-                narrative = parsed.narrative,
-                overrideAcknowledgment = parsed.overrideAcknowledgment,
-                modelProvider = primaryEndpointId,
-                promptHash = promptHash(),
-                inputFingerprint = fingerprint,
-                snapshotId = null,
-                rollbackFrom = null,
-                // 由 versionStore.insertAndActivate 在事务内统一激活,此处保持 false
-                isActive = false,
-                createdAt = now,
-            )
+            val version = generationService.buildNewVersion(parsed, fingerprint, primaryEndpointId, now)
             val newId = versionStore.insertAndActivate(version)
             logEvent(started, "success", "versionId=$newId")
-            return Result.success(workDataOf(WorkerKeys.KEY_RESULT to "success", "versionId" to newId))
+            Result.success(workDataOf(WorkerKeys.KEY_RESULT to "success", "versionId" to newId))
         } catch (e: kotlinx.coroutines.CancellationException) {
-            // 第七轮 review M5 修复：CancellationException 必须重抛，否则 WorkManager 取消 Worker 时
-            // 协程无法正确传播取消信号，导致 doWork 卡在 catch(t: Throwable) 内继续执行返回 Result.retry。
+            // M5 修复：CancellationException 必须重抛，否则 WorkManager 取消 Worker 时协程无法
+            // 正确传播取消信号，doWork 卡在 catch(t: Throwable) 内继续执行返回 Result.retry。
             throw e
         } catch (t: Throwable) {
             Timber.e(t, "UserProfileWorker 执行失败")
             logEvent(started, "error", t.message)
-            return if (runAttemptCount >= WorkerConstants.MAX_RUN_ATTEMPTS) {
+            if (runAttemptCount >= WorkerConstants.MAX_RUN_ATTEMPTS) {
                 Result.failure(workDataOf(WorkerKeys.KEY_ERROR to (t.message ?: "unknown")))
             } else {
                 Result.retry()
@@ -199,33 +125,125 @@ class UserProfileWorker @AssistedInject constructor(
         }
     }
 
-    /**
-     * 计算输入指纹：hash(snapshot + promptHash + activeOverridesHash + userFeedbackHash + feedbackEffectHash)。
-     *
-     * M1 修复：剔除 latestVersion.id——它是输出而非输入，每次自增会让指纹永远变化，缓存命中短路失效。
-     */
-    private fun computeFingerprint(
-        snapshot: com.trae.social.core.data.model.UserProfileSnapshot,
-        aggregated: UserProfileAggregator.AggregatedInput,
-    ): String {
-        val md = MessageDigest.getInstance("SHA-256")
-        val sb = StringBuilder()
-        sb.append(snapshot.computedAt).append('|')
-        sb.append(snapshot.evidence.eventCount).append('|')
-        sb.append(promptHash()).append('|')
-        sb.append(aggregated.userFeedback.activeOverrides.joinToString(",") { "${it.type.id}:${it.key}" }).append('|')
-        sb.append(aggregated.userFeedback.recentMessages.take(10).joinToString(",") { "${it.role}:${it.createdAt}" }).append('|')
-        sb.append(aggregated.feedbackEffect.scenarioDeltas.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value}" })
-        md.update(sb.toString().toByteArray(Charsets.UTF_8))
-        return md.digest().joinToString("") { "%02x".format(it) }.take(16)
+    /** 预处理结果：要么短路返回 [Skip]，要么携带 [Proceed] 供 doWork 调 LLM。 */
+    private sealed interface PrepareOutcome {
+        data class Proceed(
+            val aggregated: UserProfileAggregator.AggregatedInput,
+            val fingerprint: String,
+            val messages: List<com.trae.social.llm.ChatMessage>,
+            val primaryEndpointId: String,
+        ) : PrepareOutcome
+        data class Skip(val result: Result) : PrepareOutcome
+        data object NoSnapshot : PrepareOutcome
     }
 
-    // M4 修复：原 promptHash 仅哈希类名，模板内容变更无法识别；改为类名 + 显式 TEMPLATE_VERSION，
-    // 模板变更时递增该常量即可让指纹失效，触发重新生成
-    private fun promptHash(): String {
-        val md = MessageDigest.getInstance("SHA-256")
-        md.update("${this::class.java.name}#${PROMPT_TEMPLATE_VERSION}".toByteArray(Charsets.UTF_8))
-        return md.digest().joinToString("") { "%02x".format(it) }.take(8)
+    /**
+     * 加载快照 → 聚合 → 计算指纹 → 短路检查（fingerprint_hit / skip_low_events）→
+     * 构造 prompt → 取主端点（no_endpoint_configured）。
+     *
+     * 任一短路命中返回 [PrepareOutcome.Skip]，调用方据此直接返回 Result；
+     * 快照不存在返回 [PrepareOutcome.NoSnapshot]（外层 doWork 单独处理状态码）。
+     */
+    private suspend fun prepareAndCheckShortCircuits(started: Long): PrepareOutcome {
+        // 1. 加载最新快照
+        val snapshot = userProfileDao.latestSnapshot()?.let { ProfileMappers.run { it.toDomain() } }
+        if (snapshot == null) {
+            logEvent(started, "no_snapshot", null)
+            return PrepareOutcome.NoSnapshot
+        }
+
+        // 2. 计算输入指纹
+        val sinceMs = started - FEEDBACK_EFFECT_WINDOW_MS
+        val aggregated = aggregator.aggregate(snapshot, sinceMs)
+        val latestVersion = userProfileDao.latestVersion()?.let { ProfileMappers.run { it.toDomain() } }
+        val fingerprint = generationService.inputFingerprint(snapshot, aggregated)
+        val hasNewFeedback = feedbackDao.countSince(latestVersion?.createdAt ?: 0L) > 0
+
+        // 短路 1：输入指纹相同 + 无新反馈 → 跳过
+        if (latestVersion != null && latestVersion.inputFingerprint == fingerprint && !hasNewFeedback) {
+            logEvent(started, "fingerprint_hit", null)
+            return PrepareOutcome.Skip(
+                Result.success(workDataOf(WorkerKeys.KEY_RESULT to "fingerprint_hit")),
+            )
+        }
+
+        // 短路 2：新事件 < 阈值 + 无新反馈 → 跳过
+        if (!hasNewFeedback) {
+            val newEvents = userActionDao.countSince(latestVersion?.createdAt ?: 0L)
+            if (newEvents < MIN_NEW_EVENTS) {
+                logEvent(started, "skip_low_events", "events=$newEvents")
+                return PrepareOutcome.Skip(
+                    Result.success(workDataOf(WorkerKeys.KEY_RESULT to "skip_low_events")),
+                )
+            }
+        }
+
+        // 3. 构造 prompt
+        val input = UserProfilePromptBuilder.Input(
+            snapshot = snapshot,
+            eventSummary = aggregated.eventSummary,
+            feedbackEffect = aggregated.feedbackEffect,
+            userFeedback = aggregated.userFeedback,
+            activeOverrides = aggregated.userFeedback.activeOverrides,
+            previousNarrative = aggregated.previousNarrative,
+        )
+        val messages = promptBuilder.build(input)
+
+        // M2 修复：未配置任何端点时显式跳过，避免 RulesetEngine.chatSync 内部抛
+        // IllegalStateException 后被通用 catch 捕获走 retry 浪费 WorkManager 配额
+        val endpoints = configRepository.listEndpoints()
+        if (endpoints.isEmpty()) {
+            logEvent(started, "no_endpoint_configured", null)
+            return PrepareOutcome.Skip(
+                Result.success(workDataOf(WorkerKeys.KEY_RESULT to "no_endpoint_configured")),
+            )
+        }
+        return PrepareOutcome.Proceed(aggregated, fingerprint, messages, endpoints.first().id)
+    }
+
+    /** LLM 调用结果。 */
+    private sealed interface LlmOutcome {
+        data class Success(val raw: String) : LlmOutcome
+        data class Skip(val status: String) : LlmOutcome
+        data class Failure(val result: Result) : LlmOutcome
+    }
+
+    /**
+     * 调 LLM 并处理 RateLimitedException / CancellationException / 其他 Throwable。
+     *
+     * - RateLimitedException → [LlmOutcome.Skip]（status=`rate_limited`），调用方返回 success 跳过本次。
+     * - 其他 Throwable → [LlmOutcome.Failure]，已根据 `runAttemptCount` 决定 retry/failure。
+     *
+     * @throws kotlinx.coroutines.CancellationException 协程取消时向上抛
+     */
+    private suspend fun callLlm(
+        messages: List<com.trae.social.llm.ChatMessage>,
+        started: Long,
+    ): LlmOutcome {
+        return try {
+            LlmOutcome.Success(
+                rulesetEngine.chatSync(
+                    messages = messages,
+                    config = ChatConfig(temperature = 0.6f, maxTokens = 768, jsonMode = true),
+                ),
+            )
+        } catch (e: RateLimitedException) {
+            Timber.w("UserProfileWorker 遇到限流，跳过 retryAfter=%s", e.retryAfterSeconds)
+            logEvent(started, "rate_limited", e.message)
+            LlmOutcome.Skip("rate_limited")
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Timber.w(t, "UserProfileWorker LLM 调用失败")
+            logEvent(started, "llm_error", t.message)
+            LlmOutcome.Failure(
+                if (runAttemptCount >= WorkerConstants.MAX_RUN_ATTEMPTS) {
+                    Result.failure(workDataOf(WorkerKeys.KEY_ERROR to (t.message ?: "unknown")))
+                } else {
+                    Result.retry()
+                },
+            )
+        }
     }
 
     // #218：logEvent 实现抽到 SchedulerLogger.log，此处保留薄包装统一 action 标识
@@ -237,7 +255,5 @@ class UserProfileWorker @AssistedInject constructor(
     private companion object {
         const val MIN_NEW_EVENTS = 20
         const val FEEDBACK_EFFECT_WINDOW_MS = 14L * 24 * 60 * 60 * 1000 // 14 天
-        // M4：prompt 模板版本，模板内容变更时递增以使指纹失效
-        const val PROMPT_TEMPLATE_VERSION = 1
     }
 }
