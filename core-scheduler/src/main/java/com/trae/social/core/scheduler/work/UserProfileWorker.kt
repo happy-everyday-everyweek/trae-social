@@ -96,8 +96,10 @@ class UserProfileWorker @AssistedInject constructor(
             }
 
             // 6. narrative 突变校验（领域规则保留在 PromptBuilder，编排留在 Worker）
-            if (aggregated.previousNarrative != null &&
-                UserProfilePromptBuilder.shouldRollbackNarrative(aggregated.previousNarrative, parsed.narrative)
+            // 取局部变量以便 smart cast：previousNarrative 是跨模块公开属性，无法直接 smart cast
+            val previousNarrative = aggregated.previousNarrative
+            if (previousNarrative != null &&
+                UserProfilePromptBuilder.shouldRollbackNarrative(previousNarrative, parsed.narrative)
             ) {
                 Timber.i("UserProfileWorker narrative 突变，保留旧版本")
                 logEvent(started, "narrative_rollback", null)

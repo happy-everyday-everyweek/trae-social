@@ -22,6 +22,7 @@ import com.trae.social.core.profiling.capture.SessionManager
 import com.trae.social.core.profiling.capture.UserActionTracker
 import com.trae.social.core.profiling.feedback.FeedbackController
 import com.trae.social.core.profiling.feedback.UserProfileReadAccess
+import com.trae.social.core.scheduler.SchedulerConstants
 import com.trae.social.core.scheduler.ratelimit.DailyQuotaChecker
 import com.trae.social.core.scheduler.ratelimit.SchedulerRateLimiter
 import com.trae.social.core.scheduler.rule.DeduplicationKeys
@@ -355,7 +356,7 @@ class TweetGenerationWorker @AssistedInject constructor(
     }
 
     /** 8. 配图选取：withImage 且主题非 NONE 时通过 [LocalImageGallery.pickRandom] 取配图。 */
-    private fun selectImage(
+    private suspend fun selectImage(
         withImage: Boolean,
         imageTheme: TweetPromptBuilder.ImageTheme,
         accountId: String,

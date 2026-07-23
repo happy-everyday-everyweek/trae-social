@@ -39,6 +39,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import coil.ImageLoader
 import com.trae.social.designsystem.components.SocialDivider
 import com.trae.social.designsystem.theme.LocalSocialColors
