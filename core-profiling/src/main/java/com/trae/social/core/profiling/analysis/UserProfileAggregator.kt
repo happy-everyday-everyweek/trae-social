@@ -7,6 +7,7 @@ import com.trae.social.core.data.dao.UserProfileOverrideDao
 import com.trae.social.core.data.model.EventSummary
 import com.trae.social.core.data.model.FeedbackEffect
 import com.trae.social.core.data.model.FeedbackMessageSummary
+import com.trae.social.core.data.model.ScenarioIds
 import com.trae.social.core.data.model.UserFeedbackSummary
 import com.trae.social.core.data.model.UserProfileSnapshot
 import com.trae.social.core.data.repository.ConfigRepository
@@ -88,7 +89,7 @@ class UserProfileAggregator @Inject constructor(
         if (allEvents.isEmpty()) return FeedbackEffect(emptyMap(), emptyList())
 
         val deltas = mutableMapOf<Int, Double>()
-        for (scenarioId in 1..8) {
+        for (scenarioId in ScenarioIds.ALL) {
             runCatching {
                 val stats = computeScenarioStats(scenarioId, allEvents)
                 if (stats.drivenCount == 0 && stats.controlCount == 0) return@runCatching

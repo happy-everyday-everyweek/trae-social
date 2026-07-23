@@ -177,7 +177,7 @@ object SchedulerInitializer {
                 val rule = ScheduleRule(
                     accountId = account.id,
                     activeWindows = account.activeWindows,
-                    postsPerWindow = POSTS_PER_WINDOW,
+                    postsPerWindow = SchedulerConstants.POSTS_PER_WINDOW,
                 )
 
                 // #114：使用账号自身的最近日志确定"上次运行"时刻，
@@ -514,7 +514,4 @@ object SchedulerInitializer {
      * 与 fallback（24h）形成两档：正常情况补 24h，异常情况最多补 MAX_LOOKBACK_DAYS 天。
      */
     private const val MAX_LOOKBACK_DAYS: Int = 3
-
-    /** P1 修复：每个活跃窗内允许发布的推文数上限（spec 默认 2 条/窗） */
-    private const val POSTS_PER_WINDOW: Int = 2
 }

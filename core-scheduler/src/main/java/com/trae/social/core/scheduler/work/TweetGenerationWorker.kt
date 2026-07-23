@@ -14,6 +14,7 @@ import com.trae.social.core.data.entity.TweetEntity
 import com.trae.social.core.data.repository.AccountRepository
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.data.repository.TweetRepository
+import com.trae.social.core.data.model.ScenarioIds
 import com.trae.social.core.data.model.UserActionEvent
 import com.trae.social.core.data.model.UserActionType
 import com.trae.social.core.profiling.capture.SessionManager
@@ -262,7 +263,7 @@ class TweetGenerationWorker @AssistedInject constructor(
             .map { it.text }
 
         val sessionId = sessionManager.currentSessionId() ?: accountId
-        val drivenScenario1 = feedbackController.shouldApply(1, sessionId)
+        val drivenScenario1 = feedbackController.shouldApply(ScenarioIds.TOPIC_BIAS, sessionId)
         val promptContext = if (drivenScenario1) {
             val topInterests = readAccess.interestVector()
                 .entries.sortedByDescending { it.value }.take(5).joinToString("、") { it.key }
@@ -387,9 +388,9 @@ class TweetGenerationWorker @AssistedInject constructor(
         val currentInWindow = runCatching {
             tweetRepository.countByAuthorInWindow(accountId, windowStart, windowEndMillis)
         }.getOrDefault(0)
-        if (currentInWindow >= POSTS_PER_WINDOW) {
+        if (currentInWindow >= SchedulerConstants.POSTS_PER_WINDOW) {
             Timber.i("账号 %s 窗内推文数已达上限 %d/%d，跳过（TOCTOU）",
-                accountId, currentInWindow, POSTS_PER_WINDOW)
+                accountId, currentInWindow, SchedulerConstants.POSTS_PER_WINDOW)
             val status = "skipped_window_full"
             logSchedulerEvent(accountId, started, status, "window full at execution time")
             return Result.success(workDataOf(WorkerKeys.KEY_RESULT to status))
@@ -474,7 +475,7 @@ class TweetGenerationWorker @AssistedInject constructor(
                     targetId = tweet.id,
                     targetKind = "tweet",
                     extra = mapOf(
-                        "scenarioId" to kotlinx.serialization.json.JsonPrimitive(1),
+                        "scenarioId" to kotlinx.serialization.json.JsonPrimitive(ScenarioIds.TOPIC_BIAS),
                         "drivenByProfile" to kotlinx.serialization.json.JsonPrimitive(drivenScenario1),
                         "group" to kotlinx.serialization.json.JsonPrimitive(if (drivenScenario1) "driven" else "control"),
                         "authorId" to kotlinx.serialization.json.JsonPrimitive(accountId),
@@ -556,7 +557,7 @@ class TweetGenerationWorker @AssistedInject constructor(
         val rule = com.trae.social.core.scheduler.rule.ScheduleRule(
             accountId = accountId,
             activeWindows = account.activeWindows,
-            postsPerWindow = POSTS_PER_WINDOW,
+            postsPerWindow = SchedulerConstants.POSTS_PER_WINDOW,
         )
         val now = java.time.Instant.now()
         val nextTrigger = com.trae.social.core.scheduler.rule.ScheduleRuleResolver.nextTriggerTime(
@@ -582,7 +583,7 @@ class TweetGenerationWorker @AssistedInject constructor(
             tweetRepository.countByAuthorInWindow(accountId, windowStartMillis, windowEndMillis)
         }.getOrDefault(0).coerceAtLeast(0)
         // 双重守卫：若窗已满（nextTriggerTime 与此处查询之间存在 TOCTOU 间隙），跳过本次入队
-        if (sequenceNo >= POSTS_PER_WINDOW) {
+        if (sequenceNo >= SchedulerConstants.POSTS_PER_WINDOW) {
             Timber.i("账号 %s 目标窗内已发 %d 条，跳过自链入队", accountId, sequenceNo)
             return
         }
@@ -663,8 +664,5 @@ class TweetGenerationWorker @AssistedInject constructor(
 
     private companion object {
         const val RECENT_TWEETS_FOR_DEDUP = 3
-
-        /** P1 修复：每个活跃窗内允许发布的推文数上限（与 SchedulerInitializer 保持一致） */
-        const val POSTS_PER_WINDOW = 2
     }
 }

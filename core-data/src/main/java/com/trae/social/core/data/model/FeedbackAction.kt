@@ -63,8 +63,8 @@ fun FeedbackAction.sanitize(): FeedbackAction? = when (this) {
     is FeedbackAction.SuppressTheme -> if (theme.isBlank()) null else this
     is FeedbackAction.AddPreference -> if (preference.isBlank()) null else this
     is FeedbackAction.RemovePreference -> if (preference.isBlank()) null else this
-    is FeedbackAction.DisableScenario -> if (scenarioId !in 1..8) null else this
-    is FeedbackAction.EnableScenario -> if (scenarioId !in 1..8) null else this
+    is FeedbackAction.DisableScenario -> if (scenarioId !in ScenarioIds.ALL) null else this
+    is FeedbackAction.EnableScenario -> if (scenarioId !in ScenarioIds.ALL) null else this
     is FeedbackAction.CorrectNarrative -> if (correction.isBlank()) null else this
     is FeedbackAction.SetActiveHours -> {
         val valid = hours.filter { it in 0..23 }

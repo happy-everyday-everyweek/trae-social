@@ -5,6 +5,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.trae.social.core.data.model.ScenarioIds
 import com.trae.social.core.data.model.UserActionEvent
 import com.trae.social.core.data.model.UserActionType
 import com.trae.social.core.data.repository.AccountRepository
@@ -75,7 +76,7 @@ class PersonaUpdateWorker @AssistedInject constructor(
             // 整批共用一次 driven 判定（而非逐账号），因为人设共演化是批次级策略，
             // 同批要么全注入用户兴趣，要么全不注入，便于 computeFeedbackEffect 做 A/B 回测。
             val sessionId = sessionManager.currentSessionId() ?: "persona_update"
-            val drivenScenario7 = feedbackController.shouldApply(7, sessionId)
+            val drivenScenario7 = feedbackController.shouldApply(ScenarioIds.PERSONA_CO_EVOLVE, sessionId)
             val userInterests = if (drivenScenario7) collectUserInterests() else emptyList()
 
             // 1. 选取 batchSize 个最久未更新的虚拟账号（#75）
@@ -131,7 +132,7 @@ class PersonaUpdateWorker @AssistedInject constructor(
                         targetId = "batch_$started",
                         targetKind = "persona_batch",
                         extra = mapOf(
-                            "scenarioId" to kotlinx.serialization.json.JsonPrimitive(7),
+                            "scenarioId" to kotlinx.serialization.json.JsonPrimitive(ScenarioIds.PERSONA_CO_EVOLVE),
                             "drivenByProfile" to kotlinx.serialization.json.JsonPrimitive(drivenScenario7),
                             "group" to kotlinx.serialization.json.JsonPrimitive(if (drivenScenario7) "driven" else "control"),
                             "batchSize" to kotlinx.serialization.json.JsonPrimitive(candidates.size),

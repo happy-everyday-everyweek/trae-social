@@ -82,14 +82,9 @@ object BasicProfileAnalyzer {
      *
      * 过滤策略双保险：
      * 1. extra 含 `isScenarioMarker=true`（Workers 显式打的标记）→ 调度器事件
-     * 2. screen ∈ [SCHEDULER_SCREENS]（按来源屏幕兜底，防止旧数据/漏打标记）→ 调度器事件
+     * 2. screen ∈ [AnalysisConstants.SCHEDULER_SCREENS]（按来源屏幕兜底，防止旧数据/漏打标记）→ 调度器事件
      */
-    private val SCHEDULER_SCREENS = setOf(
-        "tweet_generation",
-        "interaction_schedule",
-        "interaction_schedule_comment",
-        "persona_update_co_evolve",
-    )
+    // #310：SCHEDULER_SCREENS 已抽到 AnalysisConstants，此处不再重复定义。
 
     /**
      * 判断事件是否为调度器打标事件（应从用户画像分析中剔除）。
@@ -97,7 +92,7 @@ object BasicProfileAnalyzer {
      */
     private fun isSchedulerMarker(e: UserActionEvent): Boolean {
         if (ProfileMappers.readExtraBoolean(e.extra, "isScenarioMarker")) return true
-        if (e.screen in SCHEDULER_SCREENS) return true
+        if (e.screen in AnalysisConstants.SCHEDULER_SCREENS) return true
         return false
     }
 

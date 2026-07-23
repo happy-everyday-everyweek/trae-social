@@ -19,6 +19,7 @@ import com.trae.social.core.data.util.runCatchingCancellable
 import com.trae.social.core.profiling.capture.SessionManager
 import com.trae.social.core.profiling.capture.UserActionEventBuilder
 import com.trae.social.core.profiling.capture.UserActionTracker
+import com.trae.social.core.data.model.ScenarioIds
 import com.trae.social.core.data.model.UserActionType
 import com.trae.social.core.profiling.feedback.FeedbackController
 import com.trae.social.core.profiling.feedback.UserProfileReadAccess
@@ -139,7 +140,7 @@ class FeedViewModel @Inject constructor(
         //    computeScenarioStats 的曝光分母，避免 A/B 反哺 delta 恒为 0。
         viewModelScope.launch {
             val sessionId = sessionManager.currentSessionId() ?: "unknown"
-            val driven = feedbackController.shouldApply(5, sessionId)
+            val driven = feedbackController.shouldApply(ScenarioIds.FEED_BOOST, sessionId)
             _feedBoostEnabled.value = driven
             runCatchingCancellable {
                 actionBuilder.emit(
@@ -195,7 +196,7 @@ class FeedViewModel @Inject constructor(
      */
     private fun scenario5Extra(driven: Boolean, includeMarker: Boolean = false): Map<String, kotlinx.serialization.json.JsonElement> {
         val map = mutableMapOf<String, kotlinx.serialization.json.JsonElement>(
-            "scenarioId" to kotlinx.serialization.json.JsonPrimitive(5),
+            "scenarioId" to kotlinx.serialization.json.JsonPrimitive(ScenarioIds.FEED_BOOST),
             "drivenByProfile" to kotlinx.serialization.json.JsonPrimitive(driven),
             "group" to kotlinx.serialization.json.JsonPrimitive(if (driven) "driven" else "control"),
         )

@@ -37,7 +37,9 @@ fun CaptionInput(
 ) {
     val colors = LocalSocialColors.current
     val typography = LocalSocialTypography.current
-    val count = text.length
+    // #321：字数计数统一用 codePointCount（与 ViewModel 截断口径一致），
+    // 避免 emoji（代理对）场景下 UI 显示的计数与实际截断后的长度不一致。
+    val count = text.codePointCount(0, text.length)
     val nearLimit = count >= TweetLimits.MAX_CAPTION_LENGTH - 20
 
     Column(

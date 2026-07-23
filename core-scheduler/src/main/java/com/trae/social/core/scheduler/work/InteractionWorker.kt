@@ -12,6 +12,7 @@ import com.trae.social.core.data.entity.TweetEntity
 import com.trae.social.core.data.repository.AccountRepository
 import com.trae.social.core.data.repository.InteractionRepository
 import com.trae.social.core.data.repository.TweetRepository
+import com.trae.social.core.data.model.ScenarioIds
 import com.trae.social.core.data.model.UserActionEvent
 import com.trae.social.core.data.model.UserActionType
 import com.trae.social.core.profiling.capture.SessionManager
@@ -197,7 +198,7 @@ class InteractionWorker @AssistedInject constructor(
     ): Outcome<InteractionPlan> {
         val sessionId = sessionManager.currentSessionId() ?: tweet.id
         // #146 A/E 场景 3：判断本次是否 driven（画像驱动互动账号选择）
-        val drivenScenario3 = feedbackController.shouldApply(3, sessionId)
+        val drivenScenario3 = feedbackController.shouldApply(ScenarioIds.INTERACTION_AFFINITY, sessionId)
         val interestVector = if (drivenScenario3) readAccess.interestVector() else emptyMap()
         val candidates = selectCommenters(
             tweet.authorId, author.profession, author.bio, drivenScenario3, interestVector,
@@ -213,10 +214,10 @@ class InteractionWorker @AssistedInject constructor(
         // 避免毫秒级种子在并发时产生相同互动模式
         val random = Random(System.nanoTime() xor tweet.authorId.hashCode().toLong())
         // #146 A/E 场景 8：判断互动时机是否 driven（画像驱动排程时段）
-        val drivenScenario8 = feedbackController.shouldApply(8, sessionId)
+        val drivenScenario8 = feedbackController.shouldApply(ScenarioIds.INTERACTION_TIMING, sessionId)
         val userActiveHours = if (drivenScenario8) readAccess.activeHours() else emptyList()
         // #146 A/E 场景 4：判断评论文本是否 driven（画像驱动评论内容）
-        val drivenScenario4 = feedbackController.shouldApply(4, sessionId)
+        val drivenScenario4 = feedbackController.shouldApply(ScenarioIds.COMMENT_PERSONA, sessionId)
         val assignments = candidates.map { account ->
             val type = assignInteractionType(random)
             val delayMillis = scheduleDelayFor(type, random, drivenScenario8, userActiveHours)
@@ -293,7 +294,7 @@ class InteractionWorker @AssistedInject constructor(
                     targetId = tweet.id,
                     targetKind = "tweet",
                     extra = mapOf(
-                        "scenarioId" to kotlinx.serialization.json.JsonPrimitive(3),
+                        "scenarioId" to kotlinx.serialization.json.JsonPrimitive(ScenarioIds.INTERACTION_AFFINITY),
                         "drivenByProfile" to kotlinx.serialization.json.JsonPrimitive(driven3),
                         "group" to kotlinx.serialization.json.JsonPrimitive(if (driven3) "driven" else "control"),
                         "interactionCount" to kotlinx.serialization.json.JsonPrimitive(p.interactions.size),
@@ -316,7 +317,7 @@ class InteractionWorker @AssistedInject constructor(
                     targetId = tweet.id,
                     targetKind = "tweet",
                     extra = mapOf(
-                        "scenarioId" to kotlinx.serialization.json.JsonPrimitive(4),
+                        "scenarioId" to kotlinx.serialization.json.JsonPrimitive(ScenarioIds.COMMENT_PERSONA),
                         "drivenByProfile" to kotlinx.serialization.json.JsonPrimitive(p.drivenScenario4),
                         "group" to kotlinx.serialization.json.JsonPrimitive(if (p.drivenScenario4) "driven" else "control"),
                         "commentCount" to kotlinx.serialization.json.JsonPrimitive(p.commentAssignments.size),

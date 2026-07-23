@@ -7,6 +7,7 @@ import com.trae.social.core.data.dao.FollowRelationDao
 import com.trae.social.core.data.entity.AccountEntity
 import com.trae.social.core.data.entity.FollowRelationEntity
 import com.trae.social.core.data.repository.AccountRepository
+import com.trae.social.core.data.model.ScenarioIds
 import com.trae.social.core.data.model.UserActionEvent
 import com.trae.social.core.data.model.UserActionType
 import com.trae.social.core.profiling.capture.SessionManager
@@ -176,7 +177,7 @@ class FollowListViewModel @Inject constructor(
      */
     private suspend fun loadRecommendedAccounts(): List<AccountEntity> {
         val sessionId = sessionManager.currentSessionId() ?: "follow_recommend"
-        val drivenScenario6 = feedbackController.shouldApply(6, sessionId)
+        val drivenScenario6 = feedbackController.shouldApply(ScenarioIds.FOLLOW_RECOMMEND, sessionId)
         // 第七轮 review B1 修复：缓存本次 RECOMMENDED 列表的 driven 分组结果，
         // 供 toggleFollow 在 FOLLOW 埋点上带 scenarioId=6 / drivenByProfile / group。
         scenario6Driven = drivenScenario6
@@ -244,7 +245,7 @@ class FollowListViewModel @Inject constructor(
                     targetId = "recommend_list",
                     targetKind = "account_list",
                     extra = mapOf(
-                        "scenarioId" to kotlinx.serialization.json.JsonPrimitive(6),
+                        "scenarioId" to kotlinx.serialization.json.JsonPrimitive(ScenarioIds.FOLLOW_RECOMMEND),
                         "drivenByProfile" to kotlinx.serialization.json.JsonPrimitive(drivenScenario6),
                         "group" to kotlinx.serialization.json.JsonPrimitive(if (drivenScenario6) "driven" else "control"),
                         "isScenarioMarker" to kotlinx.serialization.json.JsonPrimitive(true),
@@ -406,7 +407,7 @@ class FollowListViewModel @Inject constructor(
                 )
                 if (type == FollowListType.RECOMMENDED) {
                     scenario6Driven?.let { driven ->
-                        extraBuilder["scenarioId"] = kotlinx.serialization.json.JsonPrimitive(6)
+                        extraBuilder["scenarioId"] = kotlinx.serialization.json.JsonPrimitive(ScenarioIds.FOLLOW_RECOMMEND)
                         extraBuilder["drivenByProfile"] = kotlinx.serialization.json.JsonPrimitive(driven)
                         extraBuilder["group"] = kotlinx.serialization.json.JsonPrimitive(if (driven) "driven" else "control")
                     }

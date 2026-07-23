@@ -13,6 +13,7 @@ import com.trae.social.core.data.model.OverrideRecord
 import com.trae.social.core.data.model.RollbackPreview
 import com.trae.social.core.data.model.RollbackRecord
 import com.trae.social.core.data.model.RollbackResult
+import com.trae.social.core.data.model.ScenarioIds
 import com.trae.social.core.data.model.UserProfileVersion
 import com.trae.social.core.data.model.VersionSummary
 import com.trae.social.core.data.repository.ConfigRepository
@@ -223,7 +224,7 @@ class ProfileVersionStore @Inject constructor(
 
     private fun affectedScenarios(current: FeedbackWeights, target: FeedbackWeights): List<Int> {
         val result = ArrayList<Int>()
-        for (scenarioId in 1..8) {
+        for (scenarioId in ScenarioIds.ALL) {
             val c = FeedbackWeights.weightForScenario(scenarioId, current)
             val t = FeedbackWeights.weightForScenario(scenarioId, target)
             if (kotlin.math.abs(c - t) > 0.001) result.add(scenarioId)

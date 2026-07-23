@@ -148,21 +148,13 @@ class EventTextPreParser @Inject constructor(
         if (event.targetId.isNullOrBlank()) return false
         // 排除调度器打标事件（与 BasicProfileAnalyzer.B2 修复同策略）
         if (ProfileMappers.readExtraBoolean(event.extra, "isScenarioMarker")) return false
-        if (event.screen in SCHEDULER_SCREENS) return false
+        if (event.screen in AnalysisConstants.SCHEDULER_SCREENS) return false
         // 已解析过则跳过（缓存命中）：检查 textParsed 标记，
         // 而非检查 textTopic（LLM 可能返回 topic=null 但 sentiment/intent 非空）
         return !ProfileMappers.readExtraBoolean(event.extra, KEY_TEXT_PARSED)
     }
 
-    /**
-     * 调度器 Worker 落事件的 screen 白名单（与 [BasicProfileAnalyzer.SCHEDULER_SCREENS] 一致）。
-     */
-    private val SCHEDULER_SCREENS = setOf(
-        "tweet_generation",
-        "interaction_schedule",
-        "interaction_schedule_comment",
-        "persona_update_co_evolve",
-    )
+    // #310：SCHEDULER_SCREENS 已抽到 [AnalysisConstants.SCHEDULER_SCREENS]，此处不再重复定义。
 
     /**
      * 按 targetId 回查事件关联的原文。
