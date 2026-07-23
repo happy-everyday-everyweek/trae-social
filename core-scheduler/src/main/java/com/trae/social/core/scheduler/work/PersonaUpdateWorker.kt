@@ -11,6 +11,7 @@ import com.trae.social.core.data.model.UserActionType
 import com.trae.social.core.data.repository.AccountRepository
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.data.repository.TweetRepository
+import com.trae.social.core.data.util.runCatchingCancellable
 import com.trae.social.core.profiling.capture.SessionManager
 import com.trae.social.core.profiling.capture.UserActionTracker
 import com.trae.social.core.profiling.feedback.FeedbackController
@@ -68,7 +69,7 @@ class PersonaUpdateWorker @AssistedInject constructor(
 
         try {
             // IMPL-47：按当前活跃度档位确定批次大小（LOW=10 / MEDIUM=20 / HIGH=40）
-            val level = runCatching { configRepository.getAiActivityLevel() }
+            val level = runCatchingCancellable { configRepository.getAiActivityLevel() }
                 .getOrDefault(com.trae.social.core.data.config.AiActivityLevel.MEDIUM)
             val batchSize = level.personaUpdateBatchSize
 
@@ -222,6 +223,8 @@ class PersonaUpdateWorker @AssistedInject constructor(
             )
         } catch (e: RateLimitedException) {
             // IMPL-19：429 限流向上抛出，由 doWork 统一捕获并跳过
+            throw e
+        } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (t: Throwable) {
             Timber.w(t, "账号 %s 人设更新 LLM 调用失败", account.id)

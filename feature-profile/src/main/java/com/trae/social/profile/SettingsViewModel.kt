@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.trae.social.core.data.config.AiActivityLevel
 import com.trae.social.core.data.repository.ConfigRepository
+import com.trae.social.core.data.util.runCatchingCancellable
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,14 +36,14 @@ class SettingsViewModel @Inject constructor(
 
     private fun loadActivityLevel() {
         viewModelScope.launch {
-            _activityLevel.value = runCatching { configRepository.getAiActivityLevel() }
+            _activityLevel.value = runCatchingCancellable { configRepository.getAiActivityLevel() }
                 .getOrElse { AiActivityLevel.MEDIUM }
         }
     }
 
     fun setActivityLevel(level: AiActivityLevel) {
         viewModelScope.launch {
-            runCatching { configRepository.setAiActivityLevel(level) }
+            runCatchingCancellable { configRepository.setAiActivityLevel(level) }
                 .onSuccess { _activityLevel.value = level }
                 .onFailure { Timber.w(it, "切换活跃度档位失败") }
         }

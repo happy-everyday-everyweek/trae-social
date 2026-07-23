@@ -10,6 +10,7 @@ import com.trae.social.core.data.model.RollbackRecord
 import com.trae.social.core.data.model.UserProfileSnapshot
 import com.trae.social.core.data.model.UserProfileVersion
 import com.trae.social.core.data.model.VersionSummary
+import com.trae.social.core.data.util.runCatchingCancellable
 import com.trae.social.core.profiling.feedback.ProfileVersionStore
 import com.trae.social.core.profiling.feedback.UserProfileReadAccess
 import com.trae.social.core.scheduler.work.UserProfileWorker
@@ -70,7 +71,7 @@ class ProfileInspectViewModel @Inject constructor(
 
     fun refresh() {
         viewModelScope.launch {
-            runCatching {
+            runCatchingCancellable {
                 _activeVersion.value = readAccess.activeVersion()
                 _snapshot.value = readAccess.latestSnapshot()
                 _activeOverrides.value = readAccess.activeOverrides()
@@ -109,7 +110,7 @@ class ProfileInspectViewModel @Inject constructor(
      */
     fun rollbackTo(versionId: Long) {
         viewModelScope.launch {
-            runCatching {
+            runCatchingCancellable {
                 versionStore.applyRollback(versionId, reason = "DevOptions 手动回滚")
                 _triggerResult.value = "已回滚到版本 #$versionId"
                 refresh()

@@ -15,6 +15,7 @@ import com.trae.social.core.data.repository.TweetRepository
 import com.trae.social.core.data.model.ScenarioIds
 import com.trae.social.core.data.model.UserActionEvent
 import com.trae.social.core.data.model.UserActionType
+import com.trae.social.core.data.util.runCatchingCancellable
 import com.trae.social.core.profiling.capture.SessionManager
 import com.trae.social.core.profiling.capture.UserActionTracker
 import com.trae.social.core.profiling.feedback.FeedbackController
@@ -348,7 +349,7 @@ class InteractionWorker @AssistedInject constructor(
         val all = mutableListOf<AccountEntity>()
         var page = 1
         while (true) {
-            val batch = runCatching { accountRepository.getAccounts(page) }.getOrDefault(emptyList())
+            val batch = runCatchingCancellable { accountRepository.getAccounts(page) }.getOrDefault(emptyList())
             if (batch.isEmpty()) break
             all.addAll(batch.filter { it.isVirtual && it.id != authorId })
             page++
@@ -511,6 +512,8 @@ class InteractionWorker @AssistedInject constructor(
             )
         } catch (e: RateLimitedException) {
             // IMPL-19：429 限流向上抛出，由 doWork 统一捕获并跳过，不在此处吞掉
+            throw e
+        } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (t: Throwable) {
             Timber.w(t, "批量生成评论失败，跳过评论内容")

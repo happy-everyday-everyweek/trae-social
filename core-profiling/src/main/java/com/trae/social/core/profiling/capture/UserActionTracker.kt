@@ -1,6 +1,7 @@
 package com.trae.social.core.profiling.capture
 
 import com.trae.social.core.data.model.UserActionEvent
+import com.trae.social.core.data.util.runCatchingCancellable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -99,7 +100,7 @@ class UserActionTrackerImpl @Inject constructor(
     override suspend fun track(event: UserActionEvent) {
         if (!gate.isEnabled()) return
         if (!dedup(event)) return
-        runCatching { sink.insertAll(listOf(event.toEntity())) }
+        runCatchingCancellable { sink.insertAll(listOf(event.toEntity())) }
             .onFailure { Timber.w(it, "track 直写失败") }
         if (gate.isDebug()) {
             Timber.i("[Profile] track %s @ %s target=%s", event.type, event.screen, event.targetId)
@@ -160,7 +161,7 @@ class UserActionTrackerImpl @Inject constructor(
     private suspend fun flush(batch: List<UserActionEvent>) {
         if (batch.isEmpty()) return
         val entities = batch.map { it.toEntity() }
-        runCatching { sink.insertAll(entities) }
+        runCatchingCancellable { sink.insertAll(entities) }
             .onFailure { Timber.w(it, "批写 %d 条事件失败", batch.size) }
         if (gate.isDebug()) {
             Timber.i("[Profile] 批写 %d 条事件", batch.size)

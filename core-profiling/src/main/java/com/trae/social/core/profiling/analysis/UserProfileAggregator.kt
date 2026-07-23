@@ -11,6 +11,7 @@ import com.trae.social.core.data.model.ScenarioIds
 import com.trae.social.core.data.model.UserFeedbackSummary
 import com.trae.social.core.data.model.UserProfileSnapshot
 import com.trae.social.core.data.repository.ConfigRepository
+import com.trae.social.core.data.util.runCatchingCancellable
 import com.trae.social.core.profiling.capture.ProfilingGate
 import com.trae.social.core.profiling.mapping.ProfileMappers
 import javax.inject.Inject
@@ -84,7 +85,7 @@ class UserProfileAggregator @Inject constructor(
      */
     private suspend fun computeFeedbackEffect(since: Long): FeedbackEffect {
         if (!gate.isEnabled()) return FeedbackEffect(emptyMap(), emptyList())
-        val allEvents = runCatching { userActionDao.queryAllSince(since) }
+        val allEvents = runCatchingCancellable { userActionDao.queryAllSince(since) }
             .getOrElse { return FeedbackEffect(emptyMap(), emptyList()) }
         if (allEvents.isEmpty()) return FeedbackEffect(emptyMap(), emptyList())
 

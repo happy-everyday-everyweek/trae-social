@@ -4,6 +4,7 @@ import com.trae.social.core.data.dao.UserActionDao
 import com.trae.social.core.data.dao.UserProfileDao
 import com.trae.social.core.data.entity.UserProfileSnapshotEntity
 import com.trae.social.core.data.model.UserProfileSnapshot
+import com.trae.social.core.data.util.runCatchingCancellable
 import com.trae.social.core.profiling.capture.ProfilingGate
 import com.trae.social.core.profiling.feedback.CachedProfileLoader
 import com.trae.social.core.profiling.feedback.ProfileCache
@@ -106,7 +107,7 @@ class BasicProfileTrigger @Inject constructor(
             pending = true
         }
         delay(DEBOUNCE_MS)
-        runCatching { compute(now) }
+        runCatchingCancellable { compute(now) }
             .onFailure { Timber.w(it, "基础分析计算失败") }
         mutex.withLock {
             pending = false

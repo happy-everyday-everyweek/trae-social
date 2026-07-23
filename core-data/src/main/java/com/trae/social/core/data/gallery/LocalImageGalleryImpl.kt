@@ -14,6 +14,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.random.Random
 import com.trae.social.core.data.gallery.di.GalleryJson
+import com.trae.social.core.data.util.runCatchingCancellable
 
 /**
  * [LocalImageGallery] 的默认实现。
@@ -58,7 +59,7 @@ class LocalImageGalleryImpl @Inject constructor(
             }
 
             val sinceMillis = nowMillis() - dedupWindowMillis
-            val used: Set<String> = runCatching {
+            val used: Set<String> = runCatchingCancellable {
                 imageUsage.recentlyUsedAssets(accountId, sinceMillis)
             }.getOrElse {
                 Timber.w(it, "query recently used assets failed, fallback to empty set")
@@ -76,7 +77,7 @@ class LocalImageGalleryImpl @Inject constructor(
                 if (available.isEmpty()) continue
                 val picked = available.random(Random.Default)
                 val assetPath = "$galleryRoot/$currentTheme/$picked"
-                runCatching {
+                runCatchingCancellable {
                     imageUsage.recordUsage(accountId, assetPath, nowMillis())
                 }.onFailure {
                     Timber.w(it, "record image usage failed (will still return picked path)")

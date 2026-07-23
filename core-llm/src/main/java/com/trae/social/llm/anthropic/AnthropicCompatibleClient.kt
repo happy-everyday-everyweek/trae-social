@@ -8,6 +8,7 @@ import com.anthropic.models.messages.MessageCreateParams
 import com.anthropic.models.messages.MessageParam
 import com.anthropic.models.messages.RawMessageStreamEvent
 import com.trae.social.core.data.config.ModelCapability
+import com.trae.social.core.data.util.runCatchingCancellable
 import com.trae.social.llm.ChatConfig
 import com.trae.social.llm.ChatMessage
 import com.trae.social.llm.ContentPart
@@ -125,7 +126,7 @@ class AnthropicCompatibleClient(
     }
 
     override suspend fun ping(): Boolean {
-        val result = runCatching {
+        val result = runCatchingCancellable {
             chatSync(
                 listOf(ChatMessage(ChatMessage.Role.USER, "ping")),
                 ChatConfig(temperature = 0.0f, maxTokens = 8),

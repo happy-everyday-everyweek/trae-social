@@ -1,5 +1,6 @@
 package com.trae.social.core.scheduler.rule
 
+import com.trae.social.core.data.util.runCatchingCancellable
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -91,7 +92,7 @@ object ScheduleRuleResolver {
             val windowFull = if (postsInWindowProvider != null && rule.postsPerWindow > 0) {
                 val windowStart = windowStartMillis(currentWindow, today, zone)
                 val windowEnd = atWindowEndInstant(currentWindow, today, zone).toEpochMilli()
-                val published = runCatching {
+                val published = runCatchingCancellable {
                     postsInWindowProvider(rule.accountId, windowStart, windowEnd)
                 }.getOrDefault(0)
                 published >= rule.postsPerWindow

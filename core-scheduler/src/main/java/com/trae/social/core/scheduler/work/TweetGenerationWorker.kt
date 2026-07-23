@@ -17,6 +17,7 @@ import com.trae.social.core.data.repository.TweetRepository
 import com.trae.social.core.data.model.ScenarioIds
 import com.trae.social.core.data.model.UserActionEvent
 import com.trae.social.core.data.model.UserActionType
+import com.trae.social.core.data.util.runCatchingCancellable
 import com.trae.social.core.profiling.capture.SessionManager
 import com.trae.social.core.profiling.capture.UserActionTracker
 import com.trae.social.core.profiling.feedback.FeedbackController
@@ -207,7 +208,7 @@ class TweetGenerationWorker @AssistedInject constructor(
         accountId: String,
         started: Long,
     ): Outcome<GatePass> {
-        val level: AiActivityLevel = runCatching { configRepository.getAiActivityLevel() }
+        val level: AiActivityLevel = runCatchingCancellable { configRepository.getAiActivityLevel() }
             .getOrDefault(AiActivityLevel.MEDIUM)
         rateLimiter.reconfigure(level)
 
@@ -385,7 +386,7 @@ class TweetGenerationWorker @AssistedInject constructor(
         if (windowStart <= 0L) return null
         val windowEndMillis = com.trae.social.core.scheduler.rule.ScheduleRuleResolver
             .windowEndMillisForStart(windowStart, accountZone, activeWindows)
-        val currentInWindow = runCatching {
+        val currentInWindow = runCatchingCancellable {
             tweetRepository.countByAuthorInWindow(accountId, windowStart, windowEndMillis)
         }.getOrDefault(0)
         if (currentInWindow >= SchedulerConstants.POSTS_PER_WINDOW) {
@@ -496,7 +497,7 @@ class TweetGenerationWorker @AssistedInject constructor(
             )
         }.onFailure { Timber.w(it, "入队 InteractionWorker 失败") }
 
-        runCatching {
+        runCatchingCancellable {
             scheduleNextTweetGeneration(accountId, accountZone)
         }.onFailure { Timber.w(it, "入队下一个 TweetGenerationWorker 失败") }
     }
@@ -552,7 +553,7 @@ class TweetGenerationWorker @AssistedInject constructor(
      */
     private suspend fun scheduleNextTweetGeneration(accountId: String, accountZone: ZoneId) {
         val account = accountRepository.getById(accountId) ?: return
-        val level = runCatching { configRepository.getAiActivityLevel() }
+        val level = runCatchingCancellable { configRepository.getAiActivityLevel() }
             .getOrDefault(AiActivityLevel.MEDIUM)
         val rule = com.trae.social.core.scheduler.rule.ScheduleRule(
             accountId = accountId,
@@ -579,7 +580,7 @@ class TweetGenerationWorker @AssistedInject constructor(
         // nextTriggerTime 已基于 postsInWindowProvider 跳过满窗，故此处 existingInWindow < POSTS_PER_WINDOW。
         val windowEndMillis = com.trae.social.core.scheduler.rule.ScheduleRuleResolver
             .windowEndMillisForStart(windowStartMillis, accountZone, account.activeWindows)
-        val sequenceNo = runCatching {
+        val sequenceNo = runCatchingCancellable {
             tweetRepository.countByAuthorInWindow(accountId, windowStartMillis, windowEndMillis)
         }.getOrDefault(0).coerceAtLeast(0)
         // 双重守卫：若窗已满（nextTriggerTime 与此处查询之间存在 TOCTOU 间隙），跳过本次入队

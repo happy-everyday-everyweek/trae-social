@@ -7,6 +7,7 @@ import com.trae.social.core.data.model.UserActionType
 import com.trae.social.core.data.repository.CommentRepository
 import com.trae.social.core.data.repository.ConfigRepository
 import com.trae.social.core.data.repository.TweetRepository
+import com.trae.social.core.data.util.runCatchingCancellable
 import com.trae.social.core.profiling.mapping.ProfileMappers
 import com.trae.social.llm.ChatConfig
 import com.trae.social.llm.ChatMessage
@@ -98,7 +99,7 @@ class EventTextPreParser @Inject constructor(
                     OVERALL_BUDGET_MS, parsedIds.size, withText.size)
                 return@forEach
             }
-            runCatching {
+            runCatchingCancellable {
                 val result = batchParse(batch)
                 // 批次成功：所有该批事件都标记为已解析（即使 LLM 漏返回某 index）
                 batch.forEach { parsedIds.add(it.event.id) }
@@ -280,7 +281,7 @@ class EventTextPreParser @Inject constructor(
                 buildJsonObject { extra.forEach { (k, v) -> put(k, v) } },
             )
         }
-        runCatching { userActionDao.updateExtra(eventId, extraStr) }
+        runCatchingCancellable { userActionDao.updateExtra(eventId, extraStr) }
             .onFailure { Timber.w(it, "EventTextPreParser: 持久化 extra 失败 id=%s", eventId) }
     }
 

@@ -17,6 +17,7 @@ import com.trae.social.core.data.config.ModelCapability
 import com.trae.social.core.data.dao.LlmEndpointDao
 import com.trae.social.core.data.di.SecurePreferences
 import com.trae.social.core.data.entity.LlmEndpointEntity
+import com.trae.social.core.data.util.runCatchingCancellable
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -192,7 +193,7 @@ class ConfigRepository @Inject constructor(
      * 旧 API Key 复制到新 `api_key_ep_<endpointId>` 命名空间，旧 key 保留不删（回滚安全）。
      */
     private suspend fun migrateLegacyProviderConfigsLocked() {
-        val defaultProvider = runCatching { getDefaultProvider() }.getOrNull()
+        val defaultProvider = runCatchingCancellable { getDefaultProvider() }.getOrNull()
         val now = System.currentTimeMillis()
         val endpointsToCreate = mutableListOf<LlmEndpointEntity>()
 
@@ -200,9 +201,9 @@ class ConfigRepository @Inject constructor(
         val legacySlots = listOf(LlmProvider.OPENAI, LlmProvider.ANTHROPIC, LlmProvider.GEMINI, LlmProvider.CUSTOM)
         val seenKeys = mutableSetOf<String>()
         for (provider in legacySlots) {
-            val apiKey = runCatching { getApiKey(provider) }.getOrNull()
-            val baseUrl = runCatching { getBaseUrl(provider) }.getOrNull()
-            val model = runCatching { getModelName(provider) }.getOrNull()
+            val apiKey = runCatchingCancellable { getApiKey(provider) }.getOrNull()
+            val baseUrl = runCatchingCancellable { getBaseUrl(provider) }.getOrNull()
+            val model = runCatchingCancellable { getModelName(provider) }.getOrNull()
             // 没有任何配置的槽位跳过
             if (apiKey.isNullOrBlank() && baseUrl.isNullOrBlank() && model.isNullOrBlank()) continue
             // 同 key 去重（避免 CUSTOM 与 OPENAI 都是同一 key 时建两条）

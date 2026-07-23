@@ -3,6 +3,7 @@ package com.trae.social.core.profiling.di
 import com.trae.social.core.data.dao.UserActionDao
 import com.trae.social.core.data.entity.UserActionEventEntity
 import com.trae.social.core.data.repository.ConfigRepository
+import com.trae.social.core.data.util.runCatchingCancellable
 import com.trae.social.core.profiling.capture.ProfilingGate
 import com.trae.social.core.profiling.capture.UserActionSink
 import com.trae.social.core.profiling.capture.UserActionTracker
@@ -90,7 +91,7 @@ private class ConfigProfilingGate(
         // 失败时仅 Timber.w 警告并沿用上次缓存值,不抛出。
         scope.launch {
             while (true) {
-                runCatching { enabledCache = configRepository.isProfilingEnabled() }
+                runCatchingCancellable { enabledCache = configRepository.isProfilingEnabled() }
                     .onFailure { Timber.w(it, "刷新 profiling 开关失败,沿用上次缓存值") }
                 delay(REFRESH_INTERVAL_MS)
             }
