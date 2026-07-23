@@ -80,6 +80,13 @@ class AccountRepository @Inject constructor(
         accountDao.getVirtualAccountsList()
 
     /**
+     * #318：取推荐关注的候选虚拟账号（isVirtual=1 / 非自身 / 未关注），单条 SQL 完成
+     * 三层过滤，替代调用方 while(true) 翻页 + 内存 filter 的全量加载模式。
+     */
+    suspend fun getCandidateVirtualAccounts(selfId: String): List<AccountEntity> =
+        accountDao.getCandidateVirtualAccounts(selfId)
+
+    /**
      * m1 修复：选取最久未更新的虚拟账号（#75），单条 JOIN 查询替代 N+1。
      */
     suspend fun getVirtualAccountsLeastRecentlyUpdated(count: Int): List<AccountEntity> =

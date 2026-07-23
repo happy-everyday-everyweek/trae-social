@@ -122,21 +122,20 @@ class FollowListViewModel @Inject constructor(
             // 一次取 accounts），浪费 IO 且延长 await 窗口，两次查询间若发生 toggleFollow DB
             // 写盘完成会导致 ids 与 accounts 基于不同快照。改为单次查询，ids 和 accounts 复用
             // 同一 relations 结果，保证一致性。
+            //
+            // #315：accounts 改用 JOIN 一次取回，替代 N 次 getById（N = 关注/粉丝数）。
+            // FOLLOWING / FOLLOWERS 各一次 JOIN；_followingIds 仍由 getFollowing 单独查，
+            // 因 FOLLOWERS / RECOMMENDED 列表也需 _followingIds 驱动按钮状态。
             val (dbFollowingIds, accounts) = try {
                 val followingRelations = followRelationDao.getFollowing(AccountIds.USER_SELF_ID)
                 val ids = followingRelations.map { it.followeeId }.toSet()
                 val accs = when (type) {
-                    FollowListType.FOLLOWING -> {
-                        followingRelations.mapNotNull { accountRepository.getById(it.followeeId) }
-                    }
-                    FollowListType.FOLLOWERS -> {
-                        val relations = followRelationDao.getFollowers(AccountIds.USER_SELF_ID)
-                        relations.mapNotNull { accountRepository.getById(it.followerId) }
-                    }
-                    FollowListType.RECOMMENDED -> {
-                        // #146 A/E 场景 6 followRecommend：driven 组按用户兴趣打分推荐，control 组随机推荐
+                    FollowListType.FOLLOWING ->
+                        followRelationDao.getFollowingWithAccounts(AccountIds.USER_SELF_ID)
+                    FollowListType.FOLLOWERS ->
+                        followRelationDao.getFollowersWithAccounts(AccountIds.USER_SELF_ID)
+                    FollowListType.RECOMMENDED ->
                         loadRecommendedAccounts()
-                    }
                 }
                 ids to accs
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -194,26 +193,18 @@ class FollowListViewModel @Inject constructor(
         } else {
             emptyMap()
         }
-        val followingIds = _followingIds.value
 
-        // 翻页加载全部虚拟账号，排除已关注与自身
-        val candidates = mutableListOf<AccountEntity>()
-        var page = 1
-        while (true) {
-            val batch = try {
-                accountRepository.getAccounts(page)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                // 主 review 第 4 轮修复：catch (Throwable) → catch (Exception) 让 Error 自然传播。
-                Timber.w(e, "翻页加载账号失败 page=%d", page)
-                emptyList()
-            }
-            if (batch.isEmpty()) break
-            candidates.addAll(
-                batch.filter { it.isVirtual && it.id !in followingIds && it.id != AccountIds.USER_SELF_ID }
-            )
-            page++
+        // #318：单条 SQL 完成 isVirtual / 非自身 / 未关注三层过滤，替代原 while(true)
+        // 翻页 getAccounts(page) + 内存 filter 的全量加载模式（N 个虚拟账号 → ceil(N/20)
+        // 次 DB 查询）。SQL 层过滤后候选集 ≤ 虚拟账号总数，内存打分/随机成本相同。
+        val candidates = try {
+            accountRepository.getCandidateVirtualAccounts(AccountIds.USER_SELF_ID)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // 主 review 第 4 轮修复：catch (Throwable) → catch (Exception) 让 Error 自然传播。
+            Timber.w(e, "加载候选虚拟账号失败")
+            emptyList()
         }
         if (candidates.isEmpty()) return emptyList()
 
