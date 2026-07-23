@@ -71,8 +71,8 @@ class OnboardingViewModel @Inject constructor(
     data class OnboardingUiState(
         val selectedProvider: LlmProvider = LlmProvider.OPENAI,
         val apiKey: String = "",
-        val baseUrl: String = DEFAULT_BASE_URLS[LlmProvider.OPENAI] ?: "",
-        val model: String = DEFAULT_MODELS[LlmProvider.OPENAI] ?: "",
+        val baseUrl: String = LlmProvider.OPENAI.defaultBaseUrl,
+        val model: String = LlmProvider.OPENAI.defaultModel,
         val testStatus: TestStatus = TestStatus.Idle,
         val isSaving: Boolean = false,
         val completed: Boolean = false,
@@ -178,8 +178,8 @@ class OnboardingViewModel @Inject constructor(
         _uiState.update { current ->
             current.copy(
                 selectedProvider = provider,
-                baseUrl = DEFAULT_BASE_URLS[provider] ?: "",
-                model = DEFAULT_MODELS[provider] ?: "",
+                baseUrl = provider.defaultBaseUrl,
+                model = provider.defaultModel,
                 testStatus = TestStatus.Idle,
                 pendingEndpointId = null,
                 saveError = null,
@@ -364,7 +364,7 @@ class OnboardingViewModel @Inject constructor(
      * 创建/更新后返回端点 id 并写入 [OnboardingUiState.pendingEndpointId]。
      */
     private suspend fun ensureEndpoint(state: OnboardingUiState): String {
-        val protocol = protocolFor(state.selectedProvider)
+        val protocol = state.selectedProvider.protocol
         // #297 修复：按 protocol 区分能力，避免给 Anthropic 端点声明 JSON_MODE_NATIVE
         // 导致 DefaultRulesetEngine 走原生 response_format 失败。
         // 与 ApiKeyViewModel.defaultCapabilitiesFor(protocol) 保持一致。
@@ -384,7 +384,7 @@ class OnboardingViewModel @Inject constructor(
         // 打到空 URL 报 UnknownHostException。此处对非 CUSTOM 提供商补上官方默认端点。
         // CUSTOM 不在此列——canSubmit 已要求 CUSTOM 必须填写合法 URL。
         val effectiveBaseUrl = state.baseUrl.ifBlank {
-            DEFAULT_BASE_URLS[state.selectedProvider] ?: ""
+            state.selectedProvider.defaultBaseUrl
         }
 
         val pendingId = state.pendingEndpointId
@@ -451,12 +451,6 @@ class OnboardingViewModel @Inject constructor(
         }
     }
 
-    /** 按 LlmProvider 预设选择协议格式（OpenAI 兼容 / Anthropic 兼容）。 */
-    private fun protocolFor(provider: LlmProvider): LlmProtocol = when (provider) {
-        LlmProvider.ANTHROPIC -> LlmProtocol.ANTHROPIC_COMPATIBLE
-        LlmProvider.OPENAI, LlmProvider.GEMINI, LlmProvider.CUSTOM -> LlmProtocol.OPENAI_COMPATIBLE
-    }
-
     /**
      * 将异常分类为用户可读的错误原因。
      *
@@ -510,26 +504,6 @@ class OnboardingViewModel @Inject constructor(
     }
 
     companion object {
-        /**
-         * 各提供商默认 Base URL（用户可在 KeyInputScreen 修改）。
-         */
-        val DEFAULT_BASE_URLS: Map<LlmProvider, String> = mapOf(
-            LlmProvider.OPENAI to "https://api.openai.com",
-            LlmProvider.ANTHROPIC to "https://api.anthropic.com",
-            LlmProvider.GEMINI to "https://generativelanguage.googleapis.com",
-            LlmProvider.CUSTOM to "",
-        )
-
-        /**
-         * 各提供商推荐模型名（用户可在 KeyInputScreen 修改）。
-         */
-        val DEFAULT_MODELS: Map<LlmProvider, String> = mapOf(
-            LlmProvider.OPENAI to "gpt-4o-mini",
-            LlmProvider.ANTHROPIC to "claude-3-5-sonnet-20240620",
-            LlmProvider.GEMINI to "gemini-1.5-flash",
-            LlmProvider.CUSTOM to "gpt-4o-mini",
-        )
-
         // #34：历史 API Key 存储常量
         /** EncryptedSharedPreferences 中历史 Key 列表的存储键 */
         private const val HISTORY_API_KEYS_ENTRY = "history_api_keys"

@@ -199,7 +199,7 @@ class PublishViewModel @Inject constructor(
                 val now = System.currentTimeMillis()
                 val tweet = TweetEntity(
                     id = tweetId,
-                    authorId = AUTHOR_SELF,
+                    authorId = AccountIds.USER_SELF_ID,
                     text = current.caption,
                     // IMPL-39：多图以逗号分隔存储，不再静默丢弃
                     mediaPath = if (current.captures.isEmpty()) null
@@ -291,8 +291,6 @@ class PublishViewModel @Inject constructor(
 
     companion object {
         const val MAX_CAPTURES = 4
-        // #220：自身账号 ID 已抽到 AccountIds.USER_SELF_ID，此处保留别名供本文件使用
-        const val AUTHOR_SELF = AccountIds.USER_SELF_ID
     }
 }
 

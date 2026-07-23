@@ -203,14 +203,11 @@ object WorkerPolicies {
     /**
      * 构建 UserProfileWorker 周期请求（#146 第三层）。
      *
-     * 周期按 [level] 缩放：LOW=96h / MEDIUM=48h / HIGH=24h。
+     * 周期按 [level] 缩放：LOW=96h / MEDIUM=48h / HIGH=24h（#287 收敛到
+     * [AiActivityLevel.profilePeriodHours]）。
      */
     fun userProfilePeriodicRequest(level: AiActivityLevel): androidx.work.PeriodicWorkRequest {
-        val periodHours = when (level) {
-            AiActivityLevel.LOW -> 96L
-            AiActivityLevel.MEDIUM -> 48L
-            AiActivityLevel.HIGH -> 24L
-        }
+        val periodHours = level.profilePeriodHours
         return PeriodicWorkRequestBuilder<UserProfileWorker>(
             periodHours, TimeUnit.HOURS,
         )

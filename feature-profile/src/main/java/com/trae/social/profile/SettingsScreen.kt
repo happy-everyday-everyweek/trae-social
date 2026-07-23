@@ -376,7 +376,7 @@ private fun ActivityLevelRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column {
-            Text(level.displayName(), fontWeight = FontWeight.Medium, color = colors.label)
+            Text(level.displayLabel, fontWeight = FontWeight.Medium, color = colors.label)
             Text(
                 "约 ${level.dailyPostsPerAccount} 条/天，${level.rpmLimit} RPM",
                 style = typography.subheadline,
@@ -480,11 +480,8 @@ private fun AboutInfoRow(
     }
 }
 
-private fun AiActivityLevel.displayName(): String = when (this) {
-    AiActivityLevel.LOW -> "低 (LOW)"
-    AiActivityLevel.MEDIUM -> "中 (MEDIUM)"
-    AiActivityLevel.HIGH -> "高 (HIGH)"
-}
+// #287：AiActivityLevel 展示标签已收敛到 [AiActivityLevel.displayLabel]，
+// 此处不再维护重复的 when 映射。
 
 /** spec L439：连点 7 次解锁开发者选项 */
 private const val REQUIRED_TAPS_TO_UNLOCK = 7

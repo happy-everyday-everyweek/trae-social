@@ -87,7 +87,7 @@ class TimelineViewModel @Inject constructor(
     // #184：改为 observe Flow stateIn，PersonaUpdateWorker 更新人设（displayName/avatarSeed/
     // dynamicLifeStory 等）后头部自动刷新，无需杀进程重启。原 init 一次性 getById 在人设
     // 更新后只能显示旧值。
-    val selfProfile: StateFlow<AccountEntity?> = accountRepository.observeById(SELF_ID)
+    val selfProfile: StateFlow<AccountEntity?> = accountRepository.observeById(AccountIds.USER_SELF_ID)
         .catch { e ->
             // 主 review 第 2 轮修复：原 runCatching 会吞 CancellationException，
             // 协程取消（如用户离开页面）被误判为账号不存在。改为 catch 显式重抛。
@@ -152,8 +152,6 @@ class TimelineViewModel @Inject constructor(
     private companion object {
         const val STOP_TIMEOUT_MILLIS = 5_000L
         const val TIME_PATTERN = "HH:mm"
-        // #220：自身账号 ID 已抽到 AccountIds.USER_SELF_ID，此处保留别名供本文件使用
-        const val SELF_ID = AccountIds.USER_SELF_ID
     }
 }
 

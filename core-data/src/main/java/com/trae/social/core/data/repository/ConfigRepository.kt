@@ -208,42 +208,18 @@ class ConfigRepository @Inject constructor(
             // 同 key 去重（避免 CUSTOM 与 OPENAI 都是同一 key 时建两条）
             if (apiKey != null && !seenKeys.add(apiKey)) continue
 
-            val protocol = when (provider) {
-                LlmProvider.OPENAI, LlmProvider.CUSTOM -> LlmProtocol.OPENAI_COMPATIBLE
-                LlmProvider.ANTHROPIC -> LlmProtocol.ANTHROPIC_COMPATIBLE
-                LlmProvider.GEMINI -> LlmProtocol.OPENAI_COMPATIBLE
-            }
+            // #287：protocol / defaultModel / capabilities 已收敛到 LlmProvider 枚举自身，
+            // 不再在此处维护重复的 when 映射。
+            val protocol = provider.protocol
             val resolvedBaseUrl = when {
                 !baseUrl.isNullOrBlank() -> baseUrl
+                // GEMINI 走官方 OpenAI 兼容端点，需追加 /v1beta/openai/ 路径（迁移专用，
+                // 引导流程新建端点由 ensureEndpoint 处理，不经过此路径）。
                 provider == LlmProvider.GEMINI -> "https://generativelanguage.googleapis.com/v1beta/openai/"
                 else -> protocol.defaultBaseUrl
             }
-            // 枚举式 when：编译器可静态判断 exhaustive，避免条件式 when 必须加 else 分支
-            val resolvedModel = when (provider) {
-                LlmProvider.OPENAI, LlmProvider.CUSTOM ->
-                    if (!model.isNullOrBlank()) model else "gpt-4o-mini"
-                LlmProvider.ANTHROPIC ->
-                    if (!model.isNullOrBlank()) model else "claude-3-5-sonnet-20240620"
-                LlmProvider.GEMINI ->
-                    if (!model.isNullOrBlank()) model else "gemini-1.5-flash"
-            }
-            val capabilities = when (provider) {
-                LlmProvider.OPENAI, LlmProvider.CUSTOM -> setOf(
-                    ModelCapability.TEXT,
-                    ModelCapability.JSON_MODE_NATIVE,
-                    ModelCapability.VISION_INPUT,
-                    ModelCapability.STREAMING,
-                )
-                LlmProvider.ANTHROPIC -> setOf(
-                    ModelCapability.TEXT,
-                    ModelCapability.STREAMING,
-                )
-                LlmProvider.GEMINI -> setOf(
-                    ModelCapability.TEXT,
-                    ModelCapability.JSON_MODE_NATIVE,
-                    ModelCapability.VISION_INPUT,
-                )
-            }
+            val resolvedModel = if (!model.isNullOrBlank()) model else provider.defaultModel
+            val capabilities = provider.capabilities
 
             val endpointId = UUID.randomUUID().toString()
             // 复制 API Key 到新命名空间
